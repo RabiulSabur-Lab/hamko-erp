@@ -57,9 +57,7 @@ function ProtectedRoute({
     userRole.includes("admin") ||
     String(profile?.role_name || "").toLowerCase().includes("admin") ||
     (user as any)?.role === "super_admin" ||
-    String((user as any)?.user_metadata?.role || "").toLowerCase().includes("admin") ||
-    (Boolean(user?.email?.toLowerCase().includes("admin")) && !userRole.includes("officer")) ||
-    (user as any)?.email?.toLowerCase() === "admin@saleserppro.com";
+    (Boolean(user?.email?.toLowerCase().includes("admin")) && !userRole.includes("officer"));
 
   const isAllowed = requireAdmin !== undefined ? (requireAdmin ? isAdmin : true) : (allowed ?? true);
 
@@ -187,9 +185,7 @@ export function App() {
     userRole.includes("admin") ||
     String(profile?.role_name || "").toLowerCase().includes("admin") ||
     (user as any)?.role === "super_admin" ||
-    String((user as any)?.user_metadata?.role || "").toLowerCase().includes("admin") ||
-    (Boolean(user?.email?.toLowerCase().includes("admin")) && !userRole.includes("officer")) ||
-    (user as any)?.email?.toLowerCase() === "admin@saleserppro.com";
+    (Boolean(user?.email?.toLowerCase().includes("admin")) && !userRole.includes("officer"));
 
   const page = (() => {
     if (

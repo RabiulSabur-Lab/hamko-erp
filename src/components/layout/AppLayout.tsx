@@ -167,7 +167,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
                 <div className="absolute right-0 top-full z-40 mt-2 w-56 rounded-lg border bg-popover p-1 shadow-lg">
                   <div className="px-3 py-2 border-b mb-1">
                     <p className="text-sm font-medium">{profile?.full_name ?? "User"}</p>
-                    <p className="text-xs text-muted-foreground truncate">{profile?.email ?? "user@saleserppro.com"}</p>
+                    <p className="text-xs text-muted-foreground truncate">{profile?.email ?? user?.email ?? ""}</p>
                     <Badge variant="secondary" className="mt-1 text-[10px]">{profile?.role_name ?? "Staff"}</Badge>
                   </div>
                   <button

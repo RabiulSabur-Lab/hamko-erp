@@ -67,8 +67,7 @@ export const Sidebar: FC<SidebarProps> = ({ open, onClose, unreadCount = 0 }) =>
     String(profile?.role_name || "").toLowerCase().includes("admin") ||
     (user as any)?.role === "super_admin" ||
     String((user as any)?.user_metadata?.role || "").toLowerCase().includes("admin") ||
-    (Boolean(user?.email?.toLowerCase().includes("admin")) && !normalizedRole.includes("officer")) ||
-    (user as any)?.email?.toLowerCase() === "admin@saleserppro.com";
+    (Boolean(user?.email?.toLowerCase().includes("admin")) && !normalizedRole.includes("officer"));
 
   const visibleNavItems = navItems.filter((item) => {
     const itemPath = String(item.path).toLowerCase();

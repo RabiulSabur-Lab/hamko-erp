@@ -14,8 +14,6 @@ import {
   Loader2,
   ArrowLeft,
   Shield,
-  UserCheck,
-  Zap,
   Mail,
   Smartphone,
   Lock,
@@ -34,7 +32,7 @@ const toBengaliNumerals = (num: number | string) =>
   num.toString().replace(/\d/g, (d) => "০১২৩৪৫৬৭৮৯"[Number(d)]);
 
 export function AuthPage() {
-  const { signIn, signInAsDemo } = useAuth();
+  const { signIn } = useAuth();
   const { t, lang, setLang } = useI18n();
   const { theme, toggleTheme } = useTheme();
   const { path, navigate } = useRouter();
@@ -105,31 +103,6 @@ export function AuthPage() {
     }
   }
 
-  const demoCredentials = [
-    {
-      label: t("fillSuperAdmin"),
-      email: "admin@saleserppro.com",
-      password: "admin123",
-      role: t("superAdmin") || "Super Admin",
-      description: lang === "bn" ? "সকল মডিউল, সেটিংস ও ইউজার অ্যাক্সেস" : "Full access to all modules, settings & users",
-      icon: Shield,
-    },
-    {
-      label: t("fillSalesOfficer"),
-      email: "officer@saleserppro.com",
-      password: "officer123",
-      role: t("salesOfficer") || "Sales Officer",
-      description: lang === "bn" ? "ভিজিট লগিং, কাস্টমার ম্যানেজমেন্ট ও অর্ডার" : "Visit logging, customer management & orders",
-      icon: UserCheck,
-    },
-  ];
-
-  function fillDemo(demoEmail: string, demoPassword: string) {
-    setEmail(demoEmail);
-    setPassword(demoPassword);
-    signInAsDemo(demoEmail);
-    navigate("/dashboard");
-  }
 
   // Handle Tab A: Email Reset
   const handleEmailReset = async (e: React.FormEvent) => {
@@ -434,40 +407,6 @@ export function AuthPage() {
             </Button>
           </form>
 
-          <div className="mt-6 rounded-lg border border-border/60 bg-muted/30 p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <Zap className="h-4 w-4 text-primary" />
-              <p className="text-sm font-semibold">{t("demoCredentials")}</p>
-            </div>
-            <div className="space-y-2">
-              {demoCredentials.map((demo) => {
-                const Icon = demo.icon;
-                return (
-                  <button
-                    key={demo.email}
-                    type="button"
-                    disabled={loading}
-                    onClick={() => fillDemo(demo.email, demo.password)}
-                    className="group flex w-full items-center gap-3 rounded-md border border-border bg-background px-3 py-2.5 text-left transition-all hover:border-primary/50 hover:bg-accent/40 disabled:opacity-50"
-                  >
-                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary transition-colors group-hover:bg-primary/15">
-                      <Icon className="h-4 w-4" />
-                    </span>
-                    <span className="flex-1 min-w-0">
-                      <span className="block text-sm font-medium">{demo.label}</span>
-                      <span className="block text-xs text-muted-foreground truncate">
-                        {demo.email} · {demo.password}
-                      </span>
-                    </span>
-                    <span className="hidden sm:block text-[11px] text-muted-foreground shrink-0">
-                      {demo.role}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
           <div className="mt-6 text-center text-xs text-muted-foreground">
             <p className="flex items-center justify-center gap-1.5">
               <Shield className="h-3.5 w-3.5 text-muted-foreground/70" />
@@ -560,7 +499,7 @@ export function AuthPage() {
                         id="recovery-email"
                         type="email"
                         required
-                        placeholder="e.g. admin@saleserppro.com"
+                        placeholder="name@company.com"
                         value={emailResetInput}
                         onChange={(e) => setEmailResetInput(e.target.value)}
                         className="pl-9 h-9 text-xs"

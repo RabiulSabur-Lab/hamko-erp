@@ -266,11 +266,8 @@ export const DEMO_USER_IDS = {
 /**
  * Normalizes user ID if it is a legacy placeholder dummy ID.
  */
-export function normalizeUserId(id?: string | null, email?: string | null): string {
+export function normalizeUserId(id?: string | null, _email?: string | null): string {
   if (!id || isPlaceholderUUID(id)) {
-    const cleanEmail = (email || "").trim().toLowerCase();
-    if (cleanEmail === "admin@saleserppro.com") return DEMO_USER_IDS.admin;
-    if (cleanEmail === "officer@saleserppro.com") return DEMO_USER_IDS.officer;
     return generateUUID();
   }
   return id;
@@ -415,52 +412,10 @@ export function getUserDisplayCode(
   return isSuperAdmin ? "EMP-001" : "SO-101";
 }
 
-// Baseline system demo accounts matching established seed credentials with proper unique UUIDs
-export const DEFAULT_SYSTEM_USERS: ManagedUser[] = [
-  {
-    id: DEMO_USER_IDS.admin,
-    email: "admin@saleserppro.com",
-    full_name: "Super Admin",
-    phone: "+880 1711-000001",
-    role: "super_admin",
-    role_name: "Super Admin",
-    is_active: true,
-    created_at: "2025-01-01T00:00:00.000Z",
-  },
-  {
-    id: DEMO_USER_IDS.officer,
-    email: "officer@saleserppro.com",
-    full_name: "Sales Officer",
-    phone: "+880 1711-000002",
-    role: "sales_officer",
-    role_name: "Sales Officer",
-    is_active: true,
-    created_at: "2025-01-15T00:00:00.000Z",
-  },
-];
+// Baseline system accounts for production
+export const DEFAULT_SYSTEM_USERS: ManagedUser[] = [];
 
-export const DEFAULT_AUTH_CREDENTIALS: StoredAuthCredential[] = [
-  {
-    id: DEMO_USER_IDS.admin,
-    email: "admin@saleserppro.com",
-    password: hashPassword("admin123", "a1b2c3d4e5f67890"),
-    full_name: "Super Admin",
-    role: "super_admin",
-    role_name: "Super Admin",
-    is_active: true,
-    updated_at: "2025-01-01T00:00:00.000Z",
-  },
-  {
-    id: DEMO_USER_IDS.officer,
-    email: "officer@saleserppro.com",
-    password: hashPassword("officer123", "b2c3d4e5f6789012"),
-    full_name: "Sales Officer",
-    role: "sales_officer",
-    role_name: "Sales Officer",
-    is_active: true,
-    updated_at: "2025-01-15T00:00:00.000Z",
-  },
-];
+export const DEFAULT_AUTH_CREDENTIALS: StoredAuthCredential[] = [];
 
 /**
  * Dynamic lookup helper to find a user or Sales Officer by their unique ID
