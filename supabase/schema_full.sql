@@ -1,4 +1,12 @@
-﻿-- ============================================================
+-- ============================================================
+-- Hamko Sales ERP - Complete Consolidated Database Schema
+-- Target Project: aqbacbamlvwymiedubli (https://aqbacbamlvwymiedubli.supabase.co)
+-- ============================================================
+
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+-- ============================================================
 -- Migration: 20260718051258_0001_sales_erp_schema.sql
 -- ============================================================
 /*
@@ -246,15 +254,18 @@ ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
 
 -- roles
 DROP POLICY IF EXISTS staff_read_roles ON roles;
+DROP POLICY IF EXISTS staff_read_roles ON roles;
 CREATE POLICY staff_read_roles ON roles FOR SELECT
   TO authenticated USING (true);
 
+DROP POLICY IF EXISTS admin_insert_roles ON roles;
 DROP POLICY IF EXISTS admin_insert_roles ON roles;
 CREATE POLICY admin_insert_roles ON roles FOR INSERT
   TO authenticated WITH CHECK (
     EXISTS (SELECT 1 FROM users u WHERE u.id = auth.uid() AND u.role_name = 'Super Admin')
   );
 
+DROP POLICY IF EXISTS admin_update_roles ON roles;
 DROP POLICY IF EXISTS admin_update_roles ON roles;
 CREATE POLICY admin_update_roles ON roles FOR UPDATE
   TO authenticated USING (
@@ -265,6 +276,7 @@ CREATE POLICY admin_update_roles ON roles FOR UPDATE
   );
 
 DROP POLICY IF EXISTS admin_delete_roles ON roles;
+DROP POLICY IF EXISTS admin_delete_roles ON roles;
 CREATE POLICY admin_delete_roles ON roles FOR DELETE
   TO authenticated USING (
     EXISTS (SELECT 1 FROM users u WHERE u.id = auth.uid() AND u.role_name = 'Super Admin')
@@ -272,15 +284,18 @@ CREATE POLICY admin_delete_roles ON roles FOR DELETE
 
 -- territories
 DROP POLICY IF EXISTS staff_read_territories ON territories;
+DROP POLICY IF EXISTS staff_read_territories ON territories;
 CREATE POLICY staff_read_territories ON territories FOR SELECT
   TO authenticated USING (true);
 
+DROP POLICY IF EXISTS manager_insert_territories ON territories;
 DROP POLICY IF EXISTS manager_insert_territories ON territories;
 CREATE POLICY manager_insert_territories ON territories FOR INSERT
   TO authenticated WITH CHECK (
     EXISTS (SELECT 1 FROM users u WHERE u.id = auth.uid() AND u.role_name IN ('Super Admin','Sales Manager','Accountant'))
   );
 
+DROP POLICY IF EXISTS manager_update_territories ON territories;
 DROP POLICY IF EXISTS manager_update_territories ON territories;
 CREATE POLICY manager_update_territories ON territories FOR UPDATE
   TO authenticated USING (
@@ -291,6 +306,7 @@ CREATE POLICY manager_update_territories ON territories FOR UPDATE
   );
 
 DROP POLICY IF EXISTS admin_delete_territories ON territories;
+DROP POLICY IF EXISTS admin_delete_territories ON territories;
 CREATE POLICY admin_delete_territories ON territories FOR DELETE
   TO authenticated USING (
     EXISTS (SELECT 1 FROM users u WHERE u.id = auth.uid() AND u.role_name = 'Super Admin')
@@ -298,15 +314,18 @@ CREATE POLICY admin_delete_territories ON territories FOR DELETE
 
 -- users
 DROP POLICY IF EXISTS staff_read_users ON users;
+DROP POLICY IF EXISTS staff_read_users ON users;
 CREATE POLICY staff_read_users ON users FOR SELECT
   TO authenticated USING (true);
 
+DROP POLICY IF EXISTS admin_insert_users ON users;
 DROP POLICY IF EXISTS admin_insert_users ON users;
 CREATE POLICY admin_insert_users ON users FOR INSERT
   TO authenticated WITH CHECK (
     EXISTS (SELECT 1 FROM users u WHERE u.id = auth.uid() AND u.role_name IN ('Super Admin','Sales Manager'))
   );
 
+DROP POLICY IF EXISTS admin_or_self_update_users ON users;
 DROP POLICY IF EXISTS admin_or_self_update_users ON users;
 CREATE POLICY admin_or_self_update_users ON users FOR UPDATE
   TO authenticated USING (
@@ -319,6 +338,7 @@ CREATE POLICY admin_or_self_update_users ON users FOR UPDATE
   );
 
 DROP POLICY IF EXISTS admin_delete_users ON users;
+DROP POLICY IF EXISTS admin_delete_users ON users;
 CREATE POLICY admin_delete_users ON users FOR DELETE
   TO authenticated USING (
     EXISTS (SELECT 1 FROM users u WHERE u.id = auth.uid() AND u.role_name = 'Super Admin')
@@ -326,15 +346,18 @@ CREATE POLICY admin_delete_users ON users FOR DELETE
 
 -- categories
 DROP POLICY IF EXISTS staff_read_categories ON categories;
+DROP POLICY IF EXISTS staff_read_categories ON categories;
 CREATE POLICY staff_read_categories ON categories FOR SELECT
   TO authenticated USING (true);
 
+DROP POLICY IF EXISTS staff_insert_categories ON categories;
 DROP POLICY IF EXISTS staff_insert_categories ON categories;
 CREATE POLICY staff_insert_categories ON categories FOR INSERT
   TO authenticated WITH CHECK (
     EXISTS (SELECT 1 FROM users u WHERE u.id = auth.uid())
   );
 
+DROP POLICY IF EXISTS staff_update_categories ON categories;
 DROP POLICY IF EXISTS staff_update_categories ON categories;
 CREATE POLICY staff_update_categories ON categories FOR UPDATE
   TO authenticated USING (
@@ -345,6 +368,7 @@ CREATE POLICY staff_update_categories ON categories FOR UPDATE
   );
 
 DROP POLICY IF EXISTS admin_delete_categories ON categories;
+DROP POLICY IF EXISTS admin_delete_categories ON categories;
 CREATE POLICY admin_delete_categories ON categories FOR DELETE
   TO authenticated USING (
     EXISTS (SELECT 1 FROM users u WHERE u.id = auth.uid() AND u.role_name = 'Super Admin')
@@ -352,15 +376,18 @@ CREATE POLICY admin_delete_categories ON categories FOR DELETE
 
 -- products
 DROP POLICY IF EXISTS staff_read_products ON products;
+DROP POLICY IF EXISTS staff_read_products ON products;
 CREATE POLICY staff_read_products ON products FOR SELECT
   TO authenticated USING (true);
 
+DROP POLICY IF EXISTS staff_insert_products ON products;
 DROP POLICY IF EXISTS staff_insert_products ON products;
 CREATE POLICY staff_insert_products ON products FOR INSERT
   TO authenticated WITH CHECK (
     EXISTS (SELECT 1 FROM users u WHERE u.id = auth.uid())
   );
 
+DROP POLICY IF EXISTS staff_update_products ON products;
 DROP POLICY IF EXISTS staff_update_products ON products;
 CREATE POLICY staff_update_products ON products FOR UPDATE
   TO authenticated USING (
@@ -371,6 +398,7 @@ CREATE POLICY staff_update_products ON products FOR UPDATE
   );
 
 DROP POLICY IF EXISTS admin_delete_products ON products;
+DROP POLICY IF EXISTS admin_delete_products ON products;
 CREATE POLICY admin_delete_products ON products FOR DELETE
   TO authenticated USING (
     EXISTS (SELECT 1 FROM users u WHERE u.id = auth.uid() AND u.role_name IN ('Super Admin','Sales Manager'))
@@ -378,15 +406,18 @@ CREATE POLICY admin_delete_products ON products FOR DELETE
 
 -- customers
 DROP POLICY IF EXISTS staff_read_customers ON customers;
+DROP POLICY IF EXISTS staff_read_customers ON customers;
 CREATE POLICY staff_read_customers ON customers FOR SELECT
   TO authenticated USING (true);
 
+DROP POLICY IF EXISTS staff_insert_customers ON customers;
 DROP POLICY IF EXISTS staff_insert_customers ON customers;
 CREATE POLICY staff_insert_customers ON customers FOR INSERT
   TO authenticated WITH CHECK (
     EXISTS (SELECT 1 FROM users u WHERE u.id = auth.uid())
   );
 
+DROP POLICY IF EXISTS staff_update_customers ON customers;
 DROP POLICY IF EXISTS staff_update_customers ON customers;
 CREATE POLICY staff_update_customers ON customers FOR UPDATE
   TO authenticated USING (
@@ -397,6 +428,7 @@ CREATE POLICY staff_update_customers ON customers FOR UPDATE
   );
 
 DROP POLICY IF EXISTS manager_delete_customers ON customers;
+DROP POLICY IF EXISTS manager_delete_customers ON customers;
 CREATE POLICY manager_delete_customers ON customers FOR DELETE
   TO authenticated USING (
     EXISTS (SELECT 1 FROM users u WHERE u.id = auth.uid() AND u.role_name IN ('Super Admin','Sales Manager'))
@@ -404,15 +436,18 @@ CREATE POLICY manager_delete_customers ON customers FOR DELETE
 
 -- orders
 DROP POLICY IF EXISTS staff_read_orders ON orders;
+DROP POLICY IF EXISTS staff_read_orders ON orders;
 CREATE POLICY staff_read_orders ON orders FOR SELECT
   TO authenticated USING (true);
 
+DROP POLICY IF EXISTS staff_insert_orders ON orders;
 DROP POLICY IF EXISTS staff_insert_orders ON orders;
 CREATE POLICY staff_insert_orders ON orders FOR INSERT
   TO authenticated WITH CHECK (
     EXISTS (SELECT 1 FROM users u WHERE u.id = auth.uid())
   );
 
+DROP POLICY IF EXISTS staff_update_orders ON orders;
 DROP POLICY IF EXISTS staff_update_orders ON orders;
 CREATE POLICY staff_update_orders ON orders FOR UPDATE
   TO authenticated USING (
@@ -423,6 +458,7 @@ CREATE POLICY staff_update_orders ON orders FOR UPDATE
   );
 
 DROP POLICY IF EXISTS manager_delete_orders ON orders;
+DROP POLICY IF EXISTS manager_delete_orders ON orders;
 CREATE POLICY manager_delete_orders ON orders FOR DELETE
   TO authenticated USING (
     EXISTS (SELECT 1 FROM users u WHERE u.id = auth.uid() AND u.role_name IN ('Super Admin','Sales Manager'))
@@ -430,15 +466,18 @@ CREATE POLICY manager_delete_orders ON orders FOR DELETE
 
 -- order_items
 DROP POLICY IF EXISTS staff_read_order_items ON order_items;
+DROP POLICY IF EXISTS staff_read_order_items ON order_items;
 CREATE POLICY staff_read_order_items ON order_items FOR SELECT
   TO authenticated USING (true);
 
+DROP POLICY IF EXISTS staff_insert_order_items ON order_items;
 DROP POLICY IF EXISTS staff_insert_order_items ON order_items;
 CREATE POLICY staff_insert_order_items ON order_items FOR INSERT
   TO authenticated WITH CHECK (
     EXISTS (SELECT 1 FROM users u WHERE u.id = auth.uid())
   );
 
+DROP POLICY IF EXISTS staff_update_order_items ON order_items;
 DROP POLICY IF EXISTS staff_update_order_items ON order_items;
 CREATE POLICY staff_update_order_items ON order_items FOR UPDATE
   TO authenticated USING (
@@ -449,6 +488,7 @@ CREATE POLICY staff_update_order_items ON order_items FOR UPDATE
   );
 
 DROP POLICY IF EXISTS manager_delete_order_items ON order_items;
+DROP POLICY IF EXISTS manager_delete_order_items ON order_items;
 CREATE POLICY manager_delete_order_items ON order_items FOR DELETE
   TO authenticated USING (
     EXISTS (SELECT 1 FROM users u WHERE u.id = auth.uid() AND u.role_name IN ('Super Admin','Sales Manager'))
@@ -456,15 +496,18 @@ CREATE POLICY manager_delete_order_items ON order_items FOR DELETE
 
 -- inventory
 DROP POLICY IF EXISTS staff_read_inventory ON inventory;
+DROP POLICY IF EXISTS staff_read_inventory ON inventory;
 CREATE POLICY staff_read_inventory ON inventory FOR SELECT
   TO authenticated USING (true);
 
+DROP POLICY IF EXISTS staff_insert_inventory ON inventory;
 DROP POLICY IF EXISTS staff_insert_inventory ON inventory;
 CREATE POLICY staff_insert_inventory ON inventory FOR INSERT
   TO authenticated WITH CHECK (
     EXISTS (SELECT 1 FROM users u WHERE u.id = auth.uid())
   );
 
+DROP POLICY IF EXISTS staff_update_inventory ON inventory;
 DROP POLICY IF EXISTS staff_update_inventory ON inventory;
 CREATE POLICY staff_update_inventory ON inventory FOR UPDATE
   TO authenticated USING (
@@ -475,6 +518,7 @@ CREATE POLICY staff_update_inventory ON inventory FOR UPDATE
   );
 
 DROP POLICY IF EXISTS manager_delete_inventory ON inventory;
+DROP POLICY IF EXISTS manager_delete_inventory ON inventory;
 CREATE POLICY manager_delete_inventory ON inventory FOR DELETE
   TO authenticated USING (
     EXISTS (SELECT 1 FROM users u WHERE u.id = auth.uid() AND u.role_name IN ('Super Admin','Sales Manager','Accountant'))
@@ -482,15 +526,18 @@ CREATE POLICY manager_delete_inventory ON inventory FOR DELETE
 
 -- stock_transactions
 DROP POLICY IF EXISTS staff_read_stock_tx ON stock_transactions;
+DROP POLICY IF EXISTS staff_read_stock_tx ON stock_transactions;
 CREATE POLICY staff_read_stock_tx ON stock_transactions FOR SELECT
   TO authenticated USING (true);
 
+DROP POLICY IF EXISTS staff_insert_stock_tx ON stock_transactions;
 DROP POLICY IF EXISTS staff_insert_stock_tx ON stock_transactions;
 CREATE POLICY staff_insert_stock_tx ON stock_transactions FOR INSERT
   TO authenticated WITH CHECK (
     EXISTS (SELECT 1 FROM users u WHERE u.id = auth.uid())
   );
 
+DROP POLICY IF EXISTS manager_delete_stock_tx ON stock_transactions;
 DROP POLICY IF EXISTS manager_delete_stock_tx ON stock_transactions;
 CREATE POLICY manager_delete_stock_tx ON stock_transactions FOR DELETE
   TO authenticated USING (
@@ -499,15 +546,18 @@ CREATE POLICY manager_delete_stock_tx ON stock_transactions FOR DELETE
 
 -- collections
 DROP POLICY IF EXISTS staff_read_collections ON collections;
+DROP POLICY IF EXISTS staff_read_collections ON collections;
 CREATE POLICY staff_read_collections ON collections FOR SELECT
   TO authenticated USING (true);
 
+DROP POLICY IF EXISTS staff_insert_collections ON collections;
 DROP POLICY IF EXISTS staff_insert_collections ON collections;
 CREATE POLICY staff_insert_collections ON collections FOR INSERT
   TO authenticated WITH CHECK (
     EXISTS (SELECT 1 FROM users u WHERE u.id = auth.uid())
   );
 
+DROP POLICY IF EXISTS staff_update_collections ON collections;
 DROP POLICY IF EXISTS staff_update_collections ON collections;
 CREATE POLICY staff_update_collections ON collections FOR UPDATE
   TO authenticated USING (
@@ -518,6 +568,7 @@ CREATE POLICY staff_update_collections ON collections FOR UPDATE
   );
 
 DROP POLICY IF EXISTS admin_delete_collections ON collections;
+DROP POLICY IF EXISTS admin_delete_collections ON collections;
 CREATE POLICY admin_delete_collections ON collections FOR DELETE
   TO authenticated USING (
     EXISTS (SELECT 1 FROM users u WHERE u.id = auth.uid() AND u.role_name IN ('Super Admin','Accountant'))
@@ -525,15 +576,18 @@ CREATE POLICY admin_delete_collections ON collections FOR DELETE
 
 -- expenses
 DROP POLICY IF EXISTS staff_read_expenses ON expenses;
+DROP POLICY IF EXISTS staff_read_expenses ON expenses;
 CREATE POLICY staff_read_expenses ON expenses FOR SELECT
   TO authenticated USING (true);
 
+DROP POLICY IF EXISTS staff_insert_expenses ON expenses;
 DROP POLICY IF EXISTS staff_insert_expenses ON expenses;
 CREATE POLICY staff_insert_expenses ON expenses FOR INSERT
   TO authenticated WITH CHECK (
     EXISTS (SELECT 1 FROM users u WHERE u.id = auth.uid())
   );
 
+DROP POLICY IF EXISTS staff_update_expenses ON expenses;
 DROP POLICY IF EXISTS staff_update_expenses ON expenses;
 CREATE POLICY staff_update_expenses ON expenses FOR UPDATE
   TO authenticated USING (
@@ -544,6 +598,7 @@ CREATE POLICY staff_update_expenses ON expenses FOR UPDATE
   );
 
 DROP POLICY IF EXISTS admin_delete_expenses ON expenses;
+DROP POLICY IF EXISTS admin_delete_expenses ON expenses;
 CREATE POLICY admin_delete_expenses ON expenses FOR DELETE
   TO authenticated USING (
     EXISTS (SELECT 1 FROM users u WHERE u.id = auth.uid() AND u.role_name IN ('Super Admin','Accountant'))
@@ -551,15 +606,18 @@ CREATE POLICY admin_delete_expenses ON expenses FOR DELETE
 
 -- visits
 DROP POLICY IF EXISTS staff_read_visits ON visits;
+DROP POLICY IF EXISTS staff_read_visits ON visits;
 CREATE POLICY staff_read_visits ON visits FOR SELECT
   TO authenticated USING (true);
 
+DROP POLICY IF EXISTS staff_insert_visits ON visits;
 DROP POLICY IF EXISTS staff_insert_visits ON visits;
 CREATE POLICY staff_insert_visits ON visits FOR INSERT
   TO authenticated WITH CHECK (
     EXISTS (SELECT 1 FROM users u WHERE u.id = auth.uid())
   );
 
+DROP POLICY IF EXISTS staff_update_visits ON visits;
 DROP POLICY IF EXISTS staff_update_visits ON visits;
 CREATE POLICY staff_update_visits ON visits FOR UPDATE
   TO authenticated USING (
@@ -570,6 +628,7 @@ CREATE POLICY staff_update_visits ON visits FOR UPDATE
   );
 
 DROP POLICY IF EXISTS manager_delete_visits ON visits;
+DROP POLICY IF EXISTS manager_delete_visits ON visits;
 CREATE POLICY manager_delete_visits ON visits FOR DELETE
   TO authenticated USING (
     EXISTS (SELECT 1 FROM users u WHERE u.id = auth.uid() AND u.role_name IN ('Super Admin','Sales Manager'))
@@ -577,15 +636,18 @@ CREATE POLICY manager_delete_visits ON visits FOR DELETE
 
 -- sales_targets
 DROP POLICY IF EXISTS staff_read_sales_targets ON sales_targets;
+DROP POLICY IF EXISTS staff_read_sales_targets ON sales_targets;
 CREATE POLICY staff_read_sales_targets ON sales_targets FOR SELECT
   TO authenticated USING (true);
 
+DROP POLICY IF EXISTS manager_insert_sales_targets ON sales_targets;
 DROP POLICY IF EXISTS manager_insert_sales_targets ON sales_targets;
 CREATE POLICY manager_insert_sales_targets ON sales_targets FOR INSERT
   TO authenticated WITH CHECK (
     EXISTS (SELECT 1 FROM users u WHERE u.id = auth.uid() AND u.role_name IN ('Super Admin','Sales Manager'))
   );
 
+DROP POLICY IF EXISTS manager_update_sales_targets ON sales_targets;
 DROP POLICY IF EXISTS manager_update_sales_targets ON sales_targets;
 CREATE POLICY manager_update_sales_targets ON sales_targets FOR UPDATE
   TO authenticated USING (
@@ -596,6 +658,7 @@ CREATE POLICY manager_update_sales_targets ON sales_targets FOR UPDATE
   );
 
 DROP POLICY IF EXISTS admin_delete_sales_targets ON sales_targets;
+DROP POLICY IF EXISTS admin_delete_sales_targets ON sales_targets;
 CREATE POLICY admin_delete_sales_targets ON sales_targets FOR DELETE
   TO authenticated USING (
     EXISTS (SELECT 1 FROM users u WHERE u.id = auth.uid() AND u.role_name = 'Super Admin')
@@ -603,9 +666,11 @@ CREATE POLICY admin_delete_sales_targets ON sales_targets FOR DELETE
 
 -- notifications
 DROP POLICY IF EXISTS user_read_notifications ON notifications;
+DROP POLICY IF EXISTS user_read_notifications ON notifications;
 CREATE POLICY user_read_notifications ON notifications FOR SELECT
   TO authenticated USING (auth.uid() = user_id OR user_id IS NULL);
 
+DROP POLICY IF EXISTS staff_insert_notifications ON notifications;
 DROP POLICY IF EXISTS staff_insert_notifications ON notifications;
 CREATE POLICY staff_insert_notifications ON notifications FOR INSERT
   TO authenticated WITH CHECK (
@@ -613,10 +678,12 @@ CREATE POLICY staff_insert_notifications ON notifications FOR INSERT
   );
 
 DROP POLICY IF EXISTS user_update_notifications ON notifications;
+DROP POLICY IF EXISTS user_update_notifications ON notifications;
 CREATE POLICY user_update_notifications ON notifications FOR UPDATE
   TO authenticated USING (auth.uid() = user_id)
   WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS owner_delete_notifications ON notifications;
 DROP POLICY IF EXISTS owner_delete_notifications ON notifications;
 CREATE POLICY owner_delete_notifications ON notifications FOR DELETE
   TO authenticated USING (auth.uid() = user_id);
@@ -1267,47 +1334,62 @@ Cookware seed data.
 */
 
 DROP POLICY IF EXISTS staff_read_roles ON roles;
+DROP POLICY IF EXISTS staff_read_roles ON roles;
 CREATE POLICY staff_read_roles ON roles FOR SELECT TO anon, authenticated USING (true);
 
+DROP POLICY IF EXISTS staff_read_territories ON territories;
 DROP POLICY IF EXISTS staff_read_territories ON territories;
 CREATE POLICY staff_read_territories ON territories FOR SELECT TO anon, authenticated USING (true);
 
 DROP POLICY IF EXISTS staff_read_users ON users;
+DROP POLICY IF EXISTS staff_read_users ON users;
 CREATE POLICY staff_read_users ON users FOR SELECT TO anon, authenticated USING (true);
 
+DROP POLICY IF EXISTS staff_read_categories ON categories;
 DROP POLICY IF EXISTS staff_read_categories ON categories;
 CREATE POLICY staff_read_categories ON categories FOR SELECT TO anon, authenticated USING (true);
 
 DROP POLICY IF EXISTS staff_read_products ON products;
+DROP POLICY IF EXISTS staff_read_products ON products;
 CREATE POLICY staff_read_products ON products FOR SELECT TO anon, authenticated USING (true);
 
+DROP POLICY IF EXISTS staff_read_customers ON customers;
 DROP POLICY IF EXISTS staff_read_customers ON customers;
 CREATE POLICY staff_read_customers ON customers FOR SELECT TO anon, authenticated USING (true);
 
 DROP POLICY IF EXISTS staff_read_orders ON orders;
+DROP POLICY IF EXISTS staff_read_orders ON orders;
 CREATE POLICY staff_read_orders ON orders FOR SELECT TO anon, authenticated USING (true);
 
+DROP POLICY IF EXISTS staff_read_order_items ON order_items;
 DROP POLICY IF EXISTS staff_read_order_items ON order_items;
 CREATE POLICY staff_read_order_items ON order_items FOR SELECT TO anon, authenticated USING (true);
 
 DROP POLICY IF EXISTS staff_read_inventory ON inventory;
+DROP POLICY IF EXISTS staff_read_inventory ON inventory;
 CREATE POLICY staff_read_inventory ON inventory FOR SELECT TO anon, authenticated USING (true);
 
+DROP POLICY IF EXISTS staff_read_stock_tx ON stock_transactions;
 DROP POLICY IF EXISTS staff_read_stock_tx ON stock_transactions;
 CREATE POLICY staff_read_stock_tx ON stock_transactions FOR SELECT TO anon, authenticated USING (true);
 
 DROP POLICY IF EXISTS staff_read_collections ON collections;
+DROP POLICY IF EXISTS staff_read_collections ON collections;
 CREATE POLICY staff_read_collections ON collections FOR SELECT TO anon, authenticated USING (true);
 
+DROP POLICY IF EXISTS staff_read_expenses ON expenses;
 DROP POLICY IF EXISTS staff_read_expenses ON expenses;
 CREATE POLICY staff_read_expenses ON expenses FOR SELECT TO anon, authenticated USING (true);
 
 DROP POLICY IF EXISTS staff_read_visits ON visits;
+DROP POLICY IF EXISTS staff_read_visits ON visits;
 CREATE POLICY staff_read_visits ON visits FOR SELECT TO anon, authenticated USING (true);
 
 DROP POLICY IF EXISTS staff_read_sales_targets ON sales_targets;
+DROP POLICY IF EXISTS staff_read_sales_targets ON sales_targets;
 CREATE POLICY staff_read_sales_targets ON sales_targets FOR SELECT TO anon, authenticated USING (true);
 
+DROP POLICY IF EXISTS user_read_notifications ON notifications;
 DROP POLICY IF EXISTS user_read_notifications ON notifications;
 CREATE POLICY user_read_notifications ON notifications FOR SELECT TO anon, authenticated USING (true);
 
@@ -1369,61 +1451,79 @@ ON CONFLICT (id) DO UPDATE SET
 
 -- customers
 DROP POLICY IF EXISTS demo_insert_customers ON customers;
+DROP POLICY IF EXISTS demo_insert_customers ON customers;
 CREATE POLICY demo_insert_customers ON customers FOR INSERT TO anon WITH CHECK (true);
+DROP POLICY IF EXISTS demo_update_customers ON customers;
 DROP POLICY IF EXISTS demo_update_customers ON customers;
 CREATE POLICY demo_update_customers ON customers FOR UPDATE TO anon USING (true) WITH CHECK (true);
 
 -- orders
 DROP POLICY IF EXISTS demo_insert_orders ON orders;
+DROP POLICY IF EXISTS demo_insert_orders ON orders;
 CREATE POLICY demo_insert_orders ON orders FOR INSERT TO anon WITH CHECK (true);
+DROP POLICY IF EXISTS demo_update_orders ON orders;
 DROP POLICY IF EXISTS demo_update_orders ON orders;
 CREATE POLICY demo_update_orders ON orders FOR UPDATE TO anon USING (true) WITH CHECK (true);
 
 -- order_items
 DROP POLICY IF EXISTS demo_insert_order_items ON order_items;
+DROP POLICY IF EXISTS demo_insert_order_items ON order_items;
 CREATE POLICY demo_insert_order_items ON order_items FOR INSERT TO anon WITH CHECK (true);
 
 -- collections
 DROP POLICY IF EXISTS demo_insert_collections ON collections;
+DROP POLICY IF EXISTS demo_insert_collections ON collections;
 CREATE POLICY demo_insert_collections ON collections FOR INSERT TO anon WITH CHECK (true);
+DROP POLICY IF EXISTS demo_update_collections ON collections;
 DROP POLICY IF EXISTS demo_update_collections ON collections;
 CREATE POLICY demo_update_collections ON collections FOR UPDATE TO anon USING (true) WITH CHECK (true);
 
 -- expenses
 DROP POLICY IF EXISTS demo_insert_expenses ON expenses;
+DROP POLICY IF EXISTS demo_insert_expenses ON expenses;
 CREATE POLICY demo_insert_expenses ON expenses FOR INSERT TO anon WITH CHECK (true);
 
 -- inventory
 DROP POLICY IF EXISTS demo_insert_inventory ON inventory;
+DROP POLICY IF EXISTS demo_insert_inventory ON inventory;
 CREATE POLICY demo_insert_inventory ON inventory FOR INSERT TO anon WITH CHECK (true);
+DROP POLICY IF EXISTS demo_update_inventory ON inventory;
 DROP POLICY IF EXISTS demo_update_inventory ON inventory;
 CREATE POLICY demo_update_inventory ON inventory FOR UPDATE TO anon USING (true) WITH CHECK (true);
 
 -- stock_transactions
 DROP POLICY IF EXISTS demo_insert_stock_tx ON stock_transactions;
+DROP POLICY IF EXISTS demo_insert_stock_tx ON stock_transactions;
 CREATE POLICY demo_insert_stock_tx ON stock_transactions FOR INSERT TO anon WITH CHECK (true);
 
 -- visits
+DROP POLICY IF EXISTS demo_insert_visits ON visits;
 DROP POLICY IF EXISTS demo_insert_visits ON visits;
 CREATE POLICY demo_insert_visits ON visits FOR INSERT TO anon WITH CHECK (true);
 
 -- notifications
 DROP POLICY IF EXISTS demo_insert_notifications ON notifications;
+DROP POLICY IF EXISTS demo_insert_notifications ON notifications;
 CREATE POLICY demo_insert_notifications ON notifications FOR INSERT TO anon WITH CHECK (true);
+DROP POLICY IF EXISTS demo_update_notifications ON notifications;
 DROP POLICY IF EXISTS demo_update_notifications ON notifications;
 CREATE POLICY demo_update_notifications ON notifications FOR UPDATE TO anon USING (true) WITH CHECK (true);
 
 -- products (insert/update for demo product management)
 DROP POLICY IF EXISTS demo_insert_products ON products;
+DROP POLICY IF EXISTS demo_insert_products ON products;
 CREATE POLICY demo_insert_products ON products FOR INSERT TO anon WITH CHECK (true);
+DROP POLICY IF EXISTS demo_update_products ON products;
 DROP POLICY IF EXISTS demo_update_products ON products;
 CREATE POLICY demo_update_products ON products FOR UPDATE TO anon USING (true) WITH CHECK (true);
 
 -- categories
 DROP POLICY IF EXISTS demo_insert_categories ON categories;
+DROP POLICY IF EXISTS demo_insert_categories ON categories;
 CREATE POLICY demo_insert_categories ON categories FOR INSERT TO anon WITH CHECK (true);
 
 -- sales_targets
+DROP POLICY IF EXISTS demo_insert_sales_targets ON sales_targets;
 DROP POLICY IF EXISTS demo_insert_sales_targets ON sales_targets;
 CREATE POLICY demo_insert_sales_targets ON sales_targets FOR INSERT TO anon WITH CHECK (true);
 
@@ -2232,6 +2332,7 @@ ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
 -- 1. USERS & PROFILES
 -- -----------------------------------------------------------------------------
 DROP POLICY IF EXISTS users_select_policy ON public.users;
+DROP POLICY IF EXISTS users_select_policy ON public.users;
 CREATE POLICY users_select_policy ON public.users
   FOR SELECT TO authenticated
   USING (
@@ -2242,10 +2343,12 @@ CREATE POLICY users_select_policy ON public.users
   );
 
 DROP POLICY IF EXISTS users_insert_policy ON public.users;
+DROP POLICY IF EXISTS users_insert_policy ON public.users;
 CREATE POLICY users_insert_policy ON public.users
   FOR INSERT TO authenticated
   WITH CHECK (is_manager_or_admin());
 
+DROP POLICY IF EXISTS users_update_policy ON public.users;
 DROP POLICY IF EXISTS users_update_policy ON public.users;
 CREATE POLICY users_update_policy ON public.users
   FOR UPDATE TO authenticated
@@ -2259,6 +2362,7 @@ CREATE POLICY users_update_policy ON public.users
   );
 
 DROP POLICY IF EXISTS users_delete_policy ON public.users;
+DROP POLICY IF EXISTS users_delete_policy ON public.users;
 CREATE POLICY users_delete_policy ON public.users
   FOR DELETE TO authenticated
   USING (is_super_admin());
@@ -2267,21 +2371,25 @@ CREATE POLICY users_delete_policy ON public.users
 -- 2. PRODUCTS & PRICING
 -- -----------------------------------------------------------------------------
 DROP POLICY IF EXISTS products_select_policy ON public.products;
+DROP POLICY IF EXISTS products_select_policy ON public.products;
 CREATE POLICY products_select_policy ON public.products
   FOR SELECT TO authenticated
   USING (is_active = true OR is_manager_or_admin());
 
+DROP POLICY IF EXISTS products_insert_policy ON public.products;
 DROP POLICY IF EXISTS products_insert_policy ON public.products;
 CREATE POLICY products_insert_policy ON public.products
   FOR INSERT TO authenticated
   WITH CHECK (is_manager_or_admin());
 
 DROP POLICY IF EXISTS products_update_policy ON public.products;
+DROP POLICY IF EXISTS products_update_policy ON public.products;
 CREATE POLICY products_update_policy ON public.products
   FOR UPDATE TO authenticated
   USING (is_manager_or_admin())
   WITH CHECK (is_manager_or_admin());
 
+DROP POLICY IF EXISTS products_delete_policy ON public.products;
 DROP POLICY IF EXISTS products_delete_policy ON public.products;
 CREATE POLICY products_delete_policy ON public.products
   FOR DELETE TO authenticated
@@ -2291,10 +2399,12 @@ CREATE POLICY products_delete_policy ON public.products
 -- 3. CATEGORIES
 -- -----------------------------------------------------------------------------
 DROP POLICY IF EXISTS categories_select_policy ON public.categories;
+DROP POLICY IF EXISTS categories_select_policy ON public.categories;
 CREATE POLICY categories_select_policy ON public.categories
   FOR SELECT TO authenticated
   USING (true);
 
+DROP POLICY IF EXISTS categories_modify_policy ON public.categories;
 DROP POLICY IF EXISTS categories_modify_policy ON public.categories;
 CREATE POLICY categories_modify_policy ON public.categories
   FOR ALL TO authenticated
@@ -2305,15 +2415,18 @@ CREATE POLICY categories_modify_policy ON public.categories
 -- 4. CUSTOMERS & DEALERS
 -- -----------------------------------------------------------------------------
 DROP POLICY IF EXISTS customers_select_policy ON public.customers;
+DROP POLICY IF EXISTS customers_select_policy ON public.customers;
 CREATE POLICY customers_select_policy ON public.customers
   FOR SELECT TO authenticated
   USING (true); -- Simple Read-All: All authenticated Sales Officers can VIEW all customers across the system
 
 DROP POLICY IF EXISTS customers_insert_policy ON public.customers;
+DROP POLICY IF EXISTS customers_insert_policy ON public.customers;
 CREATE POLICY customers_insert_policy ON public.customers
   FOR INSERT TO authenticated
   WITH CHECK (EXISTS (SELECT 1 FROM public.users WHERE id = auth.uid() AND is_active = true));
 
+DROP POLICY IF EXISTS customers_update_policy ON public.customers;
 DROP POLICY IF EXISTS customers_update_policy ON public.customers;
 CREATE POLICY customers_update_policy ON public.customers
   FOR UPDATE TO authenticated
@@ -2327,6 +2440,7 @@ CREATE POLICY customers_update_policy ON public.customers
   );
 
 DROP POLICY IF EXISTS customers_delete_policy ON public.customers;
+DROP POLICY IF EXISTS customers_delete_policy ON public.customers;
 CREATE POLICY customers_delete_policy ON public.customers
   FOR DELETE TO authenticated
   USING (
@@ -2338,10 +2452,12 @@ CREATE POLICY customers_delete_policy ON public.customers
 -- 5. ORDERS & TRANSACTIONS
 -- -----------------------------------------------------------------------------
 DROP POLICY IF EXISTS orders_select_policy ON public.orders;
+DROP POLICY IF EXISTS orders_select_policy ON public.orders;
 CREATE POLICY orders_select_policy ON public.orders
   FOR SELECT TO authenticated
   USING (true); -- Simple Read-All: All authenticated Sales Officers can VIEW all orders across the system
 
+DROP POLICY IF EXISTS orders_insert_policy ON public.orders;
 DROP POLICY IF EXISTS orders_insert_policy ON public.orders;
 CREATE POLICY orders_insert_policy ON public.orders
   FOR INSERT TO authenticated
@@ -2350,6 +2466,7 @@ CREATE POLICY orders_insert_policy ON public.orders
     OR sales_rep_id = auth.uid()
   );
 
+DROP POLICY IF EXISTS orders_update_policy ON public.orders;
 DROP POLICY IF EXISTS orders_update_policy ON public.orders;
 CREATE POLICY orders_update_policy ON public.orders
   FOR UPDATE TO authenticated
@@ -2363,6 +2480,7 @@ CREATE POLICY orders_update_policy ON public.orders
   );
 
 DROP POLICY IF EXISTS orders_delete_policy ON public.orders;
+DROP POLICY IF EXISTS orders_delete_policy ON public.orders;
 CREATE POLICY orders_delete_policy ON public.orders
   FOR DELETE TO authenticated
   USING (
@@ -2374,10 +2492,12 @@ CREATE POLICY orders_delete_policy ON public.orders
 -- 6. ORDER ITEMS
 -- -----------------------------------------------------------------------------
 DROP POLICY IF EXISTS order_items_select_policy ON public.order_items;
+DROP POLICY IF EXISTS order_items_select_policy ON public.order_items;
 CREATE POLICY order_items_select_policy ON public.order_items
   FOR SELECT TO authenticated
   USING (true); -- Simple Read-All for authenticated staff
 
+DROP POLICY IF EXISTS order_items_insert_policy ON public.order_items;
 DROP POLICY IF EXISTS order_items_insert_policy ON public.order_items;
 CREATE POLICY order_items_insert_policy ON public.order_items
   FOR INSERT TO authenticated
@@ -2389,6 +2509,7 @@ CREATE POLICY order_items_insert_policy ON public.order_items
     )
   );
 
+DROP POLICY IF EXISTS order_items_update_policy ON public.order_items;
 DROP POLICY IF EXISTS order_items_update_policy ON public.order_items;
 CREATE POLICY order_items_update_policy ON public.order_items
   FOR UPDATE TO authenticated
@@ -2408,6 +2529,7 @@ CREATE POLICY order_items_update_policy ON public.order_items
   );
 
 DROP POLICY IF EXISTS order_items_delete_policy ON public.order_items;
+DROP POLICY IF EXISTS order_items_delete_policy ON public.order_items;
 CREATE POLICY order_items_delete_policy ON public.order_items
   FOR DELETE TO authenticated
   USING (
@@ -2422,10 +2544,12 @@ CREATE POLICY order_items_delete_policy ON public.order_items
 -- 7. INVENTORY & STOCK
 -- -----------------------------------------------------------------------------
 DROP POLICY IF EXISTS inventory_select_policy ON public.inventory;
+DROP POLICY IF EXISTS inventory_select_policy ON public.inventory;
 CREATE POLICY inventory_select_policy ON public.inventory
   FOR SELECT TO authenticated
   USING (true);
 
+DROP POLICY IF EXISTS inventory_modify_policy ON public.inventory;
 DROP POLICY IF EXISTS inventory_modify_policy ON public.inventory;
 CREATE POLICY inventory_modify_policy ON public.inventory
   FOR ALL TO authenticated
@@ -2436,10 +2560,12 @@ CREATE POLICY inventory_modify_policy ON public.inventory
 -- 8. STOCK TRANSACTIONS
 -- -----------------------------------------------------------------------------
 DROP POLICY IF EXISTS stock_tx_select_policy ON public.stock_transactions;
+DROP POLICY IF EXISTS stock_tx_select_policy ON public.stock_transactions;
 CREATE POLICY stock_tx_select_policy ON public.stock_transactions
   FOR SELECT TO authenticated
   USING (true);
 
+DROP POLICY IF EXISTS stock_tx_insert_policy ON public.stock_transactions;
 DROP POLICY IF EXISTS stock_tx_insert_policy ON public.stock_transactions;
 CREATE POLICY stock_tx_insert_policy ON public.stock_transactions
   FOR INSERT TO authenticated
@@ -2449,6 +2575,7 @@ CREATE POLICY stock_tx_insert_policy ON public.stock_transactions
   );
 
 DROP POLICY IF EXISTS stock_tx_delete_policy ON public.stock_transactions;
+DROP POLICY IF EXISTS stock_tx_delete_policy ON public.stock_transactions;
 CREATE POLICY stock_tx_delete_policy ON public.stock_transactions
   FOR DELETE TO authenticated
   USING (is_super_admin());
@@ -2457,10 +2584,12 @@ CREATE POLICY stock_tx_delete_policy ON public.stock_transactions
 -- 9. PAYMENT COLLECTIONS
 -- -----------------------------------------------------------------------------
 DROP POLICY IF EXISTS collections_select_policy ON public.collections;
+DROP POLICY IF EXISTS collections_select_policy ON public.collections;
 CREATE POLICY collections_select_policy ON public.collections
   FOR SELECT TO authenticated
   USING (true); -- Simple Read-All: All authenticated Sales Officers can VIEW all collections across the system
 
+DROP POLICY IF EXISTS collections_insert_policy ON public.collections;
 DROP POLICY IF EXISTS collections_insert_policy ON public.collections;
 CREATE POLICY collections_insert_policy ON public.collections
   FOR INSERT TO authenticated
@@ -2470,11 +2599,13 @@ CREATE POLICY collections_insert_policy ON public.collections
   );
 
 DROP POLICY IF EXISTS collections_update_policy ON public.collections;
+DROP POLICY IF EXISTS collections_update_policy ON public.collections;
 CREATE POLICY collections_update_policy ON public.collections
   FOR UPDATE TO authenticated
   USING (is_financial_auditor() OR collected_by = auth.uid())
   WITH CHECK (is_financial_auditor() OR collected_by = auth.uid());
 
+DROP POLICY IF EXISTS collections_delete_policy ON public.collections;
 DROP POLICY IF EXISTS collections_delete_policy ON public.collections;
 CREATE POLICY collections_delete_policy ON public.collections
   FOR DELETE TO authenticated
@@ -2484,6 +2615,7 @@ CREATE POLICY collections_delete_policy ON public.collections
 -- 10. EXPENSES
 -- -----------------------------------------------------------------------------
 DROP POLICY IF EXISTS expenses_select_policy ON public.expenses;
+DROP POLICY IF EXISTS expenses_select_policy ON public.expenses;
 CREATE POLICY expenses_select_policy ON public.expenses
   FOR SELECT TO authenticated
   USING (
@@ -2492,6 +2624,7 @@ CREATE POLICY expenses_select_policy ON public.expenses
   );
 
 DROP POLICY IF EXISTS expenses_insert_policy ON public.expenses;
+DROP POLICY IF EXISTS expenses_insert_policy ON public.expenses;
 CREATE POLICY expenses_insert_policy ON public.expenses
   FOR INSERT TO authenticated
   WITH CHECK (
@@ -2499,6 +2632,7 @@ CREATE POLICY expenses_insert_policy ON public.expenses
     OR user_id = auth.uid()
   );
 
+DROP POLICY IF EXISTS expenses_update_policy ON public.expenses;
 DROP POLICY IF EXISTS expenses_update_policy ON public.expenses;
 CREATE POLICY expenses_update_policy ON public.expenses
   FOR UPDATE TO authenticated
@@ -2512,6 +2646,7 @@ CREATE POLICY expenses_update_policy ON public.expenses
   );
 
 DROP POLICY IF EXISTS expenses_delete_policy ON public.expenses;
+DROP POLICY IF EXISTS expenses_delete_policy ON public.expenses;
 CREATE POLICY expenses_delete_policy ON public.expenses
   FOR DELETE TO authenticated
   USING (is_super_admin());
@@ -2519,6 +2654,7 @@ CREATE POLICY expenses_delete_policy ON public.expenses
 -- -----------------------------------------------------------------------------
 -- 11. VISITS
 -- -----------------------------------------------------------------------------
+DROP POLICY IF EXISTS visits_select_policy ON public.visits;
 DROP POLICY IF EXISTS visits_select_policy ON public.visits;
 CREATE POLICY visits_select_policy ON public.visits
   FOR SELECT TO authenticated
@@ -2528,6 +2664,7 @@ CREATE POLICY visits_select_policy ON public.visits
   );
 
 DROP POLICY IF EXISTS visits_insert_policy ON public.visits;
+DROP POLICY IF EXISTS visits_insert_policy ON public.visits;
 CREATE POLICY visits_insert_policy ON public.visits
   FOR INSERT TO authenticated
   WITH CHECK (
@@ -2536,11 +2673,13 @@ CREATE POLICY visits_insert_policy ON public.visits
   );
 
 DROP POLICY IF EXISTS visits_update_policy ON public.visits;
+DROP POLICY IF EXISTS visits_update_policy ON public.visits;
 CREATE POLICY visits_update_policy ON public.visits
   FOR UPDATE TO authenticated
   USING (is_manager_or_admin() OR visited_by = auth.uid())
   WITH CHECK (is_manager_or_admin() OR visited_by = auth.uid());
 
+DROP POLICY IF EXISTS visits_delete_policy ON public.visits;
 DROP POLICY IF EXISTS visits_delete_policy ON public.visits;
 CREATE POLICY visits_delete_policy ON public.visits
   FOR DELETE TO authenticated
@@ -2550,6 +2689,7 @@ CREATE POLICY visits_delete_policy ON public.visits
 -- 12. SALES TARGETS
 -- -----------------------------------------------------------------------------
 DROP POLICY IF EXISTS sales_targets_select_policy ON public.sales_targets;
+DROP POLICY IF EXISTS sales_targets_select_policy ON public.sales_targets;
 CREATE POLICY sales_targets_select_policy ON public.sales_targets
   FOR SELECT TO authenticated
   USING (
@@ -2557,6 +2697,7 @@ CREATE POLICY sales_targets_select_policy ON public.sales_targets
     OR user_id = auth.uid()
   );
 
+DROP POLICY IF EXISTS sales_targets_modify_policy ON public.sales_targets;
 DROP POLICY IF EXISTS sales_targets_modify_policy ON public.sales_targets;
 CREATE POLICY sales_targets_modify_policy ON public.sales_targets
   FOR ALL TO authenticated
@@ -2567,15 +2708,18 @@ CREATE POLICY sales_targets_modify_policy ON public.sales_targets
 -- 13. NOTIFICATIONS
 -- -----------------------------------------------------------------------------
 DROP POLICY IF EXISTS notifications_select_policy ON public.notifications;
+DROP POLICY IF EXISTS notifications_select_policy ON public.notifications;
 CREATE POLICY notifications_select_policy ON public.notifications
   FOR SELECT TO authenticated
   USING (user_id = auth.uid() OR user_id IS NULL);
 
 DROP POLICY IF EXISTS notifications_insert_policy ON public.notifications;
+DROP POLICY IF EXISTS notifications_insert_policy ON public.notifications;
 CREATE POLICY notifications_insert_policy ON public.notifications
   FOR INSERT TO authenticated
   WITH CHECK (true);
 
+DROP POLICY IF EXISTS notifications_modify_policy ON public.notifications;
 DROP POLICY IF EXISTS notifications_modify_policy ON public.notifications;
 CREATE POLICY notifications_modify_policy ON public.notifications
   FOR ALL TO authenticated
@@ -2586,10 +2730,12 @@ CREATE POLICY notifications_modify_policy ON public.notifications
 -- 14. TERRITORIES & ROLES
 -- -----------------------------------------------------------------------------
 DROP POLICY IF EXISTS territories_select_policy ON public.territories;
+DROP POLICY IF EXISTS territories_select_policy ON public.territories;
 CREATE POLICY territories_select_policy ON public.territories
   FOR SELECT TO authenticated
   USING (true);
 
+DROP POLICY IF EXISTS territories_modify_policy ON public.territories;
 DROP POLICY IF EXISTS territories_modify_policy ON public.territories;
 CREATE POLICY territories_modify_policy ON public.territories
   FOR ALL TO authenticated
@@ -2597,10 +2743,12 @@ CREATE POLICY territories_modify_policy ON public.territories
   WITH CHECK (is_super_admin());
 
 DROP POLICY IF EXISTS roles_select_policy ON public.roles;
+DROP POLICY IF EXISTS roles_select_policy ON public.roles;
 CREATE POLICY roles_select_policy ON public.roles
   FOR SELECT TO authenticated
   USING (true);
 
+DROP POLICY IF EXISTS roles_modify_policy ON public.roles;
 DROP POLICY IF EXISTS roles_modify_policy ON public.roles;
 CREATE POLICY roles_modify_policy ON public.roles
   FOR ALL TO authenticated
