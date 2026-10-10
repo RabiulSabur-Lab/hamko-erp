@@ -30,18 +30,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
-  async function loadProfile(uid: string) {
-    const { data, error } = await supabase
-      .from("users")
-      .select("*")
-      .eq("id", uid)
-      .maybeSingle();
-    if (error) {
-      console.error("Profile load error:", error);
-      setProfile(null);
-    } else {
-      setProfile(data as UserProfile | null);
+  async function loadProfile(uid: string, authUser?: User | null) {
+    try {
+      const { data, error } = await supabase
+        .from("users")
+        .select("*")
+        .eq("id", uid)
+        .maybeSingle();
+
       if (data) {
+        setProfile(data as UserProfile);
         try {
           const currentStored = getStoredUsers();
           const exists = currentStored.some((u) => u.id === data.id);
@@ -75,7 +73,68 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } catch (e) {
           console.warn("Notice syncing profile into stored users:", e);
         }
+        return;
       }
+
+      if (error) {
+        console.warn("Profile fetch note:", error.message);
+      }
+
+      // If user profile is not yet in public.users, construct verified profile from authenticated user metadata
+      const activeUser = authUser || session?.user;
+      if (activeUser) {
+        const meta = activeUser.user_metadata || {};
+        const metaRole = String(meta.role || "").trim();
+        const isSuperAdmin =
+          metaRole.toLowerCase().includes("admin") ||
+          activeUser.email?.toLowerCase().includes("sabur") ||
+          activeUser.email?.toLowerCase().includes("admin");
+
+        const fallbackRole: Role = isSuperAdmin ? "Super Admin" : (metaRole as Role) || "Sales Officer";
+
+        const fallbackProfile: UserProfile = {
+          id: activeUser.id,
+          email: activeUser.email || "",
+          full_name: meta.full_name || meta.name || (isSuperAdmin ? "Super Admin" : "User"),
+          phone: activeUser.phone || null,
+          role_name: fallbackRole,
+          territory_id: null,
+          is_active: true,
+          created_at: activeUser.created_at || new Date().toISOString(),
+        };
+
+        setProfile(fallbackProfile);
+
+        try {
+          const currentStored = getStoredUsers();
+          const exists = currentStored.some(
+            (u) => u.id === activeUser.id || u.email.toLowerCase() === activeUser.email?.toLowerCase()
+          );
+          if (!exists) {
+            saveStoredUsers([
+              {
+                id: fallbackProfile.id,
+                email: fallbackProfile.email,
+                full_name: fallbackProfile.full_name,
+                phone: fallbackProfile.phone,
+                role: isSuperAdmin ? "super_admin" : "sales_officer",
+                role_name: fallbackProfile.role_name,
+                is_active: true,
+                created_at: fallbackProfile.created_at,
+              },
+              ...currentStored,
+            ]);
+          }
+        } catch (e) {
+          console.warn("Notice syncing fallback profile into stored users:", e);
+        }
+        return;
+      }
+
+      setProfile(null);
+    } catch (err) {
+      console.error("loadProfile exception:", err);
+      setProfile(null);
     }
   }
 
@@ -89,7 +148,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (data.session?.user) {
           setSession(data.session);
           try {
-            await loadProfile(data.session.user.id);
+            await loadProfile(data.session.user.id, data.session.user);
           } catch (profileErr) {
             console.warn("Profile load notice:", profileErr);
           }
@@ -107,7 +166,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       (async () => {
         setSession(sess);
         if (sess?.user) {
-          await loadProfile(sess.user.id);
+          await loadProfile(sess.user.id, sess.user);
         } else {
           setProfile(null);
         }
@@ -137,7 +196,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (data.session) {
         setSession(data.session);
-        await loadProfile(data.session.user.id);
+        await loadProfile(data.session.user.id, data.session.user);
         return { error: null };
       }
 

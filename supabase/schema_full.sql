@@ -1440,6 +1440,7 @@ END $$;
 -- ============================================================
 INSERT INTO users (id, email, full_name, role_name, is_active)
 VALUES
+  ('4b3b1979-af14-4ebd-bf75-96c11c7bdc37', 'mdrabiulislam.sabur.9@gmail.com', 'Super Admin', 'Super Admin', true),
   ('00000000-0000-0000-0000-000000000001', 'admin@saleserppro.com', 'Super Admin', 'Super Admin', true),
   ('00000000-0000-0000-0000-000000000002', 'officer@saleserppro.com', 'Sales Officer', 'Sales Officer', true)
 ON CONFLICT (id) DO UPDATE SET
