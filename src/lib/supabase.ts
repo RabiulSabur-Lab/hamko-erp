@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 
-const DEFAULT_URL = "https://rkjelornojeooqufcuwk.supabase.co";
+const DEFAULT_URL = "https://aqbacbamlvwymiedubli.supabase.co";
 const DEFAULT_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJramVsb3Jub2plb29xdWZjdXdrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQzMjQ3OTYsImV4cCI6MjA5OTkwMDc5Nn0.gs4GtGqYHbparOAx-h8Ny0GXcMX5opx2_7LSIHfc0sk";
 
 function sanitizeUrl(candidate?: string | null): string {
