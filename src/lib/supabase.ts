@@ -1,35 +1,87 @@
 import { createClient } from "@supabase/supabase-js";
 
-export const SUPABASE_URL: string =
+const DEFAULT_URL = "https://rkjelornojeooqufcuwk.supabase.co";
+const DEFAULT_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJramVsb3Jub2plb29xdWZjdXdrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQzMjQ3OTYsImV4cCI6MjA5OTkwMDc5Nn0.gs4GtGqYHbparOAx-h8Ny0GXcMX5opx2_7LSIHfc0sk";
+
+function sanitizeUrl(candidate?: string | null): string {
+  if (!candidate || typeof candidate !== "string") return DEFAULT_URL;
+  const trimmed = candidate.trim();
+  if (!trimmed || trimmed === "undefined" || trimmed === "null") return DEFAULT_URL;
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+      return trimmed;
+    }
+  } catch {
+    // Malformed URL, fallback to verified production endpoint
+  }
+  return DEFAULT_URL;
+}
+
+function sanitizeKey(candidate?: string | null): string {
+  if (!candidate || typeof candidate !== "string") return DEFAULT_KEY;
+  const trimmed = candidate.trim();
+  if (!trimmed || trimmed === "undefined" || trimmed === "null" || trimmed.length < 10) return DEFAULT_KEY;
+  return trimmed;
+}
+
+const rawEnvUrl =
   (typeof import.meta !== "undefined" && import.meta.env?.VITE_SUPABASE_URL) ||
-  (typeof process !== "undefined" && process.env?.VITE_SUPABASE_URL) ||
-  "https://rkjelornojeooqufcuwk.supabase.co";
+  (typeof process !== "undefined" && process.env?.VITE_SUPABASE_URL);
 
-export const SUPABASE_ANON_KEY: string =
+const rawEnvKey =
   (typeof import.meta !== "undefined" && import.meta.env?.VITE_SUPABASE_ANON_KEY) ||
-  (typeof process !== "undefined" && process.env?.VITE_SUPABASE_ANON_KEY) ||
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJramVsb3Jub2plb29xdWZjdXdrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQzMjQ3OTYsImV4cCI6MjA5OTkwMDc5Nn0.gs4GtGqYHbparOAx-h8Ny0GXcMX5opx2_7LSIHfc0sk";
+  (typeof process !== "undefined" && process.env?.VITE_SUPABASE_ANON_KEY);
 
-export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-  auth: {
-    persistSession: true,
-    autoRefreshToken: true,
-    detectSessionInUrl: true,
-  },
-});
+export const SUPABASE_URL: string = sanitizeUrl(rawEnvUrl);
+export const SUPABASE_ANON_KEY: string = sanitizeKey(rawEnvKey);
+
+export const isSupabaseConfigured: boolean = Boolean(
+  SUPABASE_URL &&
+  SUPABASE_ANON_KEY &&
+  SUPABASE_URL.startsWith("https://")
+);
+
+function initSupabase() {
+  try {
+    return createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+      },
+    });
+  } catch (err) {
+    console.error("Failed to initialize Supabase client safely:", err);
+    return createClient(DEFAULT_URL, DEFAULT_KEY, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false,
+      },
+    });
+  }
+}
+
+export const supabase = initSupabase();
 
 /**
  * Creates an isolated client for secondary auth actions (e.g., admin registering a new user)
  * without wiping or altering the current active session.
  */
 export function createSecondaryAuthClient() {
-  return createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-      detectSessionInUrl: false,
-    },
-  });
+  try {
+    return createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false,
+      },
+    });
+  } catch (err) {
+    console.error("Failed to create secondary Supabase client:", err);
+    return supabase;
+  }
 }
 
 export type Role = "Super Admin" | "Sales Manager" | "Sales Officer" | "Distributor" | "Accountant";

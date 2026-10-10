@@ -4,6 +4,7 @@ import {
   LayoutDashboard, Users, Package, ShoppingCart, Truck, Warehouse,
   Wallet, MapPin, BarChart3, UserCog,
 } from "lucide-react";
+import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth";
 import { useTheme } from "@/lib/theme";
 import { useI18n } from "@/lib/i18n";
@@ -33,16 +34,18 @@ export function AppLayout({ children }: { children: ReactNode }) {
     let isMounted = true;
     const fetchUnread = async () => {
       try {
-        const { count, error } = await supabase
-          .from("notifications")
-          .select("id", { count: "exact", head: true })
-          .eq("is_read", false);
-        if (!error && count !== null && isMounted) {
-          setUnreadCount(count);
-          return;
+        if (supabase?.from) {
+          const { count, error } = await supabase
+            .from("notifications")
+            .select("id", { count: "exact", head: true })
+            .eq("is_read", false);
+          if (!error && count !== null && isMounted) {
+            setUnreadCount(count);
+            return;
+          }
         }
       } catch (e) {
-        // Fallback to local storage if network dropped
+        // Fallback to local storage if network dropped or supabase unavailable
       }
       const list = getLocalData<any>(STORAGE_KEYS.NOTIFICATIONS, []);
       if (isMounted) setUnreadCount(list.filter((n: any) => !n.is_read).length);
@@ -50,12 +53,19 @@ export function AppLayout({ children }: { children: ReactNode }) {
 
     fetchUnread();
 
-    const notifChannel = supabase
-      .channel("app-layout-notifications")
-      .on("postgres_changes", { event: "*", schema: "public", table: "notifications" }, () => {
-        fetchUnread();
-      })
-      .subscribe();
+    let notifChannel: any = null;
+    try {
+      if (supabase?.channel) {
+        notifChannel = supabase
+          .channel("app-layout-notifications")
+          .on("postgres_changes", { event: "*", schema: "public", table: "notifications" }, () => {
+            fetchUnread();
+          })
+          .subscribe();
+      }
+    } catch (err) {
+      console.warn("Notifications realtime subscription notice:", err);
+    }
 
     const updateUnread = () => {
       fetchUnread();
@@ -64,7 +74,13 @@ export function AppLayout({ children }: { children: ReactNode }) {
     window.addEventListener("sales_erp_storage_update", updateUnread);
     return () => {
       isMounted = false;
-      supabase.removeChannel(notifChannel);
+      try {
+        if (notifChannel && supabase?.removeChannel) {
+          supabase.removeChannel(notifChannel);
+        }
+      } catch (e) {
+        // Safe fallback
+      }
       window.removeEventListener("storage", updateUnread);
       window.removeEventListener("sales_erp_storage_update", updateUnread);
     };

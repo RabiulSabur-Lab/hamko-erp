@@ -16,7 +16,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { EmptyState } from "@/components/ui/empty";
 import { formatBDT, formatDate, cn } from "@/lib/utils";
 import { exportToExcel } from "@/lib/export";
-import { Plus, Download, Wallet, Loader2, DollarSign, TrendingDown, BookOpen, CreditCard, Trash2, Calendar, X, User, AlertCircle } from "lucide-react";
+import { Plus, Download, Wallet, Loader2, DollarSign, TrendingDown, BookOpen, CreditCard, Trash2, Calendar, X, User, AlertCircle, Phone } from "lucide-react";
 import { toast } from "sonner";
 import {
   fetchActiveSalesOfficers,

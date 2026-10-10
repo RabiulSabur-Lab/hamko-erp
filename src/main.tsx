@@ -10,6 +10,7 @@ import { I18nProvider } from "./lib/i18n";
 import { RouterProvider } from "./router";
 import { App } from "./App";
 import { cleanupLocalStorage } from "./lib/storageManager";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 
 // Run lightweight storage cleanup on boot to purge expired entries and prune tombstones
 if (typeof window !== "undefined") {
@@ -41,19 +42,21 @@ const queryClient = new QueryClient({
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <UsersProvider>
-          <ThemeProvider>
-            <I18nProvider>
-              <RouterProvider>
-                <App />
-                <Toaster position="top-right" richColors closeButton />
-              </RouterProvider>
-            </I18nProvider>
-          </ThemeProvider>
-        </UsersProvider>
-      </AuthProvider>
-    </QueryClientProvider>
+    <ErrorBoundary name="Root">
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <UsersProvider>
+            <ThemeProvider>
+              <I18nProvider>
+                <RouterProvider>
+                  <App />
+                  <Toaster position="top-right" richColors closeButton />
+                </RouterProvider>
+              </I18nProvider>
+            </ThemeProvider>
+          </UsersProvider>
+        </AuthProvider>
+      </QueryClientProvider>
+    </ErrorBoundary>
   </StrictMode>,
 );

@@ -20,6 +20,7 @@ import { NotificationsPage } from "./pages/NotificationsPage";
 import { UserManagement } from "./pages/UserManagement";
 import { ResetPassword } from "./pages/ResetPassword";
 import { Loader2 } from "lucide-react";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 
 function ProtectedRoute({
   allowed,
@@ -100,15 +101,33 @@ export function App() {
   }, [cleanPath, route, session, navigate]);
 
   if (cleanPath === "/reset-password" || cleanPath.startsWith("/reset-password") || route === "reset-password") {
-    return <ResetPassword />;
+    return (
+      <ErrorBoundary name="ResetPassword">
+        <ResetPassword />
+      </ErrorBoundary>
+    );
   }
 
   if (!session) {
     if (route === "signup" || cleanPath === "/signup" || cleanPath.startsWith("/signup")) {
-      return <AuthPage />;
+      return (
+        <ErrorBoundary name="AuthPage:SignUp">
+          <AuthPage />
+        </ErrorBoundary>
+      );
     }
-    if (route === "signin" || route === "auth" || route === "login") return <AuthPage />;
-    return <LandingPage />;
+    if (route === "signin" || route === "auth" || route === "login") {
+      return (
+        <ErrorBoundary name="AuthPage:SignIn">
+          <AuthPage />
+        </ErrorBoundary>
+      );
+    }
+    return (
+      <ErrorBoundary name="LandingPage">
+        <LandingPage />
+      </ErrorBoundary>
+    );
   }
 
   // Role-based access control (RBAC): inspect exact user role structure
@@ -217,5 +236,13 @@ export function App() {
     }
   })();
 
-  return <AppLayout>{page}</AppLayout>;
+  return (
+    <ErrorBoundary name="AppLayout">
+      <AppLayout>
+        <ErrorBoundary name={`Page:${route}`}>
+          {page}
+        </ErrorBoundary>
+      </AppLayout>
+    </ErrorBoundary>
+  );
 }
