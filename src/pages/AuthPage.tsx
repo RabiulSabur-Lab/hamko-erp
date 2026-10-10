@@ -338,9 +338,9 @@ export function AuthPage() {
       <div className="flex-1 flex items-center justify-center p-6 lg:p-12 bg-background min-h-screen md:min-h-0">
         <div className="w-full max-w-sm">
           {/* Compact mobile-only header — logo + branding shown only on small screens */}
-          <div className="block md:hidden mb-6 text-center">
-            <div className="inline-flex items-center justify-center bg-gradient-to-br from-sky-600 to-blue-700 p-3 rounded-2xl shadow-lg mb-3">
-              <img src="/Hamko.png" alt="Hamko" className="h-10 w-auto object-contain" />
+          <div className="md:hidden mb-6 text-center">
+            <div className="inline-flex items-center justify-center bg-white p-2 rounded-xl shadow-sm mb-3 border border-border/40">
+              <img src="/Hamko.png" alt="Hamko" className="h-12 w-auto object-contain" />
             </div>
             <h1 className="text-lg font-bold text-foreground leading-tight">Sales ERP Pro</h1>
             <p className="text-xs text-muted-foreground mt-0.5">
