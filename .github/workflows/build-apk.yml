@@ -44,9 +44,12 @@ jobs:
       - name: Build Android Debug APK
         run: cd android && ./gradlew assembleDebug --no-daemon
 
+      - name: Rename APK output
+        run: mv android/app/build/outputs/apk/debug/app-debug.apk android/app/build/outputs/apk/debug/Hamko-ERP.apk
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Hamko-ERP-APK
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: Hamko-ERP.apk
+          path: android/app/build/outputs/apk/debug/Hamko-ERP.apk
           if-no-files-found: error
