@@ -1,0 +1,884 @@
+/* vscode-css-languageservice: disable */
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-success: hsl(var(--success));
+  --color-success-foreground: hsl(var(--success-foreground));
+  --color-warning: hsl(var(--warning));
+  --color-warning-foreground: hsl(var(--warning-foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+  --color-sidebar: hsl(var(--sidebar));
+  --color-sidebar-foreground: hsl(var(--sidebar-foreground));
+  --color-sidebar-border: hsl(var(--sidebar-border));
+  --color-sidebar-accent: hsl(var(--sidebar-accent));
+}
+
+:root {
+  --background: 0 0% 100%;
+  --foreground: 222 47% 11%;
+  --card: 0 0% 100%;
+  --card-foreground: 222 47% 11%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 47% 11%;
+  --primary: 199 89% 48%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 210 40% 96%;
+  --secondary-foreground: 222 47% 11%;
+  --muted: 210 40% 96%;
+  --muted-foreground: 215 16% 47%;
+  --accent: 199 89% 96%;
+  --accent-foreground: 199 89% 30%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 100%;
+  --success: 142 71% 45%;
+  --success-foreground: 0 0% 100%;
+  --warning: 38 92% 50%;
+  --warning-foreground: 0 0% 100%;
+  --border: 214 32% 91%;
+  --input: 214 32% 91%;
+  --ring: 199 89% 48%;
+  --radius: 0.5rem;
+  --sidebar: 0 0% 100%;
+  --sidebar-foreground: 222 47% 11%;
+  --sidebar-border: 214 32% 91%;
+  --sidebar-accent: 199 89% 96%;
+}
+
+.dark {
+  --background: 222 47% 7%;
+  --foreground: 210 40% 98%;
+  --card: 222 47% 10%;
+  --card-foreground: 210 40% 98%;
+  --popover: 222 47% 10%;
+  --popover-foreground: 210 40% 98%;
+  --primary: 199 89% 55%;
+  --primary-foreground: 222 47% 11%;
+  --secondary: 217 33% 17%;
+  --secondary-foreground: 210 40% 98%;
+  --muted: 217 33% 17%;
+  --muted-foreground: 215 20% 65%;
+  --accent: 217 33% 20%;
+  --accent-foreground: 210 40% 98%;
+  --destructive: 0 63% 45%;
+  --destructive-foreground: 0 0% 100%;
+  --success: 142 71% 45%;
+  --success-foreground: 0 0% 100%;
+  --warning: 38 92% 50%;
+  --warning-foreground: 222 47% 11%;
+  --border: 217 33% 17%;
+  --input: 217 33% 17%;
+  --ring: 199 89% 55%;
+  --sidebar: 222 47% 9%;
+  --sidebar-foreground: 210 40% 98%;
+  --sidebar-border: 217 33% 17%;
+  --sidebar-accent: 217 33% 15%;
+}
+
+* {
+  border-color: hsl(var(--border));
+}
+
+body {
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family: "Inter", system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground));
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
+
+@keyframes floatSlow {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-8px); }
+}
+
+@keyframes floatDelayed {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(8px); }
+}
+
+@keyframes pulseSoft {
+  0%, 100% { opacity: 0.6; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.05); }
+}
+
+@keyframes shimmerGlow {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.animate-float-slow {
+  animation: floatSlow 5s ease-in-out infinite;
+}
+
+.animate-float-delayed {
+  animation: floatDelayed 6s ease-in-out infinite 1.5s;
+}
+
+.animate-pulse-soft {
+  animation: pulseSoft 3s ease-in-out infinite;
+}
+
+.animate-shimmer-glow {
+  background-size: 200% 200%;
+  animation: shimmerGlow 8s ease infinite;
+}
+
+/* Apple & Huawei Aesthetic Utilities */
+.apple-glass {
+  background: rgba(255, 255, 255, 0.65);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+}
+
+.dark .apple-glass {
+  background: rgba(18, 22, 34, 0.65);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+}
+
+.huawei-radial-glow {
+  background: radial-gradient(circle 600px at 50% 10%, rgba(14, 165, 233, 0.12), transparent 80%),
+              radial-gradient(circle 450px at 80% 30%, rgba(99, 102, 241, 0.08), transparent 75%),
+              radial-gradient(circle 500px at 20% 50%, rgba(16, 185, 129, 0.07), transparent 70%);
+}
+
+.dark .huawei-radial-glow {
+  background: radial-gradient(circle 700px at 50% 5%, rgba(14, 165, 233, 0.18), transparent 80%),
+              radial-gradient(circle 500px at 80% 30%, rgba(99, 102, 241, 0.12), transparent 75%),
+              radial-gradient(circle 550px at 20% 50%, rgba(16, 185, 129, 0.09), transparent 70%);
+}
+
+.card-hover-elevation {
+  transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.35s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.35s ease;
+}
+
+.card-hover-elevation:hover {
+  transform: translateY(-4px);
+}
+
+
+/* ===== Print Invoice, Collection & Ledger Global Typography ===== */
+.pdf-container,
+.print-container,
+.print-invoice-root,
+#print-invoice,
+#print-ledger,
+#print-collection-receipt {
+  font-family: Arial, Helvetica, sans-serif !important;
+}
+
+.pdf-container .pi-title,
+.print-container .pi-title,
+.print-invoice-root .pi-title,
+#print-invoice .pi-title,
+#print-ledger .pi-title,
+#print-collection-receipt .pi-title {
+  font-family: Georgia, 'Times New Roman', Times, serif !important;
+  font-weight: bold !important;
+}
+
+.pdf-container .pi-subtitle,
+.print-container .pi-subtitle,
+.print-invoice-root .pi-subtitle,
+#print-invoice .pi-subtitle,
+#print-ledger .pi-subtitle,
+#print-collection-receipt .pi-subtitle {
+  font-family: Arial, Helvetica, sans-serif !important;
+}
+
+.pdf-container table,
+.pdf-container th,
+.pdf-container td,
+.pdf-container p,
+.pdf-container span,
+.pdf-container div,
+#print-invoice table,
+#print-invoice th,
+#print-invoice td,
+#print-ledger table,
+#print-ledger th,
+#print-ledger td,
+#print-collection-receipt table,
+#print-collection-receipt th,
+#print-collection-receipt td {
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Specific elements preserving Georgia serif */
+.pdf-container .pi-title,
+#print-invoice .pi-title,
+#print-ledger .pi-title,
+#print-collection-receipt .pi-title {
+  font-family: Georgia, 'Times New Roman', Times, serif !important;
+  font-weight: bold !important;
+}
+
+/* Monospace preservation */
+.pdf-container .pi-barcode,
+.pdf-container [style*="monospace"],
+#print-invoice [style*="monospace"],
+#print-ledger [style*="monospace"],
+#print-collection-receipt [style*="monospace"] {
+  font-family: monospace !important;
+}
+
+/* Header divider line across all print templates */
+.pi-header-divider,
+.pdf-container hr,
+#print-invoice hr,
+#print-ledger hr,
+#print-collection-receipt hr {
+  border-top: 2.5px solid #000000 !important;
+  border-bottom: none !important;
+  border-left: none !important;
+  border-right: none !important;
+  border-color: #000000 !important;
+  margin: 8px 0 !important;
+  width: 100% !important;
+  opacity: 1 !important;
+}
+
+#print-invoice {
+  display: none;
+}
+
+.print-invoice-root {
+  font-family: Arial, Helvetica, sans-serif;
+  color: #000;
+  background: #fff;
+  width: 100%;
+  max-width: 190mm;
+  padding: 12px 0 0 0;
+  margin: 0 auto;
+  box-sizing: border-box;
+  font-size: 12px;
+  line-height: 1.35;
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+
+.pi-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 0;
+  margin-bottom: 6px;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+.pi-logo {
+  height: 40px;
+  max-height: 40px;
+  width: auto;
+  object-fit: contain;
+  display: block;
+}
+.pi-title {
+  font-family: Georgia, 'Times New Roman', Times, serif !important;
+  font-size: 18px;
+  font-weight: bold;
+  color: #000;
+  margin: 0 0 2px 0;
+  line-height: 1.2;
+  text-align: center;
+}
+.pi-subtitle {
+  font-family: Arial, Helvetica, sans-serif !important;
+  font-size: 12px;
+  font-weight: 500;
+  color: #333;
+  margin: 0;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.pi-meta-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border: 1px solid #ccc;
+  margin: 10px 0;
+  width: 100%;
+  box-sizing: border-box;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+.pi-meta-block {
+  padding: 8px 12px;
+  border-right: 1px solid #ccc;
+}
+.pi-meta-block:last-child {
+  border-right: none;
+}
+.pi-meta-row {
+  display: flex;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 1px 0;
+  gap: 4px;
+}
+.pi-meta-label {
+  font-weight: bold;
+  min-width: 80px;
+}
+.pi-meta-value {
+  font-weight: 500;
+}
+.pi-invoice-no-cell {
+  margin-bottom: 2px;
+}
+.pi-barcode {
+  display: flex;
+  align-items: flex-end;
+  height: 22px;
+  max-height: 22px;
+  line-height: 22px;
+  overflow: hidden;
+  text-align: left;
+  padding: 0;
+  margin: 2px 0 2px;
+}
+.pi-bar {
+  display: inline-block;
+  height: 22px;
+  margin: 0;
+  padding: 0;
+  vertical-align: bottom;
+}
+
+.pi-items-table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1.5px solid #000;
+  margin-bottom: 3px;
+}
+.pi-items-table th {
+  border: 1px solid #000;
+  background: #f0f0f0;
+  font-size: 13px;
+  font-weight: bold;
+  padding: 4px 6px;
+  text-align: center;
+}
+.pi-items-table td {
+  border: 1px solid #000;
+  font-size: 12px;
+  padding: 4px 6px;
+}
+.pi-col-sr { width: 50px; text-align: center; }
+.pi-col-desc { text-align: left; }
+.pi-col-qty { width: 60px; text-align: center; }
+.pi-col-rate { width: 80px; text-align: right; }
+.pi-col-amount { width: 90px; text-align: right; }
+.pi-tier-tag {
+  font-size: 11px;
+  color: #555;
+  margin-left: 4px;
+}
+.pi-empty-row td {
+  height: 14px;
+}
+
+.pi-summary {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 4px;
+  gap: 8px;
+}
+.pi-summary-left {
+  flex: 1;
+}
+.pi-summary-qty {
+  font-size: 14px;
+  font-weight: bold;
+  padding: 2px 0;
+}
+.pi-summary-right {
+  flex: 1;
+  max-width: 280px;
+}
+.pi-sum-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 14px;
+  font-weight: bold;
+  padding: 4px 6px;
+  border-bottom: 1px dotted #999;
+}
+.pi-sum-grand {
+  font-weight: bold;
+  font-size: 14px;
+  border: 1.5px solid #000;
+  padding: 4px 6px;
+  margin-top: 2px;
+  background: #f5f5f5;
+}
+.pi-sum-net {
+  font-weight: bold;
+  font-size: 14px;
+  border: 1.5px solid #000;
+  padding: 4px 6px;
+  margin-top: 2px;
+  background: #e8e8e8;
+}
+
+.pi-signatures {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8px;
+  padding-top: 4px;
+}
+.pi-sig-block p {
+  font-size: 12px;
+  margin: 8px 0;
+}
+.pi-sig-right {
+  text-align: right;
+}
+
+/* ===== @media print ===== */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 12mm 15mm 12mm 15mm !important; /* Top Right Bottom Left */
+  }
+
+  html, body {
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    font-size: 11px;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    position: static !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* When printing an invoice, collection receipt, or ledger, HIDE the main app (#root) and all dialogs/backdrops */
+  body.printing-invoice #root,
+  body.printing-collection #root,
+  body.printing-ledger #root,
+  body:has(#print-invoice) #root,
+  body:has(#print-collection-receipt) #root,
+  body:has(#print-ledger) #root {
+    display: none !important;
+  }
+
+  /* Hide Non-Print UI Elements, navigation, buttons, and modal overlays */
+  nav, footer, sidebar, aside, header, .no-print, button,
+  [role="dialog"],
+  .fixed.inset-0,
+  .modal-overlay {
+    display: none !important;
+  }
+
+  /* Printable invoice and receipt containers */
+  #print-invoice,
+  #print-collection-receipt {
+    display: block !important;
+    visibility: visible !important;
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-sizing: border-box !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    overflow: visible !important;
+    page-break-after: auto !important;
+    page-break-inside: auto !important;
+    break-after: auto !important;
+    break-inside: auto !important;
+    font-family: Arial, Helvetica, sans-serif !important;
+    -webkit-font-smoothing: antialiased !important;
+    -moz-osx-font-smoothing: grayscale !important;
+    text-rendering: optimizeLegibility !important;
+  }
+
+  /* Printable Ledger Container: Safe A4 Width & Horizontal Gutters */
+  #print-ledger,
+  .ledger-pdf-container {
+    display: block !important;
+    visibility: visible !important;
+    position: static !important;
+    width: 100% !important;
+    max-width: 210mm !important;
+    margin: 0 auto !important;
+    padding: 0 10mm !important;
+    box-sizing: border-box !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    overflow: visible !important;
+    page-break-after: auto !important;
+    page-break-inside: auto !important;
+    break-after: auto !important;
+    break-inside: auto !important;
+    font-family: Arial, Helvetica, sans-serif !important;
+    -webkit-font-smoothing: antialiased !important;
+    -moz-osx-font-smoothing: grayscale !important;
+    text-rendering: optimizeLegibility !important;
+  }
+
+  #print-invoice *,
+  #print-collection-receipt *,
+  #print-ledger *,
+  .ledger-pdf-container * {
+    visibility: visible !important;
+  }
+
+  /* Target Print Isolation: ensure other print wrappers don't interfere */
+  body.printing-invoice #print-collection-receipt,
+  body.printing-invoice #print-ledger,
+  body.printing-invoice .ledger-pdf-container {
+    display: none !important;
+  }
+
+  body.printing-collection #print-invoice,
+  body.printing-collection #print-ledger,
+  body.printing-collection .ledger-pdf-container {
+    display: none !important;
+  }
+
+  body.printing-ledger #print-invoice,
+  body.printing-ledger #print-collection-receipt {
+    display: none !important;
+  }
+
+  html, body, #root, #__next, .print-container {
+    margin-top: 0 !important;
+    padding-top: 0 !important;
+    height: auto !important;
+    min-height: auto !important;
+    display: block !important;
+  }
+
+  /* Multi-page Table Formatting & Repeating Header for Ledger */
+  .ledger-table,
+  .clean-ledger-table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    table-layout: fixed !important;
+    display: table !important;
+  }
+
+  /* Repeat Table Header at the top of every new page */
+  .ledger-table thead,
+  .clean-ledger-table thead {
+    display: table-header-group !important;
+  }
+
+  .ledger-table tbody,
+  .clean-ledger-table tbody {
+    display: table-row-group !important;
+  }
+
+  /* Prevent mid-row breaking across page boundaries */
+  .ledger-table tr,
+  .clean-ledger-table tr {
+    display: table-row !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    position: static !important;
+  }
+
+  /* Explicit cell styling without absolute coordinates */
+  .ledger-table th,
+  .ledger-table td,
+  .clean-ledger-table th,
+  .clean-ledger-table td {
+    display: table-cell !important;
+    border: 1px solid #000000 !important;
+    padding: 6px 8px !important;
+    vertical-align: top !important;
+    font-size: 10.5px !important;
+    line-height: 1.35 !important;
+    position: static !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    word-break: break-word !important;
+  }
+
+  /* Keep Ledger Header, Metadata Card, and Summary Strip together */
+  .ledger-header-block,
+  .ledger-meta-card,
+  .ledger-summary-strip {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  /* Keep Signature Section intact at the end of the document */
+  .signature-section,
+  .ledger-signature-footer {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    margin-top: 20px !important;
+  }
+
+  /* Force 100% black ink for Canon Monochrome Laser Printer */
+  body, table, th, td, p, span, h1, h2, h3, div {
+    color: #000000 !important;
+    text-shadow: none !important;
+    -webkit-font-smoothing: antialiased !important;
+    -moz-osx-font-smoothing: grayscale !important;
+    text-rendering: optimizeLegibility !important;
+  }
+
+  /* Prevent thin font rendering on laser toner */
+  body, table, td, p {
+    font-weight: 500 !important;
+  }
+
+  th, label, .font-bold, strong, b, .pi-title {
+    font-weight: 700 !important;
+  }
+
+  /* Ensure specific bold elements inside cells retain extra boldness */
+  td strong,
+  td b,
+  p strong,
+  p b,
+  span strong,
+  span b,
+  .font-bold,
+  .font-semibold {
+    font-weight: 700 !important;
+  }
+
+  .pdf-container .pi-title,
+  #print-invoice .pi-title,
+  #print-ledger .pi-title,
+  #print-collection-receipt .pi-title {
+    font-family: Georgia, 'Times New Roman', Times, serif !important;
+    font-weight: bold !important;
+  }
+
+  .pdf-container .pi-subtitle,
+  #print-invoice .pi-subtitle,
+  #print-ledger .pi-subtitle,
+  #print-collection-receipt .pi-subtitle {
+    font-family: Arial, Helvetica, sans-serif !important;
+  }
+
+  .pdf-container table,
+  .pdf-container th,
+  .pdf-container td,
+  #print-invoice table,
+  #print-invoice th,
+  #print-invoice td,
+  #print-ledger table,
+  #print-ledger th,
+  #print-ledger td,
+  #print-collection-receipt table,
+  #print-collection-receipt th,
+  #print-collection-receipt td {
+    font-family: Arial, Helvetica, sans-serif !important;
+  }
+
+  /* Scoped borders strictly for data tables and bordered boxes, avoiding borderless branding headers */
+  .ledger-table,
+  .ledger-table th,
+  .ledger-table td,
+  .clean-ledger-table,
+  .clean-ledger-table th,
+  .clean-ledger-table td,
+  .pi-items-table,
+  .pi-items-table th,
+  .pi-items-table td,
+  .pi-meta-grid,
+  .pi-meta-block,
+  #print-ledger table.clean-ledger-table,
+  #print-ledger table.clean-ledger-table th,
+  #print-ledger table.clean-ledger-table td {
+    border-color: #000000 !important;
+  }
+
+  hr,
+  .pi-header-divider,
+  .pdf-container hr,
+  #print-invoice hr,
+  #print-ledger hr,
+  #print-collection-receipt hr {
+    border-top: 2.5px solid #000000 !important;
+    border-bottom: none !important;
+    border-left: none !important;
+    border-right: none !important;
+    border-color: #000000 !important;
+    margin: 8px 0 !important;
+    width: 100% !important;
+    opacity: 1 !important;
+  }
+
+  /* STRICT MANDATE: Keep green MONEY COLLECTION RECEIPT badge 100% intact */
+  .collection-badge,
+  .collection-badge * {
+    background-color: #059669 !important;
+    color: #ffffff !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Prevent child elements from forcing page break in 1-page documents */
+  #print-invoice table,
+  #print-invoice tr,
+  #print-invoice td,
+  #print-invoice th,
+  #print-invoice p,
+  #print-invoice div,
+  #print-collection-receipt table,
+  #print-collection-receipt tr,
+  #print-collection-receipt td,
+  #print-collection-receipt th,
+  #print-collection-receipt p,
+  #print-collection-receipt div {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  .print-invoice-root {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-sizing: border-box !important;
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+  }
+
+  .pi-items-table,
+  .pi-summary,
+  .pi-meta-grid,
+  .pi-header,
+  table {
+    width: 100% !important;
+    box-sizing: border-box !important;
+    max-width: 100% !important;
+  }
+
+  .pi-items-table tr,
+  .pi-items-table td,
+  .pi-items-table th {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  .pi-items-table th {
+    background: #f0f0f0 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .pi-sum-grand {
+    background: #f5f5f5 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .pi-sum-net {
+    background: #e8e8e8 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Suppress platform-injected badges/watermarks (e.g. "Made in Bolt") */
+  [class*="bolt"],
+  [id*="bolt"],
+  [data-bolt] {
+    display: none !important;
+  }
+}
+
+/* ==========================================================================
+   UNIFIED A4 PRINT MARGIN & CONTAINER ENGINE (Invoice, Collection, Ledger)
+   ========================================================================== */
+@media print {
+  /* Set universal physical A4 paper margins */
+  @page {
+    size: A4 portrait !important;
+    margin: 12mm 15mm 12mm 15mm !important; /* Top Right Bottom Left */
+  }
+
+  /* Force all print targets to fit within A4 printable area with horizontal gutters */
+  #print-invoice,
+  #print-collection-receipt,
+  #print-ledger {
+    width: 100% !important;
+    max-width: 210mm !important;
+    margin: 0 auto !important;
+    padding: 0 5mm !important;
+    box-sizing: border-box !important;
+    background-color: #ffffff !important;
+  }
+}
+
+/* AI Payment Reminder Bengali Script & Italic Font Styling */
+.bengali-reminder-script {
+  font-family: 'Anek Bangla', 'Hind Siliguri', 'SolaimanLipi', cursive, sans-serif;
+  font-style: italic;
+}
+
+/* Money Collection Receipt Digital Signature Script (Yellowtail) */
+.digital-signature-font {
+  font-family: 'Yellowtail', 'Dancing Script', 'Caveat', cursive;
+}
+
+
+
