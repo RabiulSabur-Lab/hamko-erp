@@ -281,9 +281,9 @@ export function AuthPage() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col lg:flex-row">
-      {/* Left brand panel */}
-      <div className="relative flex-1 bg-gradient-to-br from-sky-600 via-sky-700 to-blue-800 p-8 lg:p-12 flex flex-col justify-between text-white overflow-hidden">
+    <div className="min-h-screen flex flex-col md:flex-row">
+      {/* Left brand panel — hidden on mobile, visible from md breakpoint */}
+      <div className="hidden md:flex relative flex-1 bg-gradient-to-br from-sky-600 via-sky-700 to-blue-800 p-8 lg:p-12 flex-col justify-between text-white overflow-hidden">
         <div
           className="absolute inset-0 opacity-10"
           style={{
@@ -334,9 +334,19 @@ export function AuthPage() {
         </div>
       </div>
 
-      {/* Right form panel */}
-      <div className="flex-1 flex items-center justify-center p-6 lg:p-12 bg-background">
+      {/* Right form panel — full screen on mobile, half-width on md+ */}
+      <div className="flex-1 flex items-center justify-center p-6 lg:p-12 bg-background min-h-screen md:min-h-0">
         <div className="w-full max-w-sm">
+          {/* Compact mobile-only header — logo + branding shown only on small screens */}
+          <div className="block md:hidden mb-6 text-center">
+            <div className="inline-flex items-center justify-center bg-gradient-to-br from-sky-600 to-blue-700 p-3 rounded-2xl shadow-lg mb-3">
+              <img src="/Hamko.png" alt="Hamko" className="h-10 w-auto object-contain" />
+            </div>
+            <h1 className="text-lg font-bold text-foreground leading-tight">Sales ERP Pro</h1>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {lang === "bn" ? "কুকওয়্যার ডিস্ট্রিবিউশন ইআরপি" : "Cookware Distribution ERP"}
+            </p>
+          </div>
           <div className="flex justify-between gap-2 mb-6">
             <Button variant="ghost" size="sm" onClick={() => navigate("/")} className="gap-1.5">
               <ArrowLeft className="h-4 w-4" /> {lang === "bn" ? "হোম" : "Home"}
