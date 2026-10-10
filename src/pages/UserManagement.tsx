@@ -27,6 +27,7 @@ import {
   Phone,
 } from "lucide-react";
 import { toast } from "sonner";
+import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth";
 import { useI18n } from "@/lib/i18n";
 import {
@@ -118,7 +119,17 @@ export function UserManagement() {
     };
     window.addEventListener("sales_erp_storage_update", handleStorageUpdate);
     window.addEventListener("storage", handleStorageUpdate);
+
+    // Supabase Realtime Channel
+    const usersChannel = supabase
+      .channel("users-page-realtime")
+      .on("postgres_changes", { event: "*", schema: "public", table: "users" }, () => {
+        loadUsers();
+      })
+      .subscribe();
+
     return () => {
+      supabase.removeChannel(usersChannel);
       window.removeEventListener("sales_erp_storage_update", handleStorageUpdate);
       window.removeEventListener("storage", handleStorageUpdate);
     };
@@ -535,141 +546,251 @@ export function UserManagement() {
               description={search ? "Try adjusting your search query or role filter." : "Click '+ Add New User' to provision the first account."}
             />
           ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow className="bg-muted/40">
-                    <TableHead className="min-w-[180px]">Full Name</TableHead>
-                    <TableHead className="min-w-[200px]">Email</TableHead>
-                    <TableHead className="min-w-[140px]">Phone Number</TableHead>
-                    <TableHead className="min-w-[140px]">Role</TableHead>
-                    <TableHead className="min-w-[120px]">Created Date</TableHead>
-                    <TableHead className="w-24">Status</TableHead>
-                    <TableHead className="text-right w-24">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredUsers.map((u) => {
-                    const isSelf =
-                      currentAuthUser?.email?.toLowerCase() === u.email.toLowerCase() ||
-                      currentAuthUser?.id === u.id;
+            <div>
+              {/* Mobile Cards (screens < 768px) */}
+              <div className="block md:hidden divide-y divide-border/60">
+                {filteredUsers.map((u) => {
+                  const isSelf =
+                    currentAuthUser?.email?.toLowerCase() === u.email.toLowerCase() ||
+                    currentAuthUser?.id === u.id;
 
-                    return (
-                      <TableRow key={u.id} className="hover:bg-muted/30 transition-colors">
-                        {/* Full Name */}
-                        <TableCell>
-                          <div className="flex items-center gap-2.5">
-                            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-primary font-semibold text-xs shrink-0">
-                              {u.full_name.charAt(0).toUpperCase()}
-                            </div>
-                            <div>
-                              <p className="font-medium text-xs text-foreground flex items-center gap-1.5">
-                                {u.full_name}
-                                {isSelf && (
-                                  <Badge variant="outline" className="text-[10px] py-0 px-1 font-normal text-muted-foreground">
-                                    You
-                                  </Badge>
-                                )}
-                              </p>
-                              <span
-                                className="inline-flex items-center gap-1 text-[11px] font-mono text-muted-foreground"
-                                title={`Internal UUID: ${u.id}`}
-                              >
-                                <span className="text-[10px] font-sans font-medium text-muted-foreground/70">ID:</span>
-                                <span className="font-semibold text-foreground/80">{getUserDisplayCode(u, users)}</span>
-                              </span>
-                            </div>
+                  return (
+                    <div key={u.id} className="p-3.5 space-y-2.5 bg-card/50 hover:bg-muted/30 transition-colors">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary font-bold text-sm shrink-0">
+                            {u.full_name.charAt(0).toUpperCase()}
                           </div>
-                        </TableCell>
-
-                        {/* Email */}
-                        <TableCell>
-                          <div className="flex items-center gap-1.5 text-xs text-foreground font-mono">
-                            <Mail className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                            <span>{u.email}</span>
+                          <div className="min-w-0">
+                            <p className="font-semibold text-sm text-foreground flex items-center gap-1.5 truncate">
+                              {u.full_name}
+                              {isSelf && (
+                                <Badge variant="outline" className="text-[10px] py-0 px-1 font-normal text-muted-foreground shrink-0">
+                                  You
+                                </Badge>
+                              )}
+                            </p>
+                            <span
+                              className="inline-flex items-center gap-1 text-[11px] font-mono text-muted-foreground"
+                              title={`Internal UUID: ${u.id}`}
+                            >
+                              <span className="text-[10px] font-sans font-medium text-muted-foreground/70">ID:</span>
+                              <span className="font-semibold text-foreground/80">{getUserDisplayCode(u, users)}</span>
+                            </span>
                           </div>
-                        </TableCell>
+                        </div>
 
-                        {/* Phone Number */}
-                        <TableCell>
-                          {u.phone ? (
-                            <div className="flex items-center gap-1.5 text-xs text-foreground font-mono">
-                              <Phone className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                              <span>{u.phone}</span>
-                            </div>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">—</span>
-                          )}
-                        </TableCell>
-
-                        {/* Role */}
-                        <TableCell>
+                        <div className="shrink-0 flex items-center gap-1.5">
                           {getRoleBadge(u.role_name || u.role)}
-                        </TableCell>
+                        </div>
+                      </div>
 
-                        {/* Created Date */}
-                        <TableCell>
-                          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                            <Calendar className="h-3.5 w-3.5 shrink-0" />
-                            <span>{formatDate(u.created_at)}</span>
+                      <div className="text-xs space-y-1 text-muted-foreground">
+                        <div className="flex items-center gap-1.5 font-mono">
+                          <Mail className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                          <span className="truncate">{u.email}</span>
+                        </div>
+                        {u.phone && (
+                          <div className="flex items-center gap-1.5 font-mono">
+                            <Phone className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
+                            <a href={`tel:${u.phone}`} className="hover:text-primary transition-colors">
+                              {u.phone}
+                            </a>
                           </div>
-                        </TableCell>
+                        )}
+                      </div>
 
-                        {/* Status */}
-                        <TableCell>
+                      <div className="flex items-center justify-between pt-1 border-t border-border/40 text-xs">
+                        <div className="flex items-center gap-2 text-muted-foreground">
                           {u.is_active !== false ? (
-                            <span className="inline-flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400 font-medium">
+                            <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-medium">
                               <CheckCircle2 className="h-3.5 w-3.5" />
                               Active
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1 text-xs text-muted-foreground font-medium">
+                            <span className="inline-flex items-center gap-1 text-muted-foreground font-medium">
                               Inactive
                             </span>
                           )}
-                        </TableCell>
+                          <span>•</span>
+                          <span>{formatDate(u.created_at)}</span>
+                        </div>
 
-                        {/* Actions: Edit & Delete */}
-                        <TableCell className="text-right">
-                          <div className="flex items-center justify-end gap-1">
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleOpenEdit(u)}
+                            title={`Edit ${u.full_name}`}
+                            className="h-8 w-8 text-foreground hover:text-primary"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                          {isSelf ? (
                             <Button
                               variant="ghost"
                               size="icon"
-                              onClick={() => handleOpenEdit(u)}
-                              title={`Edit ${u.full_name}`}
-                              className="h-8 w-8 text-foreground hover:text-primary"
+                              disabled
+                              className="h-8 w-8 opacity-30 cursor-not-allowed text-muted-foreground"
+                              title="Safety Guard: You cannot delete your own account"
                             >
-                              <Pencil className="h-3.5 w-3.5" />
+                              <Trash2 className="h-3.5 w-3.5" />
                             </Button>
+                          ) : (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleDeleteUser(u)}
+                              title={`Delete ${u.full_name}`}
+                              className="h-8 w-8 text-destructive hover:bg-destructive/10"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
 
-                            {isSelf ? (
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                disabled
-                                className="h-8 w-8 opacity-30 cursor-not-allowed text-muted-foreground"
-                                title="Safety Guard: You cannot delete your own account"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </Button>
+              {/* Desktop Table (screens md+ >= 768px) */}
+              <div className="hidden md:block overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-muted/40">
+                      <TableHead className="min-w-[180px]">Full Name</TableHead>
+                      <TableHead className="min-w-[200px]">Email</TableHead>
+                      <TableHead className="min-w-[140px]">Phone Number</TableHead>
+                      <TableHead className="min-w-[140px]">Role</TableHead>
+                      <TableHead className="min-w-[120px]">Created Date</TableHead>
+                      <TableHead className="w-24">Status</TableHead>
+                      <TableHead className="text-right w-24">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredUsers.map((u) => {
+                      const isSelf =
+                        currentAuthUser?.email?.toLowerCase() === u.email.toLowerCase() ||
+                        currentAuthUser?.id === u.id;
+
+                      return (
+                        <TableRow key={u.id} className="hover:bg-muted/30 transition-colors">
+                          {/* Full Name */}
+                          <TableCell>
+                            <div className="flex items-center gap-2.5">
+                              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-primary font-semibold text-xs shrink-0">
+                                {u.full_name.charAt(0).toUpperCase()}
+                              </div>
+                              <div>
+                                <p className="font-medium text-xs text-foreground flex items-center gap-1.5">
+                                  {u.full_name}
+                                  {isSelf && (
+                                    <Badge variant="outline" className="text-[10px] py-0 px-1 font-normal text-muted-foreground">
+                                      You
+                                    </Badge>
+                                  )}
+                                </p>
+                                <span
+                                  className="inline-flex items-center gap-1 text-[11px] font-mono text-muted-foreground"
+                                  title={`Internal UUID: ${u.id}`}
+                                >
+                                  <span className="text-[10px] font-sans font-medium text-muted-foreground/70">ID:</span>
+                                  <span className="font-semibold text-foreground/80">{getUserDisplayCode(u, users)}</span>
+                                </span>
+                              </div>
+                            </div>
+                          </TableCell>
+
+                          {/* Email */}
+                          <TableCell>
+                            <div className="flex items-center gap-1.5 text-xs text-foreground font-mono">
+                              <Mail className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                              <span>{u.email}</span>
+                            </div>
+                          </TableCell>
+
+                          {/* Phone Number */}
+                          <TableCell>
+                            {u.phone ? (
+                              <div className="flex items-center gap-1.5 text-xs text-foreground font-mono">
+                                <Phone className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                                <span>{u.phone}</span>
+                              </div>
                             ) : (
+                              <span className="text-xs text-muted-foreground">—</span>
+                            )}
+                          </TableCell>
+
+                          {/* Role */}
+                          <TableCell>
+                            {getRoleBadge(u.role_name || u.role)}
+                          </TableCell>
+
+                          {/* Created Date */}
+                          <TableCell>
+                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                              <Calendar className="h-3.5 w-3.5 shrink-0" />
+                              <span>{formatDate(u.created_at)}</span>
+                            </div>
+                          </TableCell>
+
+                          {/* Status */}
+                          <TableCell>
+                            {u.is_active !== false ? (
+                              <span className="inline-flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400 font-medium">
+                                <CheckCircle2 className="h-3.5 w-3.5" />
+                                Active
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-xs text-muted-foreground font-medium">
+                                Inactive
+                              </span>
+                            )}
+                          </TableCell>
+
+                          {/* Actions: Edit & Delete */}
+                          <TableCell className="text-right">
+                            <div className="flex items-center justify-end gap-1">
                               <Button
                                 variant="ghost"
                                 size="icon"
-                                onClick={() => handleDeleteUser(u)}
-                                title={`Delete ${u.full_name}`}
-                                className="h-8 w-8 text-destructive hover:bg-destructive/10"
+                                onClick={() => handleOpenEdit(u)}
+                                title={`Edit ${u.full_name}`}
+                                className="h-8 w-8 text-foreground hover:text-primary"
                               >
-                                <Trash2 className="h-3.5 w-3.5" />
+                                <Pencil className="h-3.5 w-3.5" />
                               </Button>
-                            )}
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
+
+                              {isSelf ? (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  disabled
+                                  className="h-8 w-8 opacity-30 cursor-not-allowed text-muted-foreground"
+                                  title="Safety Guard: You cannot delete your own account"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              ) : (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => handleDeleteUser(u)}
+                                  title={`Delete ${u.full_name}`}
+                                  className="h-8 w-8 text-destructive hover:bg-destructive/10"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              )}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
             </div>
           )}
         </CardContent>

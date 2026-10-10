@@ -30,13 +30,41 @@ export function AppLayout({ children }: { children: ReactNode }) {
   });
 
   useEffect(() => {
-    const updateUnread = () => {
+    let isMounted = true;
+    const fetchUnread = async () => {
+      try {
+        const { count, error } = await supabase
+          .from("notifications")
+          .select("id", { count: "exact", head: true })
+          .eq("is_read", false);
+        if (!error && count !== null && isMounted) {
+          setUnreadCount(count);
+          return;
+        }
+      } catch (e) {
+        // Fallback to local storage if network dropped
+      }
       const list = getLocalData<any>(STORAGE_KEYS.NOTIFICATIONS, []);
-      setUnreadCount(list.filter((n: any) => !n.is_read).length);
+      if (isMounted) setUnreadCount(list.filter((n: any) => !n.is_read).length);
+    };
+
+    fetchUnread();
+
+    const notifChannel = supabase
+      .channel("app-layout-notifications")
+      .on("postgres_changes", { event: "*", schema: "public", table: "notifications" }, () => {
+        fetchUnread();
+      })
+      .subscribe();
+
+    const updateUnread = () => {
+      fetchUnread();
     };
     window.addEventListener("storage", updateUnread);
     window.addEventListener("sales_erp_storage_update", updateUnread);
     return () => {
+      isMounted = false;
+      supabase.removeChannel(notifChannel);
       window.removeEventListener("storage", updateUnread);
       window.removeEventListener("sales_erp_storage_update", updateUnread);
     };
@@ -48,7 +76,10 @@ export function AppLayout({ children }: { children: ReactNode }) {
     <div className="min-h-screen bg-background">
       {/* Mobile overlay */}
       {sidebarOpen && (
-        <div className="fixed inset-0 z-30 bg-black/50 lg:hidden" onClick={() => setSidebarOpen(false)} />
+        <div
+          className="fixed inset-0 z-30 bg-black/60 backdrop-blur-xs transition-opacity duration-300 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
       )}
 
       {/* Sidebar */}

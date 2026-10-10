@@ -652,171 +652,571 @@ export function SupplierLedger() {
               </div>
             </CardHeader>
             <CardContent className="p-0">
-              <div className="relative overflow-y-auto max-h-[500px] xl:max-h-[calc(100vh-380px)] border-t">
-                <Table>
-                  <TableHeader className="sticky top-0 z-20 shadow-xs">
-                    <TableRow className="border-b shadow-[0_1px_2px_rgba(0,0,0,0.05)] bg-background">
-                      <TableHead className="w-28 sticky top-0 z-20 bg-background font-semibold text-foreground">Date</TableHead>
-                      <TableHead className="w-36 sticky top-0 z-20 bg-background font-semibold text-foreground">Ref / Voucher No</TableHead>
-                      <TableHead className="sticky top-0 z-20 bg-background font-semibold text-foreground">Particulars / Description</TableHead>
-                      <TableHead className="text-right w-36 sticky top-0 z-20 bg-background font-semibold text-foreground">Purchase / Bill (+৳)</TableHead>
-                      <TableHead className="text-right w-36 sticky top-0 z-20 bg-background font-semibold text-foreground">Payment Made (-৳)</TableHead>
-                      <TableHead className="text-right w-40 sticky top-0 z-20 bg-background font-semibold text-foreground">Running Balance (৳)</TableHead>
-                      <TableHead className="text-right w-44 sticky top-0 z-20 bg-background font-semibold text-foreground">Action</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {procurementLedger.entries.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={7} className="text-center py-8 text-muted-foreground text-sm">
-                          No purchase chalans or payments recorded yet for this supplier.
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      procurementLedger.entries.map((item) => {
-                        if (item.type === "opening") {
-                          return (
-                            <TableRow key={item.id} className="bg-muted/30 font-medium border-l-4 border-l-purple-500">
-                              <TableCell className="text-xs font-mono">{item.date}</TableCell>
-                              <TableCell className="font-mono text-xs font-semibold text-purple-700 dark:text-purple-300">{item.reference}</TableCell>
-                              <TableCell className="text-xs font-medium text-foreground">{item.particulars}</TableCell>
-                              <TableCell className="text-right font-mono text-muted-foreground">—</TableCell>
-                              <TableCell className="text-right font-mono text-muted-foreground">—</TableCell>
-                              <TableCell className={`text-right font-mono font-bold ${item.runningBalance > 0
+              {procurementLedger.entries.length === 0 ? (
+                <div className="text-center py-10 px-4 text-muted-foreground text-sm">
+                  No purchase chalans or payments recorded yet for this supplier.
+                </div>
+              ) : (
+                <div>
+                  {/* Mobile Cards (screens < 768px) */}
+                  <div className="block md:hidden divide-y divide-border/60">
+                    {procurementLedger.entries.map((item) => {
+                      if (item.type === "opening") {
+                        return (
+                          <div key={item.id} className="p-3.5 space-y-1.5 bg-purple-500/5 border-l-4 border-l-purple-500">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="font-semibold text-purple-700 dark:text-purple-300 font-mono">{item.reference}</span>
+                              <span className="text-muted-foreground">{item.date}</span>
+                            </div>
+                            <p className="text-xs font-medium text-foreground">{item.particulars}</p>
+                            <div className="flex items-center justify-between pt-1">
+                              <span className="text-xs text-muted-foreground">Running Balance:</span>
+                              <span className={`text-sm font-bold font-mono ${item.runningBalance > 0
                                 ? "text-amber-600 dark:text-amber-400"
                                 : item.runningBalance === 0
                                   ? "text-emerald-600 dark:text-emerald-400"
                                   : "text-blue-600 dark:text-blue-400"
                                 }`}>
                                 {formatBDT(item.runningBalance)}
-                              </TableCell>
-                              <TableCell className="text-right text-muted-foreground text-xs">—</TableCell>
-                            </TableRow>
-                          );
-                        }
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      }
 
-                        if (item.type === "invoice") {
-                          return (
-                            <TableRow key={item.id} className="hover:bg-muted/40 transition-colors">
-                              <TableCell className="text-xs font-mono">{item.date}</TableCell>
-                              <TableCell className="font-mono font-bold text-foreground">
-                                <div className="flex items-center gap-1.5">
+                      if (item.type === "invoice") {
+                        return (
+                          <div key={item.id} className="p-3.5 space-y-2 bg-card/50 hover:bg-muted/30 transition-colors">
+                            <div className="flex items-start justify-between gap-2">
+                              <div>
+                                <div className="flex items-center gap-1.5 font-bold text-sm text-foreground">
                                   <FileText className="h-3.5 w-3.5 text-blue-500 shrink-0" />
                                   <span>{item.reference}</span>
                                 </div>
-                              </TableCell>
-                              <TableCell className="text-xs text-foreground">
-                                <span>{item.particulars}</span>
-                              </TableCell>
-                              <TableCell className="text-right font-mono font-semibold text-foreground">
-                                {formatBDT(item.purchaseAmount)}
-                              </TableCell>
-                              <TableCell className="text-right font-mono text-muted-foreground">
-                                —
-                              </TableCell>
-                              <TableCell
-                                className={`text-right font-mono font-bold ${item.runningBalance > 0
+                                <span className="text-xs text-muted-foreground">{item.date}</span>
+                              </div>
+                              <div className="text-right">
+                                <span className="text-xs text-muted-foreground block">Bill (+৳)</span>
+                                <span className="text-sm font-bold text-foreground font-mono">
+                                  {formatBDT(item.purchaseAmount)}
+                                </span>
+                              </div>
+                            </div>
+
+                            <p className="text-xs text-muted-foreground line-clamp-2">{item.particulars}</p>
+
+                            <div className="flex items-center justify-between pt-1 border-t border-border/40 text-xs">
+                              <div className="flex items-center gap-1">
+                                <span className="text-muted-foreground">Balance:</span>
+                                <span className={`font-mono font-bold ${item.runningBalance > 0
                                   ? "text-amber-600 dark:text-amber-400"
                                   : item.runningBalance === 0
                                     ? "text-emerald-600 dark:text-emerald-400"
                                     : "text-blue-600 dark:text-blue-400"
-                                  }`}
-                              >
-                                {formatBDT(item.runningBalance)}
-                              </TableCell>
-                              <TableCell className="text-right">
-                                <div className="flex items-center justify-end gap-1.5">
-                                  {item.invoice && (
-                                    <>
-                                      <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() => {
-                                          setPayInvoiceId(item.invoice!.id);
-                                          setPaymentModalOpen(true);
-                                        }}
-                                        className="h-7 text-xs px-2 text-emerald-700 dark:text-emerald-400 border-emerald-600/30 hover:bg-emerald-50 dark:hover:bg-emerald-950/30"
-                                        title="Record payment against this chalan"
-                                      >
-                                        <DollarSign className="h-3 w-3 mr-0.5" /> Pay
-                                      </Button>
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        onClick={() => setViewInvoice(item.invoice!)}
-                                        className="h-7 gap-1 text-xs px-2"
-                                        title="View Chalan Details"
-                                      >
-                                        <Eye className="h-3.5 w-3.5" /> Details
-                                      </Button>
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        onClick={() => setEditItem({ type: "invoice", invoice: item.invoice! })}
-                                        className="h-7 w-7 p-0 text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/40"
-                                        title="Edit Chalan"
-                                      >
-                                        <Pencil className="h-3.5 w-3.5" />
-                                      </Button>
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        onClick={() =>
-                                          setDeleteItem({
-                                            type: "invoice",
-                                            id: item.invoice!.id,
-                                            reference: item.invoice!.invoice_number,
-                                            amount: item.invoice!.total_amount,
-                                            date: item.date,
-                                          })
-                                        }
-                                        className="h-7 w-7 p-0 text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/40"
-                                        title="Delete Chalan"
-                                      >
-                                        <Trash2 className="h-3.5 w-3.5" />
-                                      </Button>
-                                    </>
-                                  )}
-                                </div>
-                              </TableCell>
-                            </TableRow>
-                          );
-                        }
+                                  }`}>
+                                  {formatBDT(item.runningBalance)}
+                                </span>
+                              </div>
 
-                        // Debit Note (Purchase Return) Row Entry
-                        if (item.type === "debit_note") {
+                              <div className="flex items-center gap-1">
+                                {item.invoice && (
+                                  <>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => {
+                                        setPayInvoiceId(item.invoice!.id);
+                                        setPaymentModalOpen(true);
+                                      }}
+                                      className="h-7 text-xs px-2 text-emerald-700 dark:text-emerald-400 border-emerald-600/30"
+                                    >
+                                      <DollarSign className="h-3 w-3 mr-0.5" /> Pay
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => setViewInvoice(item.invoice!)}
+                                      className="h-7 text-xs px-2"
+                                    >
+                                      <Eye className="h-3.5 w-3.5" /> Details
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      onClick={() => setEditItem({ type: "invoice", invoice: item.invoice! })}
+                                      className="h-7 w-7 text-blue-600 hover:bg-blue-50"
+                                    >
+                                      <Pencil className="h-3.5 w-3.5" />
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      onClick={() =>
+                                        setDeleteItem({
+                                          type: "invoice",
+                                          id: item.invoice!.id,
+                                          reference: item.invoice!.invoice_number,
+                                          amount: item.invoice!.total_amount,
+                                          date: item.date,
+                                        })
+                                      }
+                                      className="h-7 w-7 text-rose-600 hover:bg-rose-50"
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      if (item.type === "debit_note") {
+                        return (
+                          <div key={item.id} className="p-3.5 space-y-2 bg-amber-50/50 dark:bg-amber-950/20 border-l-4 border-l-amber-500">
+                            <div className="flex items-start justify-between gap-2">
+                              <div>
+                                <div className="flex items-center gap-1.5">
+                                  <RotateCcw className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                                  <Badge variant="outline" className="border-amber-300 bg-amber-100/60 text-amber-800 text-[11px] font-mono">
+                                    {item.reference}
+                                  </Badge>
+                                </div>
+                                <span className="text-xs text-muted-foreground">{item.date}</span>
+                              </div>
+                              <div className="text-right">
+                                <span className="text-xs text-muted-foreground block">Return (-৳)</span>
+                                <span className="text-sm font-bold text-amber-700 dark:text-amber-400 font-mono">
+                                  {formatBDT(item.paymentAmount)}
+                                </span>
+                              </div>
+                            </div>
+
+                            <p className="text-xs font-semibold text-amber-950 dark:text-amber-200">{item.particulars}</p>
+
+                            <div className="flex items-center justify-between pt-1 border-t border-border/40 text-xs">
+                              <div className="flex items-center gap-1">
+                                <span className="text-muted-foreground">Balance:</span>
+                                <span className={`font-mono font-bold ${item.runningBalance > 0
+                                  ? "text-amber-600 dark:text-amber-400"
+                                  : item.runningBalance === 0
+                                    ? "text-emerald-600 dark:text-emerald-400"
+                                    : "text-blue-600 dark:text-blue-400"
+                                  }`}>
+                                  {formatBDT(item.runningBalance)}
+                                </span>
+                              </div>
+
+                              <div className="flex items-center gap-1">
+                                {item.payment && (
+                                  <>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => setViewPayment(item.payment!)}
+                                      className="h-7 text-xs px-2 text-amber-700"
+                                    >
+                                      <Eye className="h-3.5 w-3.5" /> Note
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      onClick={() => setEditItem({ type: "debit_note", payment: item.payment! })}
+                                      className="h-7 w-7 text-amber-700 hover:bg-amber-100/50"
+                                    >
+                                      <Pencil className="h-3.5 w-3.5" />
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      onClick={() =>
+                                        setDeleteItem({
+                                          type: "debit_note",
+                                          id: item.payment!.id,
+                                          reference: item.reference,
+                                          amount: item.paymentAmount,
+                                          date: item.date,
+                                        })
+                                      }
+                                      className="h-7 w-7 text-rose-600 hover:bg-rose-50"
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      // Payment
+                      return (
+                        <div key={item.id} className="p-3.5 space-y-2 bg-emerald-50/50 dark:bg-emerald-950/20 border-l-4 border-l-emerald-500">
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <div className="flex items-center gap-1.5 font-bold text-sm text-emerald-700 dark:text-emerald-400">
+                                <DollarSign className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                                <span>{item.reference}</span>
+                              </div>
+                              <span className="text-xs text-muted-foreground">{item.date}</span>
+                            </div>
+                            <div className="text-right">
+                              <span className="text-xs text-muted-foreground block">Paid (-৳)</span>
+                              <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400 font-mono">
+                                {formatBDT(item.paymentAmount)}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="text-xs text-foreground">
+                            <p>{(item.particulars || "").replace(/\s*\[Txn(?:\s*ID)?:\s*[^\]]+\]/gi, "").replace(/\s*\[Chq:\s*[^\]]+\]/gi, "").trim()}</p>
+                            {item.payment?.payment_mode && (
+                              <Badge variant="secondary" className="text-[10px] py-0 px-1 mt-1 font-normal">
+                                {item.payment.payment_mode}
+                              </Badge>
+                            )}
+                          </div>
+
+                          <div className="flex items-center justify-between pt-1 border-t border-border/40 text-xs">
+                            <div className="flex items-center gap-1">
+                              <span className="text-muted-foreground">Balance:</span>
+                              <span className={`font-mono font-bold ${item.runningBalance > 0
+                                ? "text-amber-600 dark:text-amber-400"
+                                : item.runningBalance === 0
+                                  ? "text-emerald-600 dark:text-emerald-400"
+                                  : "text-blue-600 dark:text-blue-400"
+                                }`}>
+                                {formatBDT(item.runningBalance)}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-1">
+                              {item.payment && (
+                                <>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => setViewPayment(item.payment!)}
+                                    className="h-7 text-xs px-2 text-emerald-700"
+                                  >
+                                    <Eye className="h-3.5 w-3.5" /> Voucher
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => setEditItem({ type: "payment", payment: item.payment! })}
+                                    className="h-7 w-7 text-blue-600 hover:bg-blue-50"
+                                  >
+                                    <Pencil className="h-3.5 w-3.5" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() =>
+                                      setDeleteItem({
+                                        type: "payment",
+                                        id: item.payment!.id,
+                                        reference: item.reference,
+                                        amount: item.paymentAmount,
+                                        date: item.date,
+                                      })
+                                    }
+                                    className="h-7 w-7 text-rose-600 hover:bg-rose-50"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </Button>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {/* Mobile Summary Row */}
+                    <div className="p-3 bg-muted/60 text-xs space-y-1.5 font-mono">
+                      <div className="flex justify-between text-muted-foreground">
+                        <span>Total Purchases (+৳):</span>
+                        <span className="font-bold text-foreground">{formatBDT(procurementLedger.totalPurchases)}</span>
+                      </div>
+                      <div className="flex justify-between text-emerald-600 dark:text-emerald-400">
+                        <span>Total Payments (-৳):</span>
+                        <span className="font-bold">{formatBDT(procurementLedger.totalPayments)}</span>
+                      </div>
+                      <div className="flex justify-between pt-1 border-t border-border/60 text-sm font-bold">
+                        <span className="text-foreground">Closing Balance:</span>
+                        <span className={procurementLedger.closingBalance > 0 ? "text-amber-600" : "text-emerald-600"}>
+                          {formatBDT(procurementLedger.closingBalance)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Desktop Table (screens md+ >= 768px) */}
+                  <div className="hidden md:block relative overflow-y-auto max-h-[500px] xl:max-h-[calc(100vh-380px)] border-t">
+                    <Table>
+                      <TableHeader className="sticky top-0 z-20 shadow-xs">
+                        <TableRow className="border-b shadow-[0_1px_2px_rgba(0,0,0,0.05)] bg-background">
+                          <TableHead className="w-28 sticky top-0 z-20 bg-background font-semibold text-foreground">Date</TableHead>
+                          <TableHead className="w-36 sticky top-0 z-20 bg-background font-semibold text-foreground">Ref / Voucher No</TableHead>
+                          <TableHead className="sticky top-0 z-20 bg-background font-semibold text-foreground">Particulars / Description</TableHead>
+                          <TableHead className="text-right w-36 sticky top-0 z-20 bg-background font-semibold text-foreground">Purchase / Bill (+৳)</TableHead>
+                          <TableHead className="text-right w-36 sticky top-0 z-20 bg-background font-semibold text-foreground">Payment Made (-৳)</TableHead>
+                          <TableHead className="text-right w-40 sticky top-0 z-20 bg-background font-semibold text-foreground">Running Balance (৳)</TableHead>
+                          <TableHead className="text-right w-44 sticky top-0 z-20 bg-background font-semibold text-foreground">Action</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {procurementLedger.entries.map((item) => {
+                          if (item.type === "opening") {
+                            return (
+                              <TableRow key={item.id} className="bg-muted/30 font-medium border-l-4 border-l-purple-500">
+                                <TableCell className="text-xs font-mono">{item.date}</TableCell>
+                                <TableCell className="font-mono text-xs font-semibold text-purple-700 dark:text-purple-300">{item.reference}</TableCell>
+                                <TableCell className="text-xs font-medium text-foreground">{item.particulars}</TableCell>
+                                <TableCell className="text-right font-mono text-muted-foreground">—</TableCell>
+                                <TableCell className="text-right font-mono text-muted-foreground">—</TableCell>
+                                <TableCell className={`text-right font-mono font-bold ${item.runningBalance > 0
+                                  ? "text-amber-600 dark:text-amber-400"
+                                  : item.runningBalance === 0
+                                    ? "text-emerald-600 dark:text-emerald-400"
+                                    : "text-blue-600 dark:text-blue-400"
+                                  }`}>
+                                  {formatBDT(item.runningBalance)}
+                                </TableCell>
+                                <TableCell className="text-right text-muted-foreground text-xs">—</TableCell>
+                              </TableRow>
+                            );
+                          }
+
+                          if (item.type === "invoice") {
+                            return (
+                              <TableRow key={item.id} className="hover:bg-muted/40 transition-colors">
+                                <TableCell className="text-xs font-mono">{item.date}</TableCell>
+                                <TableCell className="font-mono font-bold text-foreground">
+                                  <div className="flex items-center gap-1.5">
+                                    <FileText className="h-3.5 w-3.5 text-blue-500 shrink-0" />
+                                    <span>{item.reference}</span>
+                                  </div>
+                                </TableCell>
+                                <TableCell className="text-xs text-foreground">
+                                  <span>{item.particulars}</span>
+                                </TableCell>
+                                <TableCell className="text-right font-mono font-semibold text-foreground">
+                                  {formatBDT(item.purchaseAmount)}
+                                </TableCell>
+                                <TableCell className="text-right font-mono text-muted-foreground">
+                                  —
+                                </TableCell>
+                                <TableCell
+                                  className={`text-right font-mono font-bold ${item.runningBalance > 0
+                                    ? "text-amber-600 dark:text-amber-400"
+                                    : item.runningBalance === 0
+                                      ? "text-emerald-600 dark:text-emerald-400"
+                                      : "text-blue-600 dark:text-blue-400"
+                                    }`}
+                                >
+                                  {formatBDT(item.runningBalance)}
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  <div className="flex items-center justify-end gap-1.5">
+                                    {item.invoice && (
+                                      <>
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          onClick={() => {
+                                            setPayInvoiceId(item.invoice!.id);
+                                            setPaymentModalOpen(true);
+                                          }}
+                                          className="h-7 text-xs px-2 text-emerald-700 dark:text-emerald-400 border-emerald-600/30 hover:bg-emerald-50 dark:hover:bg-emerald-950/30"
+                                          title="Record payment against this chalan"
+                                        >
+                                          <DollarSign className="h-3 w-3 mr-0.5" /> Pay
+                                        </Button>
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          onClick={() => setViewInvoice(item.invoice!)}
+                                          className="h-7 gap-1 text-xs px-2"
+                                          title="View Chalan Details"
+                                        >
+                                          <Eye className="h-3.5 w-3.5" /> Details
+                                        </Button>
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          onClick={() => setEditItem({ type: "invoice", invoice: item.invoice! })}
+                                          className="h-7 w-7 p-0 text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/40"
+                                          title="Edit Chalan"
+                                        >
+                                          <Pencil className="h-3.5 w-3.5" />
+                                        </Button>
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          onClick={() =>
+                                            setDeleteItem({
+                                              type: "invoice",
+                                              id: item.invoice!.id,
+                                              reference: item.invoice!.invoice_number,
+                                              amount: item.invoice!.total_amount,
+                                              date: item.date,
+                                            })
+                                          }
+                                          className="h-7 w-7 p-0 text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+                                          title="Delete Chalan"
+                                        >
+                                          <Trash2 className="h-3.5 w-3.5" />
+                                        </Button>
+                                      </>
+                                    )}
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          }
+
+                          // Debit Note (Purchase Return) Row Entry
+                          if (item.type === "debit_note") {
+                            return (
+                              <TableRow
+                                key={item.id}
+                                className="bg-amber-50/50 dark:bg-amber-950/20 hover:bg-amber-100/50 dark:hover:bg-amber-900/30 transition-colors border-l-4 border-l-amber-500"
+                              >
+                                <TableCell className="text-xs font-mono text-amber-950 dark:text-amber-200">
+                                  {item.date}
+                                </TableCell>
+                                <TableCell className="font-mono font-semibold text-amber-800 dark:text-amber-400">
+                                  <div className="flex items-center gap-1.5">
+                                    <RotateCcw className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                                    <Badge variant="outline" className="border-amber-300 dark:border-amber-700 bg-amber-100/60 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 font-mono text-[11px] px-1.5 py-0">
+                                      {item.reference}
+                                    </Badge>
+                                  </div>
+                                </TableCell>
+                                <TableCell className="text-xs">
+                                  <div className="flex flex-col">
+                                    <span className="font-semibold text-amber-950 dark:text-amber-200">
+                                      {item.particulars}
+                                    </span>
+                                    <div className="flex items-center gap-2 mt-0.5">
+                                      <span className="inline-flex items-center text-[10px] font-semibold text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/60 px-1.5 py-0.5 rounded">
+                                        Purchase Return / Damaged Goods (-৳)
+                                      </span>
+                                    </div>
+                                  </div>
+                                </TableCell>
+                                <TableCell className="text-right font-mono text-muted-foreground">
+                                  —
+                                </TableCell>
+                                <TableCell className="text-right font-mono font-bold text-amber-700 dark:text-amber-400">
+                                  {formatBDT(item.paymentAmount)}
+                                </TableCell>
+                                <TableCell
+                                  className={`text-right font-mono font-bold ${item.runningBalance > 0
+                                    ? "text-amber-600 dark:text-amber-400"
+                                    : item.runningBalance === 0
+                                      ? "text-emerald-600 dark:text-emerald-400"
+                                      : "text-blue-600 dark:text-blue-400"
+                                    }`}
+                                >
+                                  {formatBDT(item.runningBalance)}
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  <div className="flex items-center justify-end gap-1.5">
+                                    {item.payment && (
+                                      <>
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          onClick={() => setViewPayment(item.payment!)}
+                                          className="h-7 gap-1 text-xs px-2 text-amber-700 dark:text-amber-400 hover:text-amber-800 dark:hover:text-amber-300"
+                                          title="View Debit Note"
+                                        >
+                                          <Eye className="h-3.5 w-3.5" /> Note
+                                        </Button>
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          onClick={() => setEditItem({ type: "debit_note", payment: item.payment! })}
+                                          className="h-7 w-7 p-0 text-amber-700 hover:text-amber-800 hover:bg-amber-100/50 dark:hover:bg-amber-950/40"
+                                          title="Edit Debit Note"
+                                        >
+                                          <Pencil className="h-3.5 w-3.5" />
+                                        </Button>
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          onClick={() =>
+                                            setDeleteItem({
+                                              type: "debit_note",
+                                              id: item.payment!.id,
+                                              reference: item.reference,
+                                              amount: item.paymentAmount,
+                                              date: item.date,
+                                            })
+                                          }
+                                          className="h-7 w-7 p-0 text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+                                          title="Delete Debit Note"
+                                        >
+                                          <Trash2 className="h-3.5 w-3.5" />
+                                        </Button>
+                                      </>
+                                    )}
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          }
+
+                          // Payment Row Entry
                           return (
                             <TableRow
                               key={item.id}
-                              className="bg-amber-50/50 dark:bg-amber-950/20 hover:bg-amber-100/50 dark:hover:bg-amber-900/30 transition-colors border-l-4 border-l-amber-500"
+                              className="bg-emerald-50/50 dark:bg-emerald-950/20 hover:bg-emerald-100/50 dark:hover:bg-emerald-900/30 transition-colors border-l-4 border-l-emerald-500"
                             >
-                              <TableCell className="text-xs font-mono text-amber-950 dark:text-amber-200">
+                              <TableCell className="text-xs font-mono text-emerald-950 dark:text-emerald-200">
                                 {item.date}
                               </TableCell>
-                              <TableCell className="font-mono font-semibold text-amber-800 dark:text-amber-400">
+                              <TableCell className="font-mono font-semibold text-emerald-700 dark:text-emerald-400">
                                 <div className="flex items-center gap-1.5">
-                                  <RotateCcw className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
-                                  <Badge variant="outline" className="border-amber-300 dark:border-amber-700 bg-amber-100/60 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 font-mono text-[11px] px-1.5 py-0">
-                                    {item.reference}
-                                  </Badge>
+                                  <DollarSign className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                                  <span>{item.reference}</span>
                                 </div>
                               </TableCell>
                               <TableCell className="text-xs">
                                 <div className="flex flex-col">
-                                  <span className="font-semibold text-amber-950 dark:text-amber-200">
-                                    {item.particulars}
+                                  <span className="font-medium text-emerald-950 dark:text-emerald-300">
+                                    {(item.particulars || "")
+                                      .replace(/\s*\[Txn(?:\s*ID)?:\s*[^\]]+\]/gi, "")
+                                      .replace(/\s*\[Chq:\s*[^\]]+\]/gi, "")
+                                      .trim()}
                                   </span>
-                                  <div className="flex items-center gap-2 mt-0.5">
-                                    <span className="inline-flex items-center text-[10px] font-semibold text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/60 px-1.5 py-0.5 rounded">
-                                      Purchase Return / Damaged Goods (-৳)
-                                    </span>
+                                  <div className="flex items-center gap-2 flex-wrap text-[11px] text-muted-foreground mt-0.5">
+                                    {item.payment?.payment_mode && (
+                                      <Badge variant="secondary" className="text-[10px] py-0 px-1 font-normal">
+                                        {item.payment.payment_mode}
+                                      </Badge>
+                                    )}
+                                    {item.payment?.bank_name && (
+                                      <span>Bank: {item.payment.bank_name}</span>
+                                    )}
+                                    {item.payment?.cheque_no && (
+                                      <span className="font-mono">Chq: {item.payment.cheque_no}</span>
+                                    )}
+                                    {item.payment?.transaction_id && (
+                                      <span className="font-mono">Txn ID: {item.payment.transaction_id}</span>
+                                    )}
                                   </div>
                                 </div>
                               </TableCell>
                               <TableCell className="text-right font-mono text-muted-foreground">
                                 —
                               </TableCell>
-                              <TableCell className="text-right font-mono font-bold text-amber-700 dark:text-amber-400">
+                              <TableCell className="text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">
                                 {formatBDT(item.paymentAmount)}
                               </TableCell>
                               <TableCell
@@ -837,17 +1237,17 @@ export function SupplierLedger() {
                                         variant="ghost"
                                         size="sm"
                                         onClick={() => setViewPayment(item.payment!)}
-                                        className="h-7 gap-1 text-xs px-2 text-amber-700 dark:text-amber-400 hover:text-amber-800 dark:hover:text-amber-300"
-                                        title="View Debit Note"
+                                        className="h-7 gap-1 text-xs px-2 text-emerald-700 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-300"
+                                        title="View Payment Voucher"
                                       >
-                                        <Eye className="h-3.5 w-3.5" /> Note
+                                        <Eye className="h-3.5 w-3.5" /> Voucher
                                       </Button>
                                       <Button
                                         variant="ghost"
                                         size="sm"
-                                        onClick={() => setEditItem({ type: "debit_note", payment: item.payment! })}
-                                        className="h-7 w-7 p-0 text-amber-700 hover:text-amber-800 hover:bg-amber-100/50 dark:hover:bg-amber-950/40"
-                                        title="Edit Debit Note"
+                                        onClick={() => setEditItem({ type: "payment", payment: item.payment! })}
+                                        className="h-7 w-7 p-0 text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/40"
+                                        title="Edit Payment"
                                       >
                                         <Pencil className="h-3.5 w-3.5" />
                                       </Button>
@@ -856,7 +1256,7 @@ export function SupplierLedger() {
                                         size="sm"
                                         onClick={() =>
                                           setDeleteItem({
-                                            type: "debit_note",
+                                            type: "payment",
                                             id: item.payment!.id,
                                             reference: item.reference,
                                             amount: item.paymentAmount,
@@ -864,7 +1264,7 @@ export function SupplierLedger() {
                                           })
                                         }
                                         className="h-7 w-7 p-0 text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/40"
-                                        title="Delete Debit Note"
+                                        title="Delete Payment"
                                       >
                                         <Trash2 className="h-3.5 w-3.5" />
                                       </Button>
@@ -874,139 +1274,34 @@ export function SupplierLedger() {
                               </TableCell>
                             </TableRow>
                           );
-                        }
-
-                        // Payment Row Entry
-                        return (
-                          <TableRow
-                            key={item.id}
-                            className="bg-emerald-50/50 dark:bg-emerald-950/20 hover:bg-emerald-100/50 dark:hover:bg-emerald-900/30 transition-colors border-l-4 border-l-emerald-500"
+                        })}
+                      </TableBody>
+                      <tfoot className="sticky bottom-0 z-20 border-t bg-muted/95 backdrop-blur-xs font-semibold text-xs shadow-[0_-1px_2px_rgba(0,0,0,0.05)]">
+                        <TableRow className="bg-muted/95 hover:bg-muted/95">
+                          <TableCell colSpan={3} className="sticky bottom-0 z-20 bg-muted text-right font-bold py-3 text-muted-foreground">
+                            Total Bills &amp; Payments:
+                          </TableCell>
+                          <TableCell className="sticky bottom-0 z-20 bg-muted text-right font-mono font-bold text-foreground">
+                            {formatBDT(procurementLedger.totalPurchases)}
+                          </TableCell>
+                          <TableCell className="sticky bottom-0 z-20 bg-muted text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                            {formatBDT(procurementLedger.totalPayments)}
+                          </TableCell>
+                          <TableCell
+                            className={`sticky bottom-0 z-20 bg-muted text-right font-mono font-bold text-sm ${procurementLedger.closingBalance > 0
+                              ? "text-amber-600 dark:text-amber-400"
+                              : "text-emerald-600 dark:text-emerald-400"
+                              }`}
                           >
-                            <TableCell className="text-xs font-mono text-emerald-950 dark:text-emerald-200">
-                              {item.date}
-                            </TableCell>
-                            <TableCell className="font-mono font-semibold text-emerald-700 dark:text-emerald-400">
-                              <div className="flex items-center gap-1.5">
-                                <DollarSign className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                                <span>{item.reference}</span>
-                              </div>
-                            </TableCell>
-                            <TableCell className="text-xs">
-                              <div className="flex flex-col">
-                                <span className="font-medium text-emerald-950 dark:text-emerald-300">
-                                  {(item.particulars || "")
-                                    .replace(/\s*\[Txn(?:\s*ID)?:\s*[^\]]+\]/gi, "")
-                                    .replace(/\s*\[Chq:\s*[^\]]+\]/gi, "")
-                                    .trim()}
-                                </span>
-                                <div className="flex items-center gap-2 flex-wrap text-[11px] text-muted-foreground mt-0.5">
-                                  {item.payment?.payment_mode && (
-                                    <Badge variant="secondary" className="text-[10px] py-0 px-1 font-normal">
-                                      {item.payment.payment_mode}
-                                    </Badge>
-                                  )}
-                                  {item.payment?.bank_name && (
-                                    <span>Bank: {item.payment.bank_name}</span>
-                                  )}
-                                  {item.payment?.cheque_no && (
-                                    <span className="font-mono">Chq: {item.payment.cheque_no}</span>
-                                  )}
-                                  {item.payment?.transaction_id && (
-                                    <span className="font-mono">Txn ID: {item.payment.transaction_id}</span>
-                                  )}
-                                </div>
-                              </div>
-                            </TableCell>
-                            <TableCell className="text-right font-mono text-muted-foreground">
-                              —
-                            </TableCell>
-                            <TableCell className="text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">
-                              {formatBDT(item.paymentAmount)}
-                            </TableCell>
-                            <TableCell
-                              className={`text-right font-mono font-bold ${item.runningBalance > 0
-                                ? "text-amber-600 dark:text-amber-400"
-                                : item.runningBalance === 0
-                                  ? "text-emerald-600 dark:text-emerald-400"
-                                  : "text-blue-600 dark:text-blue-400"
-                                }`}
-                            >
-                              {formatBDT(item.runningBalance)}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              <div className="flex items-center justify-end gap-1.5">
-                                {item.payment && (
-                                  <>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => setViewPayment(item.payment!)}
-                                      className="h-7 gap-1 text-xs px-2 text-emerald-700 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-300"
-                                      title="View Payment Voucher"
-                                    >
-                                      <Eye className="h-3.5 w-3.5" /> Voucher
-                                    </Button>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => setEditItem({ type: "payment", payment: item.payment! })}
-                                      className="h-7 w-7 p-0 text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/40"
-                                      title="Edit Payment"
-                                    >
-                                      <Pencil className="h-3.5 w-3.5" />
-                                    </Button>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() =>
-                                        setDeleteItem({
-                                          type: "payment",
-                                          id: item.payment!.id,
-                                          reference: item.reference,
-                                          amount: item.paymentAmount,
-                                          date: item.date,
-                                        })
-                                      }
-                                      className="h-7 w-7 p-0 text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/40"
-                                      title="Delete Payment"
-                                    >
-                                      <Trash2 className="h-3.5 w-3.5" />
-                                    </Button>
-                                  </>
-                                )}
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })
-                    )}
-                  </TableBody>
-                  {procurementLedger.entries.length > 0 && (
-                    <tfoot className="sticky bottom-0 z-20 border-t bg-muted/95 backdrop-blur-xs font-semibold text-xs shadow-[0_-1px_2px_rgba(0,0,0,0.05)]">
-                      <TableRow className="bg-muted/95 hover:bg-muted/95">
-                        <TableCell colSpan={3} className="sticky bottom-0 z-20 bg-muted text-right font-bold py-3 text-muted-foreground">
-                          Total Bills &amp; Payments:
-                        </TableCell>
-                        <TableCell className="sticky bottom-0 z-20 bg-muted text-right font-mono font-bold text-foreground">
-                          {formatBDT(procurementLedger.totalPurchases)}
-                        </TableCell>
-                        <TableCell className="sticky bottom-0 z-20 bg-muted text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">
-                          {formatBDT(procurementLedger.totalPayments)}
-                        </TableCell>
-                        <TableCell
-                          className={`sticky bottom-0 z-20 bg-muted text-right font-mono font-bold text-sm ${procurementLedger.closingBalance > 0
-                            ? "text-amber-600 dark:text-amber-400"
-                            : "text-emerald-600 dark:text-emerald-400"
-                            }`}
-                        >
-                          {formatBDT(procurementLedger.closingBalance)}
-                        </TableCell>
-                        <TableCell className="sticky bottom-0 z-20 bg-muted" />
-                      </TableRow>
-                    </tfoot>
-                  )}
-                </Table>
-              </div>
+                            {formatBDT(procurementLedger.closingBalance)}
+                          </TableCell>
+                          <TableCell className="sticky bottom-0 z-20 bg-muted" />
+                        </TableRow>
+                      </tfoot>
+                    </Table>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         )}

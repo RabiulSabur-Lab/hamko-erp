@@ -18,6 +18,21 @@ if (typeof window !== "undefined") {
   } catch (e) {
     console.warn("[app] Auto cleanup error:", e);
   }
+
+  // Notify Capgo updater that the app initialized successfully
+  try {
+    import("@capacitor/core").then(({ Capacitor }) => {
+      if (Capacitor.isNativePlatform()) {
+        import("@capgo/capacitor-updater").then(({ CapacitorUpdater }) => {
+          CapacitorUpdater.notifyAppReady().catch((err) => {
+            console.log("[Capgo] notifyAppReady err:", err);
+          });
+        });
+      }
+    });
+  } catch (err) {
+    console.warn("[Capgo] Initialization notice:", err);
+  }
 }
 
 const queryClient = new QueryClient({

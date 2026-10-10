@@ -559,7 +559,21 @@ export function OrdersPage() {
       }
     }
     load();
-    return () => { isMounted = false; };
+
+    const ordChannel = supabase
+      .channel("orders-page-realtime")
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => {
+        if (isMounted) load();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "order_items" }, () => {
+        if (isMounted) load();
+      })
+      .subscribe();
+
+    return () => {
+      isMounted = false;
+      supabase.removeChannel(ordChannel);
+    };
   }, []);
 
   useEffect(() => {
@@ -1587,41 +1601,66 @@ export function OrdersPage() {
         })}
       </div>
 
+      {/* Orders List: Mobile Cards + Desktop Table */}
       <Card>
-        <CardContent className="p-0 overflow-x-auto relative max-w-full">
+        <CardContent className="p-0 relative max-w-full">
           {loading ? (
             <div className="flex h-64 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
           ) : filtered.length === 0 ? (
             <EmptyState icon={<ShoppingCart className="h-10 w-10" />} title={t("noData")} />
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{t("orderNumber")}</TableHead>
-                  <TableHead>{t("customer")}</TableHead>
-                  <TableHead>Sales Officer</TableHead>
-                  <TableHead>{t("orderDate")}</TableHead>
-                  <TableHead>{t("status")}</TableHead>
-                  <TableHead className="text-right">{t("total")}</TableHead>
-                  <TableHead className="text-right">{t("dueAmount")}</TableHead>
-                  <TableHead className="text-right sticky right-0 z-10 bg-white dark:bg-gray-800 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.1)]">{t("actions")}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
+            <div>
+              {/* Mobile Order Cards (screens < 768px) */}
+              <div className="block md:hidden divide-y divide-border/60">
                 {filtered.map((o) => (
-                  <TableRow key={o.id}>
-                    <TableCell className="font-mono text-xs">
-                      <button
-                        type="button"
-                        onClick={() => view(o)}
-                        className="font-mono text-xs font-semibold text-primary hover:underline hover:text-primary/80 transition-colors text-left"
-                        title="Click to view order details & invoice"
-                      >
-                        {o.order_number}
-                      </button>
-                    </TableCell>
-                    <TableCell className="font-medium">
-                      <div className="flex items-center gap-1.5">
+                  <div key={o.id} className="p-4 space-y-3 bg-card hover:bg-muted/30 transition-colors">
+                    {/* Header: Order Number + Status Dropdown */}
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <button
+                          type="button"
+                          onClick={() => view(o)}
+                          className="font-mono text-sm font-bold text-primary hover:underline hover:text-primary/80 transition-colors text-left"
+                        >
+                          {o.order_number}
+                        </button>
+                        <p className="text-xs text-muted-foreground mt-0.5">{formatDate(o.order_date)}</p>
+                      </div>
+
+                      {canModifyOrder(o) ? (
+                        <div className="relative inline-flex items-center">
+                          <select
+                            value={o.status}
+                            onChange={(e) => updateStatus(o, e.target.value)}
+                            className={cn(
+                              "h-7 text-xs font-semibold rounded-full border px-2.5 py-0.5 appearance-none pr-6 cursor-pointer focus:outline-none focus:ring-2 focus:ring-offset-1 transition-all shadow-2xs",
+                              getOrderStatusBadgeClass(o.status)
+                            )}
+                          >
+                            {statuses.map((s) => (
+                              <option key={s} value={s} className="bg-background text-foreground font-normal">
+                                {t(s.toLowerCase()) || s}
+                              </option>
+                            ))}
+                          </select>
+                          <ChevronDown className="w-3 h-3 absolute right-2 pointer-events-none opacity-60" />
+                        </div>
+                      ) : (
+                        <span
+                          className={cn(
+                            "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border opacity-80",
+                            getOrderStatusBadgeClass(o.status)
+                          )}
+                        >
+                          {t(o.status.toLowerCase()) || o.status}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Customer & Sales Officer */}
+                    <div className="space-y-1 text-xs">
+                      <div className="flex items-center gap-1.5 font-medium text-foreground">
+                        <span className="text-muted-foreground">Outlet:</span>
                         <button
                           type="button"
                           onClick={() => {
@@ -1638,103 +1677,219 @@ export function OrdersPage() {
                             setSelectedLedgerCustomer(target);
                             setLedgerOpen(true);
                           }}
-                          className="font-medium text-left text-foreground hover:text-primary hover:underline transition-colors"
-                          title="View Customer Ledger Statement"
+                          className="hover:text-primary hover:underline transition-colors text-left"
                         >
                           {o.customer?.name ?? "—"}
                         </button>
-                        {o.customer?.name && (
+                      </div>
+                      <div className="flex items-center gap-1.5 text-muted-foreground">
+                        <User className="h-3 w-3" />
+                        <span>
+                          Officer: {getUserName(
+                            o.sales_rep_id,
+                            o.sales_rep?.full_name || o.sales_rep_name || (o as any).created_by_name
+                          )}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Financial Summary: Total & Due */}
+                    <div className="flex items-center justify-between pt-2 border-t border-border/40 text-xs">
+                      <div>
+                        <span className="text-muted-foreground block text-[10px] uppercase tracking-wide">Total Amount</span>
+                        <span className="font-mono text-sm font-bold text-foreground">{formatBDT(o.total_amount)}</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-muted-foreground block text-[10px] uppercase tracking-wide">Due Amount</span>
+                        <span className={`font-mono text-sm font-bold ${o.due_amount > 0 ? "text-amber-600" : "text-emerald-600"}`}>
+                          {o.due_amount > 0 ? formatBDT(o.due_amount) : "Paid in Full"}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Actions Toolbar */}
+                    <div className="flex items-center justify-between gap-2 pt-2 border-t border-border/40">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 text-xs flex-1 gap-1.5"
+                        onClick={() => view(o)}
+                      >
+                        <Eye className="h-3.5 w-3.5 text-primary" />
+                        <span>Invoice / Details</span>
+                      </Button>
+                      {canModifyOrder(o) && (
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() => openEdit(o)}
+                            title={t("edit")}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-destructive hover:bg-destructive/10"
+                            onClick={() => handleDeleteOrder(o.id)}
+                            title={t("delete")}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Desktop Table (screens md+ >= 768px) */}
+              <div className="hidden md:block overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>{t("orderNumber")}</TableHead>
+                      <TableHead>{t("customer")}</TableHead>
+                      <TableHead>Sales Officer</TableHead>
+                      <TableHead>{t("orderDate")}</TableHead>
+                      <TableHead>{t("status")}</TableHead>
+                      <TableHead className="text-right">{t("total")}</TableHead>
+                      <TableHead className="text-right">{t("dueAmount")}</TableHead>
+                      <TableHead className="text-right sticky right-0 z-10 bg-white dark:bg-gray-800 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.1)]">{t("actions")}</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filtered.map((o) => (
+                      <TableRow key={o.id}>
+                        <TableCell className="font-mono text-xs">
                           <button
                             type="button"
-                            onClick={() => navigate(`/customers?search=${encodeURIComponent(o.customer?.name || "")}`)}
-                            className="text-muted-foreground hover:text-primary transition-colors p-0.5"
-                            title="Go to Customer in CRM"
+                            onClick={() => view(o)}
+                            className="font-mono text-xs font-semibold text-primary hover:underline hover:text-primary/80 transition-colors text-left"
+                            title="Click to view order details & invoice"
                           >
-                            <ExternalLink className="h-3 w-3" />
+                            {o.order_number}
                           </button>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-sm">
-                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-medium bg-muted/80 text-foreground border border-border/60 whitespace-nowrap">
-                        <User className="h-3 w-3 text-muted-foreground" />
-                        {getUserName(
-                          o.sales_rep_id,
-                          o.sales_rep?.full_name || o.sales_rep_name || (o as any).created_by_name
-                        )}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-sm">{formatDate(o.order_date)}</TableCell>
-                    <TableCell>
-                      {canModifyOrder(o) ? (
-                        <div className="relative inline-flex items-center">
-                          <select
-                            value={o.status}
-                            onChange={(e) => updateStatus(o, e.target.value)}
-                            className={cn(
-                              "h-7 text-xs font-semibold rounded-full border px-2.5 py-0.5 appearance-none pr-6 cursor-pointer focus:outline-none focus:ring-2 focus:ring-offset-1 transition-all shadow-2xs",
-                              getOrderStatusBadgeClass(o.status)
+                        </TableCell>
+                        <TableCell className="font-medium">
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const target = (Array.isArray(customers) ? customers : []).find((c: Customer) => c.id === o.customer_id) || {
+                                  id: o.customer_id || `cust-${o.id}`,
+                                  name: o.customer?.name || (o as any).customer_name || "Customer",
+                                  opening_balance: 0,
+                                  current_due: o.due_amount,
+                                  due_status: o.due_amount > 0 ? "Partial" : "Clear",
+                                  is_active: true,
+                                  created_at: o.created_at,
+                                  customer_type: "Retailer",
+                                } as Customer;
+                                setSelectedLedgerCustomer(target);
+                                setLedgerOpen(true);
+                              }}
+                              className="font-medium text-left text-foreground hover:text-primary hover:underline transition-colors"
+                              title="View Customer Ledger Statement"
+                            >
+                              {o.customer?.name ?? "—"}
+                            </button>
+                            {o.customer?.name && (
+                              <button
+                                type="button"
+                                onClick={() => navigate(`/customers?search=${encodeURIComponent(o.customer?.name || "")}`)}
+                                className="text-muted-foreground hover:text-primary transition-colors p-0.5"
+                                title="Go to Customer in CRM"
+                              >
+                                <ExternalLink className="h-3 w-3" />
+                              </button>
                             )}
-                            title={`Current status: ${o.status}. Click to change.`}
-                          >
-                            {statuses.map((s) => (
-                              <option key={s} value={s} className="bg-background text-foreground font-normal">
-                                {t(s.toLowerCase()) || s}
-                              </option>
-                            ))}
-                          </select>
-                          <ChevronDown className="w-3 h-3 absolute right-2 pointer-events-none opacity-60" />
-                        </div>
-                      ) : (
-                        <span
-                          className={cn(
-                            "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border cursor-not-allowed opacity-80",
-                            getOrderStatusBadgeClass(o.status)
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-sm">
+                          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-medium bg-muted/80 text-foreground border border-border/60 whitespace-nowrap">
+                            <User className="h-3 w-3 text-muted-foreground" />
+                            {getUserName(
+                              o.sales_rep_id,
+                              o.sales_rep?.full_name || o.sales_rep_name || (o as any).created_by_name
+                            )}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-sm">{formatDate(o.order_date)}</TableCell>
+                        <TableCell>
+                          {canModifyOrder(o) ? (
+                            <div className="relative inline-flex items-center">
+                              <select
+                                value={o.status}
+                                onChange={(e) => updateStatus(o, e.target.value)}
+                                className={cn(
+                                  "h-7 text-xs font-semibold rounded-full border px-2.5 py-0.5 appearance-none pr-6 cursor-pointer focus:outline-none focus:ring-2 focus:ring-offset-1 transition-all shadow-2xs",
+                                  getOrderStatusBadgeClass(o.status)
+                                )}
+                                title={`Current status: ${o.status}. Click to change.`}
+                              >
+                                {statuses.map((s) => (
+                                  <option key={s} value={s} className="bg-background text-foreground font-normal">
+                                    {t(s.toLowerCase()) || s}
+                                  </option>
+                                ))}
+                              </select>
+                              <ChevronDown className="w-3 h-3 absolute right-2 pointer-events-none opacity-60" />
+                            </div>
+                          ) : (
+                            <span
+                              className={cn(
+                                "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border cursor-not-allowed opacity-80",
+                                getOrderStatusBadgeClass(o.status)
+                              )}
+                              title="Status is read-only (created by another Sales Officer)"
+                            >
+                              {t(o.status.toLowerCase()) || o.status}
+                            </span>
                           )}
-                          title="Status is read-only (created by another Sales Officer)"
-                        >
-                          {t(o.status.toLowerCase()) || o.status}
-                        </span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right font-medium">{formatBDT(o.total_amount)}</TableCell>
-                    <TableCell className="text-right">{o.due_amount > 0 ? <span className="text-amber-600">{formatBDT(o.due_amount)}</span> : "—"}</TableCell>
-                    <TableCell className="text-right sticky right-0 z-10 bg-white dark:bg-gray-800 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.1)]">
-                      <div className="whitespace-nowrap flex items-center justify-end gap-1">
-                        <Button variant="ghost" size="icon" onClick={() => view(o)} title={t("viewAll")}><Eye className="h-3.5 w-3.5" /></Button>
-                        {canModifyOrder(o) ? (
-                          <>
-                            <Button variant="ghost" size="icon" onClick={() => openEdit(o)} title={t("edit")}><Pencil className="h-3.5 w-3.5" /></Button>
-                            <Button variant="ghost" size="icon" onClick={() => handleDeleteOrder(o.id)} title={t("delete")}><Trash2 className="h-3.5 w-3.5 text-destructive" /></Button>
-                          </>
-                        ) : (
-                          <>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              disabled
-                              className="opacity-30 cursor-not-allowed"
-                              title="Only the creator can edit this order"
-                            >
-                              <Pencil className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              disabled
-                              className="opacity-30 cursor-not-allowed"
-                              title="Only the creator can delete this order"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
-                          </>
-                        )}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                        </TableCell>
+                        <TableCell className="text-right font-medium">{formatBDT(o.total_amount)}</TableCell>
+                        <TableCell className="text-right">{o.due_amount > 0 ? <span className="text-amber-600">{formatBDT(o.due_amount)}</span> : "—"}</TableCell>
+                        <TableCell className="text-right sticky right-0 z-10 bg-white dark:bg-gray-800 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.1)]">
+                          <div className="whitespace-nowrap flex items-center justify-end gap-1">
+                            <Button variant="ghost" size="icon" onClick={() => view(o)} title={t("viewAll")}><Eye className="h-3.5 w-3.5" /></Button>
+                            {canModifyOrder(o) ? (
+                              <>
+                                <Button variant="ghost" size="icon" onClick={() => openEdit(o)} title={t("edit")}><Pencil className="h-3.5 w-3.5" /></Button>
+                                <Button variant="ghost" size="icon" onClick={() => handleDeleteOrder(o.id)} title={t("delete")}><Trash2 className="h-3.5 w-3.5 text-destructive" /></Button>
+                              </>
+                            ) : (
+                              <>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  disabled
+                                  className="opacity-30 cursor-not-allowed"
+                                  title="Only the creator can edit this order"
+                                >
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  disabled
+                                  className="opacity-30 cursor-not-allowed"
+                                  title="Only the creator can delete this order"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              </>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
           )}
         </CardContent>
       </Card>

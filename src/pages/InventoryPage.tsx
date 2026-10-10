@@ -100,9 +100,16 @@ export function InventoryPage() {
       setProducts([...refreshed].sort((a, b) => (a.name || "").localeCompare(b.name || "")));
     };
 
+    const invChannel = supabase
+      .channel("inventory-page-realtime")
+      .on("postgres_changes", { event: "*", schema: "public", table: "products" }, () => loadData())
+      .on("postgres_changes", { event: "*", schema: "public", table: "stock_transactions" }, () => loadData())
+      .subscribe();
+
     window.addEventListener("storage", handleStorage);
     window.addEventListener("sales_erp_storage_update", handleStorage);
     return () => {
+      supabase.removeChannel(invChannel);
       window.removeEventListener("storage", handleStorage);
       window.removeEventListener("sales_erp_storage_update", handleStorage);
     };
@@ -385,75 +392,40 @@ export function InventoryPage() {
           ) : filteredProducts.length === 0 ? (
             <EmptyState icon={<Warehouse className="h-10 w-10" />} title={t("noData")} />
           ) : (
-            <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-280px)] border rounded-lg">
-              <Table>
-                <TableHeader className="sticky top-0 bg-white dark:bg-card z-10 shadow-sm">
-                  <TableRow className="bg-white dark:bg-card border-b">
-                    <TableHead className="bg-white dark:bg-card sticky top-0 z-10">{t("productName")}</TableHead>
-                    <TableHead className="bg-white dark:bg-card sticky top-0 z-10">{t("category")}</TableHead>
-                    <TableHead className="text-right bg-white dark:bg-card sticky top-0 z-10">{t("stockQty")}</TableHead>
-                    {isSuperAdmin && (
-                      <>
-                        <TableHead className="text-right bg-white dark:bg-card sticky top-0 z-10">{t("purchaseCost")}</TableHead>
-                        <TableHead className="text-right bg-white dark:bg-card sticky top-0 z-10">{t("totalValue")}</TableHead>
-                      </>
-                    )}
-                    <TableHead className="bg-white dark:bg-card sticky top-0 z-10">{t("status")}</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredProducts.map((p) => {
-                    const low = p.stock_quantity <= p.reorder_level;
-                    const out = p.stock_quantity === 0;
-                    const unitPrice = getProductPurchasePrice(p);
-                    const totalVal = r2(p.stock_quantity * unitPrice);
+            <div>
+              {/* Mobile Inventory Cards (screens < 768px) */}
+              <div className="block md:hidden divide-y divide-border/60">
+                {filteredProducts.map((p) => {
+                  const low = p.stock_quantity <= p.reorder_level;
+                  const out = p.stock_quantity === 0;
+                  const unitPrice = getProductPurchasePrice(p);
+                  const totalVal = r2(p.stock_quantity * unitPrice);
+                  const categoryName = typeof p.category === 'object'
+                    ? (p.category?.name || '—')
+                    : (p.category || (p as any).category_name || '—');
 
-                    return (
-                      <TableRow key={p.id}>
-                        {/* Product Name */}
-                        <TableCell>
-                          <div className="flex flex-col">
-                            <button
-                              type="button"
-                              onClick={() => navigate(`/products?search=${encodeURIComponent(p.name)}`)}
-                              className="font-medium text-left text-foreground hover:text-primary hover:underline transition-colors"
-                              title="Click to view in Products catalog"
-                            >
-                              {p.name}
-                            </button>
-                            <span className="font-mono text-[11px] text-muted-foreground">{p.sku_code}</span>
+                  return (
+                    <div key={p.id} className="p-4 space-y-2.5 bg-card hover:bg-muted/30 transition-colors">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <button
+                            type="button"
+                            onClick={() => navigate(`/products?search=${encodeURIComponent(p.name)}`)}
+                            className="font-semibold text-base text-left text-foreground hover:text-primary hover:underline transition-colors leading-snug"
+                            title="Click to view in Products catalog"
+                          >
+                            {p.name}
+                          </button>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="font-mono text-xs text-muted-foreground">{p.sku_code}</span>
+                            <Badge variant="secondary" className="text-[10px]">
+                              {categoryName}
+                            </Badge>
                           </div>
-                        </TableCell>
+                        </div>
 
-                        {/* Category */}
-                        <TableCell className="text-sm text-muted-foreground">
-                          {typeof p.category === 'object'
-                            ? (p.category?.name || '—')
-                            : (p.category || (p as any).category_name || '—')}
-                        </TableCell>
-
-                        {/* Stock Quantity */}
-                        <TableCell className="text-right font-semibold">
-                          <span className={out ? "text-destructive" : low ? "text-amber-600" : "text-foreground"}>
-                            {lang === "bn" ? toBnDigit(p.stock_quantity) : p.stock_quantity}
-                          </span>
-                        </TableCell>
-
-                        {/* Financial Columns: Only visible for Super Admin */}
-                        {isSuperAdmin && (
-                          <>
-                            <TableCell className="text-right text-sm">
-                              {formatBDT(unitPrice)}
-                            </TableCell>
-
-                            <TableCell className="text-right text-sm font-semibold">
-                              {formatBDT(totalVal)}
-                            </TableCell>
-                          </>
-                        )}
-
-                        {/* Stock Status */}
-                        <TableCell>
+                        {/* Status Badge */}
+                        <div>
                           {out ? (
                             <Badge variant="destructive" className="text-[10px]">{t("outOfStock")}</Badge>
                           ) : low ? (
@@ -461,12 +433,115 @@ export function InventoryPage() {
                           ) : (
                             <Badge variant="success" className="text-[10px]">{t("inStock")}</Badge>
                           )}
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
+                        </div>
+                      </div>
+
+                      {/* Stock Quantity & Financial Info */}
+                      <div className="flex items-center justify-between pt-1 border-t border-border/40 text-xs">
+                        <div>
+                          <span className="text-[10px] text-muted-foreground uppercase tracking-wide block">Stock Quantity</span>
+                          <span className={`text-base font-bold font-mono ${out ? "text-destructive" : low ? "text-amber-600" : "text-foreground"}`}>
+                            {lang === "bn" ? toBnDigit(p.stock_quantity) : p.stock_quantity} <span className="text-xs font-normal text-muted-foreground">{p.unit || "pcs"}</span>
+                          </span>
+                        </div>
+
+                        {isSuperAdmin && (
+                          <div className="text-right">
+                            <span className="text-[10px] text-muted-foreground uppercase tracking-wide block">Total Stock Value</span>
+                            <span className="font-mono text-sm font-bold text-foreground">{formatBDT(totalVal)}</span>
+                            <span className="text-[10px] text-muted-foreground block">Rate: {formatBDT(unitPrice)}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Desktop Table (screens md+ >= 768px) */}
+              <div className="hidden md:block overflow-x-auto overflow-y-auto max-h-[calc(100vh-280px)] border rounded-lg">
+                <Table>
+                  <TableHeader className="sticky top-0 bg-white dark:bg-card z-10 shadow-sm">
+                    <TableRow className="bg-white dark:bg-card border-b">
+                      <TableHead className="bg-white dark:bg-card sticky top-0 z-10">{t("productName")}</TableHead>
+                      <TableHead className="bg-white dark:bg-card sticky top-0 z-10">{t("category")}</TableHead>
+                      <TableHead className="text-right bg-white dark:bg-card sticky top-0 z-10">{t("stockQty")}</TableHead>
+                      {isSuperAdmin && (
+                        <>
+                          <TableHead className="text-right bg-white dark:bg-card sticky top-0 z-10">{t("purchaseCost")}</TableHead>
+                          <TableHead className="text-right bg-white dark:bg-card sticky top-0 z-10">{t("totalValue")}</TableHead>
+                        </>
+                      )}
+                      <TableHead className="bg-white dark:bg-card sticky top-0 z-10">{t("status")}</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredProducts.map((p) => {
+                      const low = p.stock_quantity <= p.reorder_level;
+                      const out = p.stock_quantity === 0;
+                      const unitPrice = getProductPurchasePrice(p);
+                      const totalVal = r2(p.stock_quantity * unitPrice);
+
+                      return (
+                        <TableRow key={p.id}>
+                          {/* Product Name */}
+                          <TableCell>
+                            <div className="flex flex-col">
+                              <button
+                                type="button"
+                                onClick={() => navigate(`/products?search=${encodeURIComponent(p.name)}`)}
+                                className="font-medium text-left text-foreground hover:text-primary hover:underline transition-colors"
+                                title="Click to view in Products catalog"
+                              >
+                                {p.name}
+                              </button>
+                              <span className="font-mono text-[11px] text-muted-foreground">{p.sku_code}</span>
+                            </div>
+                          </TableCell>
+
+                          {/* Category */}
+                          <TableCell className="text-sm text-muted-foreground">
+                            {typeof p.category === 'object'
+                              ? (p.category?.name || '—')
+                              : (p.category || (p as any).category_name || '—')}
+                          </TableCell>
+
+                          {/* Stock Quantity */}
+                          <TableCell className="text-right font-semibold">
+                            <span className={out ? "text-destructive" : low ? "text-amber-600" : "text-foreground"}>
+                              {lang === "bn" ? toBnDigit(p.stock_quantity) : p.stock_quantity}
+                            </span>
+                          </TableCell>
+
+                          {/* Financial Columns: Only visible for Super Admin */}
+                          {isSuperAdmin && (
+                            <>
+                              <TableCell className="text-right text-sm">
+                                {formatBDT(unitPrice)}
+                              </TableCell>
+
+                              <TableCell className="text-right text-sm font-semibold">
+                                {formatBDT(totalVal)}
+                              </TableCell>
+                            </>
+                          )}
+
+                          {/* Stock Status */}
+                          <TableCell>
+                            {out ? (
+                              <Badge variant="destructive" className="text-[10px]">{t("outOfStock")}</Badge>
+                            ) : low ? (
+                              <Badge variant="warning" className="text-[10px]">{t("lowStockAlert")}</Badge>
+                            ) : (
+                              <Badge variant="success" className="text-[10px]">{t("inStock")}</Badge>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
             </div>
           )}
         </CardContent>

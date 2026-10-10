@@ -99,10 +99,18 @@ export function CustomersPage() {
       setAreas(getAreas());
     };
 
+    const custChannel = supabase
+      .channel("customers-page-realtime")
+      .on("postgres_changes", { event: "*", schema: "public", table: "customers" }, () => loadData())
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => loadData())
+      .on("postgres_changes", { event: "*", schema: "public", table: "collections" }, () => loadData())
+      .subscribe();
+
     window.addEventListener("storage", handleStorage);
     window.addEventListener("sales_erp_storage_update", handleStorage);
     window.addEventListener("customer_ledger_updated", handleStorage);
     return () => {
+      supabase.removeChannel(custChannel);
       window.removeEventListener("storage", handleStorage);
       window.removeEventListener("sales_erp_storage_update", handleStorage);
       window.removeEventListener("customer_ledger_updated", handleStorage);
@@ -463,8 +471,8 @@ export function CustomersPage() {
     <div className="space-y-4">
       {/* Toolbar */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-1 flex-col gap-2 sm:flex-row sm:items-center">
-          <div className="relative flex-1 max-w-sm">
+        <div className="flex flex-1 flex-col sm:flex-row flex-wrap gap-2 items-stretch sm:items-center">
+          <div className="relative flex-1 min-w-[200px] max-w-full sm:max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
               placeholder="Search by Outlet, Party Code, Phone..."
@@ -484,20 +492,20 @@ export function CustomersPage() {
               </button>
             )}
           </div>
-          <Select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="sm:w-40">
+          <Select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="w-full sm:w-36">
             <option value="">{t("allTypes")}</option>
             {customerTypes.map((ty) => <option key={ty} value={ty}>{t(ty.toLowerCase())}</option>)}
           </Select>
-          <Select value={dueFilter} onChange={(e) => setDueFilter(e.target.value)} className="sm:w-40">
+          <Select value={dueFilter} onChange={(e) => setDueFilter(e.target.value)} className="w-full sm:w-36">
             <option value="">{t("selectStatus")}</option>
             {dueStatuses.map((d) => <option key={d} value={d}>{t(d.toLowerCase())}</option>)}
           </Select>
-          <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="sm:w-36">
+          <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="w-full sm:w-32">
             <option value="">All Status</option>
             <option value="Active">Active</option>
             <option value="Inactive">Inactive</option>
           </Select>
-          <Select value={areaFilter} onChange={(e) => setAreaFilter(e.target.value)} className="sm:w-44">
+          <Select value={areaFilter} onChange={(e) => setAreaFilter(e.target.value)} className="w-full sm:w-40">
             <option value="">All Areas</option>
             {areas.map((ar) => (
               <option key={ar.id} value={ar.name}>
@@ -505,7 +513,7 @@ export function CustomersPage() {
               </option>
             ))}
           </Select>
-          <Select value={officerFilter} onChange={(e) => setOfficerFilter(e.target.value)} className="sm:w-44">
+          <Select value={officerFilter} onChange={(e) => setOfficerFilter(e.target.value)} className="w-full sm:w-40">
             <option value="">All Officers</option>
             {salesOfficers.map((so) => (
               <option key={so.id} value={so.id}>
@@ -514,7 +522,7 @@ export function CustomersPage() {
             ))}
           </Select>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 w-full sm:w-auto justify-end">
           <Button variant="outline" size="sm" onClick={handleExport}>
             <Download className="h-4 w-4" /> {t("exportExcel")}
           </Button>
@@ -568,29 +576,17 @@ export function CustomersPage() {
         </Card>
       </div>
 
-      {/* Table */}
+      {/* Customers List: Mobile Cards + Desktop Table */}
       <Card>
-        <CardContent className="p-0 overflow-x-auto relative max-w-full">
+        <CardContent className="p-0 relative max-w-full">
           {loading ? (
             <div className="flex h-64 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
           ) : filtered.length === 0 ? (
             <EmptyState icon={<Users className="h-10 w-10" />} title={t("noData")} description={t("noResults")} />
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Outlet Name</TableHead>
-                  <TableHead className="w-28">Status</TableHead>
-                  <TableHead>{t("customerType")}</TableHead>
-                  <TableHead>Area / Market</TableHead>
-                  <TableHead>Sales Officer</TableHead>
-                  <TableHead>{t("phone")}</TableHead>
-                  <TableHead className="text-right">{t("currentDue" as string) || "Due"}</TableHead>
-                  <TableHead>{t("dueStatus")}</TableHead>
-                  <TableHead className="text-right sticky right-0 z-10 bg-white dark:bg-gray-800 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.1)]">{t("actions")}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
+            <div>
+              {/* Mobile Card List (shown on small screens < 768px) */}
+              <div className="block md:hidden divide-y divide-border/60">
                 {filtered.map((c) => {
                   const dueInfo = customerDueMap.get(c.id);
                   const currentDue = dueInfo ? dueInfo.due : Number(c.current_due || 0);
@@ -609,145 +605,324 @@ export function CustomersPage() {
                     (c as any).security_bank_name
                   );
 
-                  const secChequeBank = c.securityBankName || (c as any).security_bank_name || "";
-                  const secChequeNo = c.securityChequeNo || (c as any).security_cheque_no || "";
-                  const secChequeBranch = c.securityBranchName || (c as any).security_branch_name || "";
-                  const secChequeDate = c.securityChequeDate || (c as any).security_cheque_date || "";
-                  const secChequeNotes = c.securityNotes || (c as any).security_notes || "";
-
-                  const secChequeTitle = hasSecCheque
-                    ? `Security Cheque: ${secChequeBank ? `${secChequeBank} ` : ""}#${secChequeNo || "—"}${secChequeBranch ? ` (${secChequeBranch})` : ""}${secChequeDate ? ` | Received: ${secChequeDate}` : ""}${secChequeNotes ? ` | Note: ${secChequeNotes}` : ""}`.trim()
-                    : "No Security Cheque / Pending";
-
                   return (
-                    <TableRow key={c.id}>
-                      <TableCell className="py-2.5">
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold text-foreground whitespace-nowrap">{c.outlet_name || c.name}</span>
-                          <span
-                            className={`rounded-md px-1.5 py-0.5 text-[11px] inline-flex items-center gap-1 font-semibold whitespace-nowrap border cursor-help ${
-                              hasSecCheque
-                                ? "bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-800"
-                                : "bg-red-50 text-red-700 border-red-300 dark:bg-red-950/40 dark:text-red-400 dark:border-red-800"
-                            }`}
-                            title={secChequeTitle}
-                          >
-                            <span>🛡️ Sec. Cheque</span>
-                          </span>
+                    <div key={c.id} className="p-4 space-y-3 bg-card hover:bg-muted/30 transition-colors">
+                      {/* Card Header: Outlet Name + Status + Security Cheque */}
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-semibold text-base text-foreground">{c.outlet_name || c.name}</span>
+                            <span
+                              className={`rounded-md px-1.5 py-0.5 text-[10px] inline-flex items-center gap-1 font-semibold border ${
+                                hasSecCheque
+                                  ? "bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-800"
+                                  : "bg-red-50 text-red-700 border-red-300 dark:bg-red-950/40 dark:text-red-400 dark:border-red-800"
+                              }`}
+                            >
+                              <span>🛡️ Sec. Cheque</span>
+                            </span>
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {c.contact_person ? `${c.contact_person} • ` : ""}{c.party_code || "No Party Code"}
+                          </p>
                         </div>
-                      </TableCell>
-                      <TableCell className="py-2.5 whitespace-nowrap">
+
                         <select
                           value={c.status === "Inactive" || c.is_active === false ? "Inactive" : "Active"}
                           onChange={(e) => handleStatusChange(c, e.target.value as "Active" | "Inactive")}
                           disabled={!canModifyCustomer(c)}
-                          className={`text-xs font-semibold rounded-md border px-2 py-0.5 outline-none transition-colors ${
+                          className={`text-xs font-semibold rounded-md border px-2 py-1 outline-none transition-colors ${
                             (c.status === "Inactive" || c.is_active === false)
                               ? "bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-800"
                               : "bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-800"
                           } ${!canModifyCustomer(c) ? "opacity-60 cursor-not-allowed" : "cursor-pointer"}`}
-                          title={canModifyCustomer(c) ? "Change customer status" : "Only assigned officer/admin can change status"}
                         >
                           <option value="Active">Active</option>
                           <option value="Inactive">Inactive</option>
                         </select>
-                      </TableCell>
-                      <TableCell className="py-2.5 whitespace-nowrap"><Badge variant="secondary" className="text-[10px]">{t(c.customer_type.toLowerCase())}</Badge></TableCell>
-                      <TableCell className="text-sm font-medium py-2.5 whitespace-nowrap">
-                        {c.area || c.city || c.territory?.name || "—"}
-                      </TableCell>
-                      <TableCell className="text-sm py-2.5 whitespace-nowrap">
-                        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-medium bg-muted/80 text-foreground border border-border/60 whitespace-nowrap">
-                          <User className="h-3 w-3 text-muted-foreground" />
+                      </div>
+
+                      {/* Meta Tags: Type, Area, Assigned Officer */}
+                      <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                        <Badge variant="secondary" className="text-[10px]">
+                          {t(c.customer_type.toLowerCase())}
+                        </Badge>
+                        <span className="text-muted-foreground bg-muted/60 px-2 py-0.5 rounded text-[11px]">
+                          📍 {c.area || c.city || c.territory?.name || "No Area"}
+                        </span>
+                        <span className="inline-flex items-center gap-1 bg-muted/60 px-2 py-0.5 rounded text-[11px] text-muted-foreground">
+                          <User className="h-3 w-3" />
                           {getUserName(
                             c.assigned_to || (c as any).sales_rep_id,
                             c.assigned_to_name || (c as any).created_by_name || "Sales Officer"
                           )}
                         </span>
-                      </TableCell>
-                      <TableCell className="text-sm py-2.5 whitespace-nowrap">
-                        <span>{c.phone ?? "—"}</span>
-                      </TableCell>
-                      <TableCell className="text-right font-medium py-2.5 whitespace-nowrap">{formatBDT(currentDue)}</TableCell>
-                      <TableCell className="py-2.5 whitespace-nowrap">
-                        <Badge variant={dueStatus === "Overdue" ? "destructive" : dueStatus === "Partial" ? "warning" : "success"} className="text-[10px]">
-                          {t(dueStatus.toLowerCase())}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right py-2.5 whitespace-nowrap sticky right-0 z-10 bg-white dark:bg-gray-800 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.1)]">
-                        <div className="whitespace-nowrap flex items-center justify-end gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => {
-                              const freshCust: Customer = {
-                                ...c,
-                                current_due: currentDue,
-                                due_status: dueStatus,
-                                // Ensure opening_balance is always present for ledger starting balance
-                                opening_balance: c.opening_balance ?? 0,
-                              };
-                              setSelectedLedgerCustomer(freshCust);
-                              setLedgerOpen(true);
-                            }}
-                            title="View Ledger Statement"
+                      </div>
+
+                      {/* Due Info & Quick Phone Call */}
+                      <div className="flex items-center justify-between pt-1 border-t border-border/40">
+                        <div className="flex items-center gap-2">
+                          <div>
+                            <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Current Due</p>
+                            <p className="text-sm font-bold text-foreground">{formatBDT(currentDue)}</p>
+                          </div>
+                          <Badge variant={dueStatus === "Overdue" ? "destructive" : dueStatus === "Partial" ? "warning" : "success"} className="text-[10px] h-5">
+                            {t(dueStatus.toLowerCase())}
+                          </Badge>
+                        </div>
+
+                        {c.phone && (
+                          <a
+                            href={`tel:${c.phone}`}
+                            className="inline-flex items-center gap-1.5 text-xs font-medium text-primary bg-primary/10 hover:bg-primary/20 px-3 py-1.5 rounded-lg transition-colors"
                           >
-                            <BookOpen className="h-3.5 w-3.5 text-primary" />
+                            <Phone className="h-3.5 w-3.5" />
+                            <span>{c.phone}</span>
+                          </a>
+                        )}
+                      </div>
+
+                      {/* Card Action Buttons */}
+                      <div className="flex items-center justify-between gap-2 pt-2 border-t border-border/40">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 text-xs flex-1 gap-1.5"
+                          onClick={() => {
+                            const freshCust: Customer = {
+                              ...c,
+                              current_due: currentDue,
+                              due_status: dueStatus,
+                              opening_balance: c.opening_balance ?? 0,
+                            };
+                            setSelectedLedgerCustomer(freshCust);
+                            setLedgerOpen(true);
+                          }}
+                        >
+                          <BookOpen className="h-3.5 w-3.5 text-primary" />
+                          <span>Ledger</span>
+                        </Button>
+
+                        {currentDue > 0 && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 text-xs gap-1 text-amber-600 border-amber-300 hover:bg-amber-50 dark:border-amber-800 dark:hover:bg-amber-950/40"
+                            onClick={() => {
+                              setSelectedReminderCustomer({ ...c, current_due: currentDue, currentDue } as any);
+                              setSelectedReminderDue(currentDue);
+                              setReminderModalOpen(true);
+                            }}
+                            title="Send Reminder"
+                          >
+                            <Sparkles className="h-3.5 w-3.5" />
+                            <span>Reminder</span>
                           </Button>
-                          {currentDue > 0 && (
+                        )}
+
+                        {canModifyCustomer(c) && (
+                          <div className="flex items-center gap-1">
                             <Button
                               variant="ghost"
                               size="icon"
-                              onClick={() => {
-                                const freshCust: Customer = {
-                                  ...c,
-                                  current_due: currentDue,
-                                  currentDue: currentDue,
-                                } as any;
-                                setSelectedReminderCustomer(freshCust);
-                                setSelectedReminderDue(currentDue);
-                                setReminderModalOpen(true);
-                              }}
-                              title="Generate AI Payment Reminder (SMS/WhatsApp)"
-                              className="text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-950/40"
+                              className="h-8 w-8"
+                              onClick={() => openEdit(c)}
+                              title="Edit"
                             >
-                              <Sparkles className="h-3.5 w-3.5" />
+                              <Pencil className="h-3.5 w-3.5" />
                             </Button>
-                          )}
-                          {canModifyCustomer(c) ? (
-                            <>
-                              <Button variant="ghost" size="icon" onClick={() => openEdit(c)} title="Edit Outlet"><Pencil className="h-3.5 w-3.5" /></Button>
-                              <Button variant="ghost" size="icon" onClick={() => handleDeleteCustomer(c)} title="Delete"><Trash2 className="h-3.5 w-3.5 text-destructive" /></Button>
-                            </>
-                          ) : (
-                            <>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                disabled
-                                className="opacity-30 cursor-not-allowed"
-                                title="Only the assigned Sales Officer or Manager can edit this customer"
-                              >
-                                <Pencil className="h-3.5 w-3.5" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                disabled
-                                className="opacity-30 cursor-not-allowed"
-                                title="Only the assigned Sales Officer or Manager can delete this customer"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </Button>
-                            </>
-                          )}
-                        </div>
-                      </TableCell>
-                    </TableRow>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-destructive hover:bg-destructive/10"
+                              onClick={() => handleDeleteCustomer(c)}
+                              title="Delete"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   );
                 })}
-              </TableBody>
-            </Table>
+              </div>
+
+              {/* Desktop Table (shown on screens md+ >= 768px) */}
+              <div className="hidden md:block overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Outlet Name</TableHead>
+                      <TableHead className="w-28">Status</TableHead>
+                      <TableHead>{t("customerType")}</TableHead>
+                      <TableHead>Area / Market</TableHead>
+                      <TableHead>Sales Officer</TableHead>
+                      <TableHead>{t("phone")}</TableHead>
+                      <TableHead className="text-right">{t("currentDue" as string) || "Due"}</TableHead>
+                      <TableHead>{t("dueStatus")}</TableHead>
+                      <TableHead className="text-right sticky right-0 z-10 bg-white dark:bg-gray-800 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.1)]">{t("actions")}</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filtered.map((c) => {
+                      const dueInfo = customerDueMap.get(c.id);
+                      const currentDue = dueInfo ? dueInfo.due : Number(c.current_due || 0);
+                      const dueStatus = dueInfo ? dueInfo.status : (c.due_status || "Clear");
+
+                      const secStatus = ((c as any).security_cheque_status || (c as any).securityChequeStatus || "").toLowerCase();
+                      const isPendingOrUnpaid = secStatus === "pending" || secStatus === "unpaid" || secStatus === "missing" || (c as any).hasSecurityCheque === false;
+                      const hasSecCheque = !isPendingOrUnpaid && Boolean(
+                        (c as any).hasSecurityCheque === true ||
+                        secStatus === "received" ||
+                        secStatus === "active" ||
+                        secStatus === "valid" ||
+                        c.securityChequeNo ||
+                        (c as any).security_cheque_no ||
+                        c.securityBankName ||
+                        (c as any).security_bank_name
+                      );
+
+                      const secChequeBank = c.securityBankName || (c as any).security_bank_name || "";
+                      const secChequeNo = c.securityChequeNo || (c as any).security_cheque_no || "";
+                      const secChequeBranch = c.securityBranchName || (c as any).security_branch_name || "";
+                      const secChequeDate = c.securityChequeDate || (c as any).security_cheque_date || "";
+                      const secChequeNotes = c.securityNotes || (c as any).security_notes || "";
+
+                      const secChequeTitle = hasSecCheque
+                        ? `Security Cheque: ${secChequeBank ? `${secChequeBank} ` : ""}#${secChequeNo || "—"}${secChequeBranch ? ` (${secChequeBranch})` : ""}${secChequeDate ? ` | Received: ${secChequeDate}` : ""}${secChequeNotes ? ` | Note: ${secChequeNotes}` : ""}`.trim()
+                        : "No Security Cheque / Pending";
+
+                      return (
+                        <TableRow key={c.id}>
+                          <TableCell className="py-2.5">
+                            <div className="flex items-center gap-2">
+                              <span className="font-semibold text-foreground whitespace-nowrap">{c.outlet_name || c.name}</span>
+                              <span
+                                className={`rounded-md px-1.5 py-0.5 text-[11px] inline-flex items-center gap-1 font-semibold whitespace-nowrap border cursor-help ${
+                                  hasSecCheque
+                                    ? "bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-800"
+                                    : "bg-red-50 text-red-700 border-red-300 dark:bg-red-950/40 dark:text-red-400 dark:border-red-800"
+                                }`}
+                                title={secChequeTitle}
+                              >
+                                <span>🛡️ Sec. Cheque</span>
+                              </span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="py-2.5 whitespace-nowrap">
+                            <select
+                              value={c.status === "Inactive" || c.is_active === false ? "Inactive" : "Active"}
+                              onChange={(e) => handleStatusChange(c, e.target.value as "Active" | "Inactive")}
+                              disabled={!canModifyCustomer(c)}
+                              className={`text-xs font-semibold rounded-md border px-2 py-0.5 outline-none transition-colors ${
+                                (c.status === "Inactive" || c.is_active === false)
+                                  ? "bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-800"
+                                  : "bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-800"
+                              } ${!canModifyCustomer(c) ? "opacity-60 cursor-not-allowed" : "cursor-pointer"}`}
+                              title={canModifyCustomer(c) ? "Change customer status" : "Only assigned officer/admin can change status"}
+                            >
+                              <option value="Active">Active</option>
+                              <option value="Inactive">Inactive</option>
+                            </select>
+                          </TableCell>
+                          <TableCell className="py-2.5 whitespace-nowrap"><Badge variant="secondary" className="text-[10px]">{t(c.customer_type.toLowerCase())}</Badge></TableCell>
+                          <TableCell className="text-sm font-medium py-2.5 whitespace-nowrap">
+                            {c.area || c.city || c.territory?.name || "—"}
+                          </TableCell>
+                          <TableCell className="text-sm py-2.5 whitespace-nowrap">
+                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-medium bg-muted/80 text-foreground border border-border/60 whitespace-nowrap">
+                              <User className="h-3 w-3 text-muted-foreground" />
+                              {getUserName(
+                                c.assigned_to || (c as any).sales_rep_id,
+                                c.assigned_to_name || (c as any).created_by_name || "Sales Officer"
+                              )}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-sm py-2.5 whitespace-nowrap">
+                            <span>{c.phone ?? "—"}</span>
+                          </TableCell>
+                          <TableCell className="text-right font-medium py-2.5 whitespace-nowrap">{formatBDT(currentDue)}</TableCell>
+                          <TableCell className="py-2.5 whitespace-nowrap">
+                            <Badge variant={dueStatus === "Overdue" ? "destructive" : dueStatus === "Partial" ? "warning" : "success"} className="text-[10px]">
+                              {t(dueStatus.toLowerCase())}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-right py-2.5 whitespace-nowrap sticky right-0 z-10 bg-white dark:bg-gray-800 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.1)]">
+                            <div className="whitespace-nowrap flex items-center justify-end gap-1">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => {
+                                  const freshCust: Customer = {
+                                    ...c,
+                                    current_due: currentDue,
+                                    due_status: dueStatus,
+                                    opening_balance: c.opening_balance ?? 0,
+                                  };
+                                  setSelectedLedgerCustomer(freshCust);
+                                  setLedgerOpen(true);
+                                }}
+                                title="View Ledger Statement"
+                              >
+                                <BookOpen className="h-3.5 w-3.5 text-primary" />
+                              </Button>
+                              {currentDue > 0 && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => {
+                                    const freshCust: Customer = {
+                                      ...c,
+                                      current_due: currentDue,
+                                      currentDue: currentDue,
+                                    } as any;
+                                    setSelectedReminderCustomer(freshCust);
+                                    setSelectedReminderDue(currentDue);
+                                    setReminderModalOpen(true);
+                                  }}
+                                  title="Generate AI Payment Reminder (SMS/WhatsApp)"
+                                  className="text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-950/40"
+                                >
+                                  <Sparkles className="h-3.5 w-3.5" />
+                                </Button>
+                              )}
+                              {canModifyCustomer(c) ? (
+                                <>
+                                  <Button variant="ghost" size="icon" onClick={() => openEdit(c)} title="Edit Outlet"><Pencil className="h-3.5 w-3.5" /></Button>
+                                  <Button variant="ghost" size="icon" onClick={() => handleDeleteCustomer(c)} title="Delete"><Trash2 className="h-3.5 w-3.5 text-destructive" /></Button>
+                                </>
+                              ) : (
+                                <>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    disabled
+                                    className="opacity-30 cursor-not-allowed"
+                                    title="Only the assigned Sales Officer or Manager can edit this customer"
+                                  >
+                                    <Pencil className="h-3.5 w-3.5" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    disabled
+                                    className="opacity-30 cursor-not-allowed"
+                                    title="Only the assigned Sales Officer or Manager can delete this customer"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </Button>
+                                </>
+                              )}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
           )}
         </CardContent>
       </Card>

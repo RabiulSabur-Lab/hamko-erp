@@ -1,7 +1,7 @@
 import { type FC } from "react";
 import {
   LayoutDashboard, Users, Package, ShoppingCart, Truck, Warehouse,
-  Wallet, MapPin, BarChart3, UserCog, Bell,
+  Wallet, MapPin, BarChart3, UserCog, Bell, X,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useI18n } from "@/lib/i18n";
@@ -94,12 +94,20 @@ export const Sidebar: FC<SidebarProps> = ({ open, onClose, unreadCount = 0 }) =>
   return (
     <aside
       className={cn(
-        "fixed inset-y-0 left-0 z-40 w-64 transform border-r bg-sidebar text-sidebar-foreground transition-transform lg:translate-x-0",
+        "fixed inset-y-0 left-0 z-40 w-64 transform border-r bg-sidebar text-sidebar-foreground transition-transform duration-300 ease-in-out lg:translate-x-0 shadow-lg lg:shadow-none",
         open ? "translate-x-0" : "-translate-x-full",
       )}
     >
-      <div className="flex h-16 items-center px-6 border-b select-none">
+      <div className="flex h-16 items-center justify-between px-6 border-b select-none">
         <img src="/Hamko.png" alt="Hamko Cookware" className="h-10 w-auto object-contain shrink-0" />
+        <button
+          type="button"
+          onClick={onClose}
+          className="lg:hidden p-1.5 rounded-lg text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
+          aria-label="Close sidebar"
+        >
+          <X className="h-5 w-5" />
+        </button>
       </div>
 
       <nav className="flex flex-col gap-1 p-3 overflow-y-auto h-[calc(100vh-4rem)]">

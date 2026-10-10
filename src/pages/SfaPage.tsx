@@ -34,6 +34,7 @@ import {
   Wifi,
   WifiOff,
   User,
+  Phone,
 } from "lucide-react";
 import { toast } from "sonner";
 import { SalesTargetModal } from "@/components/SalesTargetModal";
@@ -179,7 +180,22 @@ export function SfaPage() {
     window.addEventListener("storage", handleStorage);
     window.addEventListener("sales_erp_storage_update", handleStorage);
 
+    // Supabase Realtime Channel
+    const sfaChannel = supabase
+      .channel("sfa-page-realtime")
+      .on("postgres_changes", { event: "*", schema: "public", table: "visits" }, () => {
+        loadData();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "sales_targets" }, () => {
+        loadData();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "customers" }, () => {
+        loadData();
+      })
+      .subscribe();
+
     return () => {
+      supabase.removeChannel(sfaChannel);
       window.removeEventListener("storage", handleStorage);
       window.removeEventListener("sales_erp_storage_update", handleStorage);
     };
@@ -861,64 +877,123 @@ export function SfaPage() {
               ) : visits.length === 0 ? (
                 <EmptyState icon={<MapPin className="h-10 w-10" />} title={t("noData")} />
               ) : (
-                <div className="overflow-x-auto relative rounded-md border">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>{t("customer")}</TableHead>
-                        <TableHead>Sales Officer</TableHead>
-                        <TableHead>{t("date")}</TableHead>
-                        <TableHead>{t("purpose" as string) || "Purpose"}</TableHead>
-                        <TableHead>{t("outcome" as string) || "Outcome"}</TableHead>
-                        <TableHead>{t("warehouse" as string) || "Location"}</TableHead>
-                        <TableHead className="text-right sticky right-0 z-10 bg-white dark:bg-gray-800 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.1)]">{t("actions")}</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {visits.map((v: Visit) => (
-                        <TableRow key={v.id}>
-                          <TableCell className="font-medium">{v.customer?.name ?? "—"}</TableCell>
-                          <TableCell className="text-sm">
-                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-medium bg-muted/80 text-foreground border border-border/60 whitespace-nowrap">
+                <div>
+                  {/* Mobile Cards (screens < 768px) */}
+                  <div className="block md:hidden divide-y divide-border/60">
+                    {visits.map((v: Visit) => (
+                      <div key={v.id} className="p-3.5 space-y-2.5 bg-card/50 hover:bg-muted/30 transition-colors">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="space-y-1 min-w-0">
+                            <p className="font-semibold text-sm text-foreground leading-tight truncate">{v.customer?.name ?? "—"}</p>
+                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-medium bg-muted/80 text-foreground border border-border/60">
                               <User className="h-3 w-3 text-muted-foreground" />
                               {getUserName(v.visited_by, v.visited_by_name || (v as any).officer_name)}
                             </span>
-                          </TableCell>
-                          <TableCell className="text-sm">{formatDateTime(v.visit_date)}</TableCell>
-                          <TableCell className="text-sm">{v.purpose ?? "—"}</TableCell>
-                          <TableCell className="text-sm">{v.outcome ?? "—"}</TableCell>
-                          <TableCell>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <span className="text-xs text-muted-foreground block">{formatDateTime(v.visit_date)}</span>
+                            <span className="text-xs font-medium text-primary">{timeAgo(v.visit_date)}</span>
+                          </div>
+                        </div>
+
+                        {(v.purpose || v.outcome) && (
+                          <div className="text-xs space-y-1 bg-muted/30 p-2 rounded-md border border-border/40">
+                            {v.purpose && <div><span className="font-semibold text-muted-foreground">Purpose:</span> {v.purpose}</div>}
+                            {v.outcome && <div><span className="font-semibold text-muted-foreground">Outcome:</span> {v.outcome}</div>}
+                          </div>
+                        )}
+
+                        <div className="flex items-center justify-between pt-1 border-t border-border/40">
+                          <div>
                             {v.latitude && v.longitude ? (
                               <a
                                 href={`https://www.google.com/maps?q=${v.latitude},${v.longitude}`}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="inline-flex items-center hover:opacity-80 transition-opacity"
-                                title="Open location in Google Maps"
                               >
                                 <Badge variant="secondary" className="text-[10px] gap-1 cursor-pointer">
-                                  <MapPin className="h-2.5 w-2.5" /> {v.latitude.toFixed(3)}, {v.longitude.toFixed(3)}
+                                  <MapPin className="h-2.5 w-2.5 text-sky-600" /> {v.latitude.toFixed(3)}, {v.longitude.toFixed(3)}
                                 </Badge>
                               </a>
                             ) : (
-                              <span className="text-xs text-muted-foreground">—</span>
+                              <span className="text-xs text-muted-foreground">No GPS</span>
                             )}
-                          </TableCell>
-                          <TableCell className="text-right sticky right-0 z-10 bg-white dark:bg-gray-800 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.1)]">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => setDeletingVisit(v)}
-                              title={t("delete") || "Delete Visit"}
-                              className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
-                          </TableCell>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => setDeletingVisit(v)}
+                            title={t("delete") || "Delete Visit"}
+                            className="h-7 w-7 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Desktop Table (screens md+ >= 768px) */}
+                  <div className="hidden md:block overflow-x-auto relative rounded-md border">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>{t("customer")}</TableHead>
+                          <TableHead>Sales Officer</TableHead>
+                          <TableHead>{t("date")}</TableHead>
+                          <TableHead>{t("purpose" as string) || "Purpose"}</TableHead>
+                          <TableHead>{t("outcome" as string) || "Outcome"}</TableHead>
+                          <TableHead>{t("warehouse" as string) || "Location"}</TableHead>
+                          <TableHead className="text-right sticky right-0 z-10 bg-white dark:bg-gray-800 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.1)]">{t("actions")}</TableHead>
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                      </TableHeader>
+                      <TableBody>
+                        {visits.map((v: Visit) => (
+                          <TableRow key={v.id}>
+                            <TableCell className="font-medium">{v.customer?.name ?? "—"}</TableCell>
+                            <TableCell className="text-sm">
+                              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-medium bg-muted/80 text-foreground border border-border/60 whitespace-nowrap">
+                                <User className="h-3 w-3 text-muted-foreground" />
+                                {getUserName(v.visited_by, v.visited_by_name || (v as any).officer_name)}
+                              </span>
+                            </TableCell>
+                            <TableCell className="text-sm">{formatDateTime(v.visit_date)}</TableCell>
+                            <TableCell className="text-sm">{v.purpose ?? "—"}</TableCell>
+                            <TableCell className="text-sm">{v.outcome ?? "—"}</TableCell>
+                            <TableCell>
+                              {v.latitude && v.longitude ? (
+                                <a
+                                  href={`https://www.google.com/maps?q=${v.latitude},${v.longitude}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center hover:opacity-80 transition-opacity"
+                                  title="Open location in Google Maps"
+                                >
+                                  <Badge variant="secondary" className="text-[10px] gap-1 cursor-pointer">
+                                    <MapPin className="h-2.5 w-2.5" /> {v.latitude.toFixed(3)}, {v.longitude.toFixed(3)}
+                                  </Badge>
+                                </a>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">—</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-right sticky right-0 z-10 bg-white dark:bg-gray-800 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.1)]">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => setDeletingVisit(v)}
+                                title={t("delete") || "Delete Visit"}
+                                className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
                 </div>
               )}
             </CardContent>
@@ -936,89 +1011,152 @@ export function SfaPage() {
                   description="No sales targets set. Click 'Sales Target' above to add one."
                 />
               ) : (
-                <div className="overflow-x-auto relative rounded-md border">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>{t("period")}</TableHead>
-                        <TableHead>{t("startDate")}</TableHead>
-                        <TableHead>{t("endDate")}</TableHead>
-                        <TableHead className="text-right">{t("targetAmount")}</TableHead>
-                        <TableHead className="text-right">{t("achieved")}</TableHead>
-                        <TableHead>{t("progress")}</TableHead>
-                        <TableHead className="text-right sticky right-0 z-10 bg-white dark:bg-gray-800 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.1)]">{t("actions")}</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {targets.map((tg: SalesTarget) => {
-                        const { achieved, targetPercentage } = computeTargetMetrics(tg);
-                        return (
-                          <TableRow key={tg.id}>
-                            <TableCell>
-                              <Badge variant="secondary" className="text-[10px]">
+                <div>
+                  {/* Mobile Cards (screens < 768px) */}
+                  <div className="block md:hidden divide-y divide-border/60">
+                    {targets.map((tg: SalesTarget) => {
+                      const { achieved, targetPercentage } = computeTargetMetrics(tg);
+                      return (
+                        <div key={tg.id} className="p-3.5 space-y-2.5 bg-card/50 hover:bg-muted/30 transition-colors">
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <Badge variant="secondary" className="text-[10px] mb-1 font-semibold">
                                 {t(tg.period.toLowerCase())}
                               </Badge>
-                            </TableCell>
-                            <TableCell className="text-sm">{tg.period_start}</TableCell>
-                            <TableCell className="text-sm">{tg.period_end}</TableCell>
-                            <TableCell className="text-right font-medium">
-                              {formatBDT(tg.target_amount)}
-                            </TableCell>
-                            <TableCell className="text-right text-emerald-600 font-medium">
-                              {formatBDT(achieved)}
-                            </TableCell>
-                            <TableCell>
-                              <div className="flex items-center gap-2">
-                                <div className="h-2 w-20 rounded-full bg-muted overflow-hidden">
-                                  <div
-                                    className={cn(
-                                      "h-full transition-all",
-                                      targetPercentage >= 100 ? "bg-emerald-500" : "bg-primary"
-                                    )}
-                                    style={{ width: `${Math.min(100, Math.max(0, targetPercentage))}%` }}
-                                  />
-                                </div>
-                                {targetPercentage >= 100 ? (
-                                  <Badge
-                                    variant="outline"
-                                    className="text-[10px] px-1.5 py-0.5 border-emerald-500 text-emerald-600 bg-emerald-50 dark:bg-emerald-950/30 whitespace-nowrap font-semibold"
-                                  >
-                                    {isBengaliMode()
-                                      ? `${toBnDigit(targetPercentage)}% অর্জিত`
-                                      : `${targetPercentage}% Target Achieved`}
-                                  </Badge>
-                                ) : (
-                                  <span className="text-xs font-medium">
-                                    {isBengaliMode() ? `${toBnDigit(targetPercentage)}%` : `${targetPercentage}%`}
-                                  </span>
+                              <p className="text-xs text-muted-foreground">{tg.period_start} → {tg.period_end}</p>
+                            </div>
+                            <div className="text-right">
+                              <span className="text-xs text-muted-foreground block">Target</span>
+                              <span className="text-sm font-bold text-foreground">{formatBDT(tg.target_amount)}</span>
+                            </div>
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="text-muted-foreground">Achieved: <strong className="text-emerald-600 font-semibold">{formatBDT(achieved)}</strong></span>
+                              <span className="font-bold text-foreground">{targetPercentage}%</span>
+                            </div>
+                            <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
+                              <div
+                                className={cn(
+                                  "h-full transition-all",
+                                  targetPercentage >= 100 ? "bg-emerald-500" : "bg-primary"
                                 )}
-                              </div>
-                            </TableCell>
-                            <TableCell className="text-right sticky right-0 z-10 bg-white dark:bg-gray-800 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.1)]">
-                              <div className="flex justify-end gap-1">
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  onClick={() => handleEditTarget(tg)}
-                                  title={t("edit") || "Edit Target"}
-                                >
-                                  <Pencil className="h-3.5 w-3.5" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  onClick={() => handleDeleteTarget(tg)}
-                                  title={t("delete") || "Delete Target"}
-                                >
-                                  <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                                </Button>
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
+                                style={{ width: `${Math.min(100, Math.max(0, targetPercentage))}%` }}
+                              />
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-end gap-1 pt-1 border-t border-border/40">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 text-xs gap-1"
+                              onClick={() => handleEditTarget(tg)}
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                              <span>Edit</span>
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 text-xs gap-1 text-destructive hover:bg-destructive/10"
+                              onClick={() => handleDeleteTarget(tg)}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                              <span>Delete</span>
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Desktop Table (screens md+ >= 768px) */}
+                  <div className="hidden md:block overflow-x-auto relative rounded-md border">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>{t("period")}</TableHead>
+                          <TableHead>{t("startDate")}</TableHead>
+                          <TableHead>{t("endDate")}</TableHead>
+                          <TableHead className="text-right">{t("targetAmount")}</TableHead>
+                          <TableHead className="text-right">{t("achieved")}</TableHead>
+                          <TableHead>{t("progress")}</TableHead>
+                          <TableHead className="text-right sticky right-0 z-10 bg-white dark:bg-gray-800 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.1)]">{t("actions")}</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {targets.map((tg: SalesTarget) => {
+                          const { achieved, targetPercentage } = computeTargetMetrics(tg);
+                          return (
+                            <TableRow key={tg.id}>
+                              <TableCell>
+                                <Badge variant="secondary" className="text-[10px]">
+                                  {t(tg.period.toLowerCase())}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="text-sm">{tg.period_start}</TableCell>
+                              <TableCell className="text-sm">{tg.period_end}</TableCell>
+                              <TableCell className="text-right font-medium">
+                                {formatBDT(tg.target_amount)}
+                              </TableCell>
+                              <TableCell className="text-right text-emerald-600 font-medium">
+                                {formatBDT(achieved)}
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex items-center gap-2">
+                                  <div className="h-2 w-20 rounded-full bg-muted overflow-hidden">
+                                    <div
+                                      className={cn(
+                                        "h-full transition-all",
+                                        targetPercentage >= 100 ? "bg-emerald-500" : "bg-primary"
+                                      )}
+                                      style={{ width: `${Math.min(100, Math.max(0, targetPercentage))}%` }}
+                                    />
+                                  </div>
+                                  {targetPercentage >= 100 ? (
+                                    <Badge
+                                      variant="outline"
+                                      className="text-[10px] px-1.5 py-0.5 border-emerald-500 text-emerald-600 bg-emerald-50 dark:bg-emerald-950/30 whitespace-nowrap font-semibold"
+                                    >
+                                      {isBengaliMode()
+                                        ? `${toBnDigit(targetPercentage)}% অর্জিত`
+                                        : `${targetPercentage}% Target Achieved`}
+                                    </Badge>
+                                  ) : (
+                                    <span className="text-xs font-medium">
+                                      {isBengaliMode() ? `${toBnDigit(targetPercentage)}%` : `${targetPercentage}%`}
+                                    </span>
+                                  )}
+                                </div>
+                              </TableCell>
+                              <TableCell className="text-right sticky right-0 z-10 bg-white dark:bg-gray-800 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.1)]">
+                                <div className="flex justify-end gap-1">
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => handleEditTarget(tg)}
+                                    title={t("edit") || "Edit Target"}
+                                  >
+                                    <Pencil className="h-3.5 w-3.5" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => handleDeleteTarget(tg)}
+                                    title={t("delete") || "Delete Target"}
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                                  </Button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
                 </div>
               )}
             </CardContent>
@@ -1140,112 +1278,218 @@ export function SfaPage() {
                   }
                 />
               ) : (
-                <div className="overflow-x-auto relative rounded-md border">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="w-12 text-center">#</TableHead>
-                        <TableHead className="w-16 text-center">Order</TableHead>
-                        <TableHead>{t("customer")}</TableHead>
-                        <TableHead>Day</TableHead>
-                        <TableHead>Location</TableHead>
-                        <TableHead>Contact</TableHead>
-                        <TableHead>Notes</TableHead>
-                        <TableHead className="text-right sticky right-0 z-10 bg-white dark:bg-gray-800 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.1)]">{t("actions")}</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {filteredRoutes.map((r: RouteItem) => {
-                        const originalIndex = routes.findIndex((item: RouteItem) => item.id === r.id);
-                        return (
-                          <TableRow key={r.id}>
-                            <TableCell className="text-center font-bold text-primary">
-                              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/10 text-xs mx-auto">
+                <div>
+                  {/* Mobile Cards (screens < 768px) */}
+                  <div className="block md:hidden divide-y divide-border/60">
+                    {filteredRoutes.map((r: RouteItem) => {
+                      const originalIndex = routes.findIndex((item: RouteItem) => item.id === r.id);
+                      return (
+                        <div key={r.id} className="p-3.5 space-y-2.5 bg-card/50 hover:bg-muted/30 transition-colors">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex items-start gap-2.5 min-w-0">
+                              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary mt-0.5">
                                 {originalIndex + 1}
                               </span>
-                            </TableCell>
-                            <TableCell className="text-center">
-                              <div className="flex items-center justify-center gap-0.5">
-                                <button
-                                  type="button"
-                                  disabled={originalIndex <= 0}
-                                  onClick={() => moveRouteUp(originalIndex)}
-                                  className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-20 disabled:hover:text-muted-foreground transition-opacity"
-                                  title="Move Stop Up"
-                                >
-                                  <ArrowUp className="h-3.5 w-3.5" />
-                                </button>
-                                <button
-                                  type="button"
-                                  disabled={originalIndex >= routes.length - 1}
-                                  onClick={() => moveRouteDown(originalIndex)}
-                                  className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-20 disabled:hover:text-muted-foreground transition-opacity"
-                                  title="Move Stop Down"
-                                >
-                                  <ArrowDown className="h-3.5 w-3.5" />
-                                </button>
+                              <div className="space-y-0.5 min-w-0">
+                                <p className="font-semibold text-sm text-foreground leading-tight truncate">{r.name}</p>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  {r.customer_type && (
+                                    <Badge variant="secondary" className="text-[10px]">{r.customer_type}</Badge>
+                                  )}
+                                  {r.day_of_week && (
+                                    <Badge variant="outline" className="text-[10px] text-blue-600 border-blue-200 dark:border-blue-800">
+                                      {r.day_of_week}
+                                    </Badge>
+                                  )}
+                                </div>
                               </div>
-                            </TableCell>
-                            <TableCell>
-                              <div className="flex items-center gap-2">
-                                <span className="text-sm font-semibold whitespace-nowrap">{r.name}</span>
-                                {r.customer_type && (
-                                  <Badge variant="secondary" className="text-[10px]">
-                                    {r.customer_type}
+                            </div>
+
+                            {/* Move Up/Down Buttons */}
+                            <div className="flex items-center gap-1 shrink-0">
+                              <button
+                                type="button"
+                                disabled={originalIndex <= 0}
+                                onClick={() => moveRouteUp(originalIndex)}
+                                className="p-1 rounded text-muted-foreground hover:bg-muted disabled:opacity-20"
+                                title="Move Stop Up"
+                              >
+                                <ArrowUp className="h-4 w-4" />
+                              </button>
+                              <button
+                                type="button"
+                                disabled={originalIndex >= routes.length - 1}
+                                onClick={() => moveRouteDown(originalIndex)}
+                                className="p-1 rounded text-muted-foreground hover:bg-muted disabled:opacity-20"
+                                title="Move Stop Down"
+                              >
+                                <ArrowDown className="h-4 w-4" />
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="text-xs text-muted-foreground space-y-1">
+                            {[r.address, r.city, r.territory].filter(Boolean).length > 0 && (
+                              <p className="truncate flex items-center gap-1">
+                                <MapPin className="h-3 w-3 shrink-0 text-sky-500" />
+                                <span>{[r.address, r.city, r.territory].filter(Boolean).join(", ")}</span>
+                              </p>
+                            )}
+                            {r.phone && (
+                              <p>
+                                <a href={`tel:${r.phone}`} className="inline-flex items-center gap-1 hover:text-primary transition-colors">
+                                  <Phone className="h-3 w-3 text-emerald-500" />
+                                  <span>{r.phone}</span>
+                                </a>
+                              </p>
+                            )}
+                            {r.notes && (
+                              <p className="text-amber-600 dark:text-amber-400 italic text-[11px] truncate">
+                                Note: {r.notes}
+                              </p>
+                            )}
+                          </div>
+
+                          <div className="flex items-center justify-end gap-1 pt-1 border-t border-border/40">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 text-xs gap-1"
+                              onClick={() => {
+                                setEditingRoute(r);
+                                setRouteForm({
+                                  day_of_week: r.day_of_week || "Monday",
+                                  notes: r.notes || "",
+                                });
+                                setRouteModalOpen(true);
+                              }}
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                              <span>Edit</span>
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 text-xs gap-1 text-destructive hover:bg-destructive/10"
+                              onClick={() => removeRoute(r.id)}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                              <span>Remove</span>
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Desktop Table (screens md+ >= 768px) */}
+                  <div className="hidden md:block overflow-x-auto relative rounded-md border">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="w-12 text-center">#</TableHead>
+                          <TableHead className="w-16 text-center">Order</TableHead>
+                          <TableHead>{t("customer")}</TableHead>
+                          <TableHead>Day</TableHead>
+                          <TableHead>Location</TableHead>
+                          <TableHead>Contact</TableHead>
+                          <TableHead>Notes</TableHead>
+                          <TableHead className="text-right sticky right-0 z-10 bg-white dark:bg-gray-800 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.1)]">{t("actions")}</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {filteredRoutes.map((r: RouteItem) => {
+                          const originalIndex = routes.findIndex((item: RouteItem) => item.id === r.id);
+                          return (
+                            <TableRow key={r.id}>
+                              <TableCell className="text-center font-bold text-primary">
+                                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/10 text-xs mx-auto">
+                                  {originalIndex + 1}
+                                </span>
+                              </TableCell>
+                              <TableCell className="text-center">
+                                <div className="flex items-center justify-center gap-0.5">
+                                  <button
+                                    type="button"
+                                    disabled={originalIndex <= 0}
+                                    onClick={() => moveRouteUp(originalIndex)}
+                                    className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-20 disabled:hover:text-muted-foreground transition-opacity"
+                                    title="Move Stop Up"
+                                  >
+                                    <ArrowUp className="h-3.5 w-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={originalIndex >= routes.length - 1}
+                                    onClick={() => moveRouteDown(originalIndex)}
+                                    className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-20 disabled:hover:text-muted-foreground transition-opacity"
+                                    title="Move Stop Down"
+                                  >
+                                    <ArrowDown className="h-3.5 w-3.5" />
+                                  </button>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm font-semibold whitespace-nowrap">{r.name}</span>
+                                  {r.customer_type && (
+                                    <Badge variant="secondary" className="text-[10px]">
+                                      {r.customer_type}
+                                    </Badge>
+                                  )}
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                {r.day_of_week ? (
+                                  <Badge variant="outline" className="text-[10px] text-blue-600 border-blue-200 dark:border-blue-800 whitespace-nowrap">
+                                    {r.day_of_week}
                                   </Badge>
-                                )}
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              {r.day_of_week ? (
-                                <Badge variant="outline" className="text-[10px] text-blue-600 border-blue-200 dark:border-blue-800 whitespace-nowrap">
-                                  {r.day_of_week}
-                                </Badge>
-                              ) : "—"}
-                            </TableCell>
-                            <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
-                              {[r.address, r.city, r.territory].filter(Boolean).join(", ") || "—"}
-                            </TableCell>
-                            <TableCell className="text-xs whitespace-nowrap">
-                              {r.phone || "—"}
-                            </TableCell>
-                            <TableCell className="text-xs text-amber-600 dark:text-amber-400 max-w-xs truncate">
-                              {r.notes || "—"}
-                            </TableCell>
-                            <TableCell className="text-right sticky right-0 z-10 bg-white dark:bg-gray-800 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.1)]">
-                              <div className="flex items-center justify-end gap-1">
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  onClick={() => {
-                                    setEditingRoute(r);
-                                    setRouteForm({
-                                      day_of_week: r.day_of_week || "Monday",
-                                      notes: r.notes || "",
-                                    });
-                                    setRouteModalOpen(true);
-                                  }}
-                                  title="Edit Stop Details"
-                                  className="h-8 w-8"
-                                >
-                                  <Pencil className="h-3.5 w-3.5" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  onClick={() => removeRoute(r.id)}
-                                  title="Remove Stop"
-                                  className="h-8 w-8 text-destructive hover:bg-destructive/10"
-                                >
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </Button>
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
+                                ) : "—"}
+                              </TableCell>
+                              <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                                {[r.address, r.city, r.territory].filter(Boolean).join(", ") || "—"}
+                              </TableCell>
+                              <TableCell className="text-xs whitespace-nowrap">
+                                {r.phone || "—"}
+                              </TableCell>
+                              <TableCell className="text-xs text-amber-600 dark:text-amber-400 max-w-xs truncate">
+                                {r.notes || "—"}
+                              </TableCell>
+                              <TableCell className="text-right sticky right-0 z-10 bg-white dark:bg-gray-800 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.1)]">
+                                <div className="flex items-center justify-end gap-1">
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => {
+                                      setEditingRoute(r);
+                                      setRouteForm({
+                                        day_of_week: r.day_of_week || "Monday",
+                                        notes: r.notes || "",
+                                      });
+                                      setRouteModalOpen(true);
+                                    }}
+                                    title="Edit Stop Details"
+                                    className="h-8 w-8"
+                                  >
+                                    <Pencil className="h-3.5 w-3.5" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => removeRoute(r.id)}
+                                    title="Remove Stop"
+                                    className="h-8 w-8 text-destructive hover:bg-destructive/10"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </Button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
                 </div>
               )}
             </CardContent>

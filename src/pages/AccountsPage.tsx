@@ -490,7 +490,24 @@ export function AccountsPage() {
       }
     }
     load();
-    return () => { isMounted = false; };
+
+    const accChannel = supabase
+      .channel("accounts-page-realtime")
+      .on("postgres_changes", { event: "*", schema: "public", table: "collections" }, () => {
+        if (isMounted) load();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "expenses" }, () => {
+        if (isMounted) load();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => {
+        if (isMounted) load();
+      })
+      .subscribe();
+
+    return () => {
+      isMounted = false;
+      supabase.removeChannel(accChannel);
+    };
   }, []);
 
   useEffect(() => {
@@ -1112,102 +1129,186 @@ export function AccountsPage() {
                 <Button variant="outline" size="sm" onClick={handleExportCollections}><Download className="h-4 w-4" /> {t("exportExcel")}</Button>
               </div>
             </CardHeader>
-            <CardContent className="p-0 overflow-x-auto relative max-w-full">
+            <CardContent className="p-0 relative max-w-full">
               {loading ? (
                 <div className="flex h-64 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
               ) : filteredCollections.length === 0 ? (
                 <EmptyState icon={<DollarSign className="h-10 w-10" />} title={t("noData")} description={colStartDate || colEndDate ? "No collections found in selected date range" : undefined} />
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>{t("collectionNumber")}</TableHead>
-                      <TableHead>{t("customer")}</TableHead>
-                      <TableHead>{t("salesOfficer")}</TableHead>
-                      <TableHead>{t("date")}</TableHead>
-                      <TableHead className="text-right">{t("amount")}</TableHead>
-                      <TableHead>{t("paymentMethod")}</TableHead>
-                      <TableHead className="text-right sticky right-0 z-10 bg-white dark:bg-gray-800 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.1)]">{t("actions")}</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
+                <div>
+                  {/* Mobile Collections Cards (screens < 768px) */}
+                  <div className="block md:hidden divide-y divide-border/60">
                     {filteredCollections.map((c) => {
                       const displayColNo = c.collection_number || `COL-${String(c.id).slice(0, 8)}`;
-
                       return (
-                        <TableRow key={c.id}>
-                          <TableCell className="font-mono text-xs">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setSelectedCollection(c);
-                                setCollectionDetailsOpen(true);
-                              }}
-                              className="text-blue-600 hover:text-blue-800 hover:underline font-semibold cursor-pointer text-left transition-colors"
-                              title={`View Collection Receipt for ${displayColNo}`}
-                            >
-                              {displayColNo}
-                            </button>
-                          </TableCell>
-                          <TableCell className="font-medium">
-                            <p>{(c.customer?.outlet_name || c.customer?.name) ?? "—"}</p>
-                          </TableCell>
-                          <TableCell className="text-sm">
-                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-medium bg-muted/80 text-foreground border border-border/60 whitespace-nowrap">
-                              <User className="h-3 w-3 text-muted-foreground" />
+                        <div key={c.id} className="p-4 space-y-2.5 bg-card hover:bg-muted/30 transition-colors">
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedCollection(c);
+                                  setCollectionDetailsOpen(true);
+                                }}
+                                className="font-mono text-sm font-bold text-primary hover:underline transition-colors text-left"
+                              >
+                                {displayColNo}
+                              </button>
+                              <p className="text-xs font-semibold text-foreground mt-0.5">
+                                {(c.customer?.outlet_name || c.customer?.name) ?? "—"}
+                              </p>
+                            </div>
+                            <span className="font-mono text-base font-bold text-emerald-600">
+                              {formatBDT(c.amount)}
+                            </span>
+                          </div>
+
+                          <div className="flex flex-wrap items-center justify-between gap-1 text-xs text-muted-foreground pt-1">
+                            <span className="inline-flex items-center gap-1 bg-muted/60 px-2 py-0.5 rounded text-[11px]">
+                              <User className="h-3 w-3" />
                               {getUserName(
                                 c.collected_by,
                                 c.collector?.full_name || (c as any).collector_name || (c as any).collected_by_name || (c as any).sales_rep_name
                               )}
                             </span>
-                          </TableCell>
-                          <TableCell className="text-sm">{formatDate(c.collection_date)}</TableCell>
-                          <TableCell className="text-right font-semibold text-emerald-600">{formatBDT(c.amount)}</TableCell>
-                          <TableCell>
-                            <div className="flex flex-col gap-0.5">
-                              <Badge variant="secondary" className="text-[10px] w-fit">{c.payment_method}</Badge>
+                            <span>{formatDate(c.collection_date)}</span>
+                          </div>
+
+                          <div className="flex items-center justify-between pt-1 border-t border-border/40 text-xs">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <Badge variant="secondary" className="text-[10px]">{c.payment_method}</Badge>
                               {(c.cheque_number || c.bank_name) && (
                                 <span className="text-[10px] text-muted-foreground font-mono">
                                   {c.bank_name ? `${c.bank_name}` : ""}{c.cheque_number ? ` #${c.cheque_number}` : ""}
                                 </span>
                               )}
                             </div>
-                          </TableCell>
-                          <TableCell className="text-right sticky right-0 z-10 bg-white dark:bg-gray-800 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.1)]">
-                            <div className="whitespace-nowrap flex items-center justify-end gap-1">
+
+                            <div className="flex items-center gap-1">
                               <Button
-                                variant="ghost"
-                                size="icon"
+                                variant="outline"
+                                size="sm"
+                                className="h-7 text-xs gap-1"
                                 onClick={() => {
                                   setSelectedCollection(c);
                                   setCollectionDetailsOpen(true);
                                 }}
-                                title="View Collection Receipt & Details"
                               >
                                 <BookOpen className="h-3.5 w-3.5 text-primary" />
+                                <span>Receipt</span>
                               </Button>
-                              {canModifyCollection(c) ? (
-                                <Button variant="ghost" size="icon" onClick={() => handleDeleteCollection(c.id)} title={t("delete")}>
-                                  <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                                </Button>
-                              ) : (
+                              {canModifyCollection(c) && (
                                 <Button
                                   variant="ghost"
                                   size="icon"
-                                  disabled
-                                  className="opacity-30 cursor-not-allowed"
-                                  title="Only the collector or finance team can delete this collection"
+                                  className="h-7 w-7 text-destructive hover:bg-destructive/10"
+                                  onClick={() => handleDeleteCollection(c.id)}
+                                  title={t("delete")}
                                 >
                                   <Trash2 className="h-3.5 w-3.5" />
                                 </Button>
                               )}
                             </div>
-                          </TableCell>
-                        </TableRow>
+                          </div>
+                        </div>
                       );
                     })}
-                  </TableBody>
-                </Table>
+                  </div>
+
+                  {/* Desktop Table (screens md+ >= 768px) */}
+                  <div className="hidden md:block overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>{t("collectionNumber")}</TableHead>
+                          <TableHead>{t("customer")}</TableHead>
+                          <TableHead>{t("salesOfficer")}</TableHead>
+                          <TableHead>{t("date")}</TableHead>
+                          <TableHead className="text-right">{t("amount")}</TableHead>
+                          <TableHead>{t("paymentMethod")}</TableHead>
+                          <TableHead className="text-right sticky right-0 z-10 bg-white dark:bg-gray-800 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.1)]">{t("actions")}</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {filteredCollections.map((c) => {
+                          const displayColNo = c.collection_number || `COL-${String(c.id).slice(0, 8)}`;
+
+                          return (
+                            <TableRow key={c.id}>
+                              <TableCell className="font-mono text-xs">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedCollection(c);
+                                    setCollectionDetailsOpen(true);
+                                  }}
+                                  className="text-blue-600 hover:text-blue-800 hover:underline font-semibold cursor-pointer text-left transition-colors"
+                                  title={`View Collection Receipt for ${displayColNo}`}
+                                >
+                                  {displayColNo}
+                                </button>
+                              </TableCell>
+                              <TableCell className="font-medium">
+                                <p>{(c.customer?.outlet_name || c.customer?.name) ?? "—"}</p>
+                              </TableCell>
+                              <TableCell className="text-sm">
+                                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-medium bg-muted/80 text-foreground border border-border/60 whitespace-nowrap">
+                                  <User className="h-3 w-3 text-muted-foreground" />
+                                  {getUserName(
+                                    c.collected_by,
+                                    c.collector?.full_name || (c as any).collector_name || (c as any).collected_by_name || (c as any).sales_rep_name
+                                  )}
+                                </span>
+                              </TableCell>
+                              <TableCell className="text-sm">{formatDate(c.collection_date)}</TableCell>
+                              <TableCell className="text-right font-semibold text-emerald-600">{formatBDT(c.amount)}</TableCell>
+                              <TableCell>
+                                <div className="flex flex-col gap-0.5">
+                                  <Badge variant="secondary" className="text-[10px] w-fit">{c.payment_method}</Badge>
+                                  {(c.cheque_number || c.bank_name) && (
+                                    <span className="text-[10px] text-muted-foreground font-mono">
+                                      {c.bank_name ? `${c.bank_name}` : ""}{c.cheque_number ? ` #${c.cheque_number}` : ""}
+                                    </span>
+                                  )}
+                                </div>
+                              </TableCell>
+                              <TableCell className="text-right sticky right-0 z-10 bg-white dark:bg-gray-800 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.1)]">
+                                <div className="whitespace-nowrap flex items-center justify-end gap-1">
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => {
+                                      setSelectedCollection(c);
+                                      setCollectionDetailsOpen(true);
+                                    }}
+                                    title="View Collection Receipt & Details"
+                                  >
+                                    <BookOpen className="h-3.5 w-3.5 text-primary" />
+                                  </Button>
+                                  {canModifyCollection(c) ? (
+                                    <Button variant="ghost" size="icon" onClick={() => handleDeleteCollection(c.id)} title={t("delete")}>
+                                      <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                                    </Button>
+                                  ) : (
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      disabled
+                                      className="opacity-30 cursor-not-allowed"
+                                      title="Only the collector or finance team can delete this collection"
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </Button>
+                                  )}
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
               )}
             </CardContent>
           </Card>
@@ -1229,45 +1330,86 @@ export function AccountsPage() {
                   <Button variant="outline" size="sm" onClick={handleExportExpenses}><Download className="h-4 w-4" /> {t("exportExcel")}</Button>
                 </div>
               </CardHeader>
-              <CardContent className="p-0 overflow-x-auto relative max-w-full">
+              <CardContent className="p-0 relative max-w-full">
                 {filteredExpenses.length === 0 ? (
                   <EmptyState icon={<TrendingDown className="h-10 w-10" />} title={t("noData")} description={expStartDate || expEndDate ? "No expenses found in selected date range" : undefined} />
                 ) : (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>{t("expenseCategory")}</TableHead>
-                        <TableHead>{t("description")}</TableHead>
-                        <TableHead>Recorded By</TableHead>
-                        <TableHead>{t("date")}</TableHead>
-                        <TableHead className="text-right">{t("amount")}</TableHead>
-                        <TableHead className="text-right sticky right-0 z-10 bg-white dark:bg-gray-800 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.1)]">{t("actions")}</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
+                  <div>
+                    {/* Mobile Cards (screens < 768px) */}
+                    <div className="block md:hidden divide-y divide-border/60">
                       {filteredExpenses.map((e) => (
-                        <TableRow key={e.id}>
-                          <TableCell><Badge variant="secondary" className="text-[10px]">{e.category}</Badge></TableCell>
-                          <TableCell className="text-sm">{e.description ?? "—"}</TableCell>
-                          <TableCell className="text-sm">
-                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-medium bg-muted/80 text-foreground border border-border/60 whitespace-nowrap">
-                              <User className="h-3 w-3 text-muted-foreground" />
+                        <div key={e.id} className="p-3.5 space-y-2 bg-card/50 hover:bg-muted/30 transition-colors">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="space-y-1 min-w-0">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <Badge variant="secondary" className="text-[10px] font-semibold">{e.category}</Badge>
+                                <span className="text-xs text-muted-foreground">{formatDate(e.expense_date)}</span>
+                              </div>
+                              <p className="text-sm font-medium text-foreground line-clamp-2">{e.description ?? "—"}</p>
+                            </div>
+                            <div className="text-right shrink-0">
+                              <span className="text-base font-bold text-rose-600">{formatBDT(e.amount)}</span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between pt-1 border-t border-border/40 text-xs">
+                            <span className="inline-flex items-center gap-1 text-muted-foreground">
+                              <User className="h-3 w-3" />
                               {getUserName(e.recorded_by, (e as any).recorded_by_name || "Admin")}
                             </span>
-                          </TableCell>
-                          <TableCell className="text-sm">{formatDate(e.expense_date)}</TableCell>
-                          <TableCell className="text-right font-semibold text-rose-600">{formatBDT(e.amount)}</TableCell>
-                          <TableCell className="text-right sticky right-0 z-10 bg-white dark:bg-gray-800 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.1)]">
-                            <div className="whitespace-nowrap flex items-center justify-end gap-1">
-                              <Button variant="ghost" size="icon" onClick={() => handleDeleteExpense(e.id)} title={t("delete")}>
-                                <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-destructive hover:bg-destructive/10"
+                              onClick={() => handleDeleteExpense(e.id)}
+                              title={t("delete")}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        </div>
                       ))}
-                    </TableBody>
-                  </Table>
+                    </div>
+
+                    {/* Desktop Table (screens md+ >= 768px) */}
+                    <div className="hidden md:block overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>{t("expenseCategory")}</TableHead>
+                            <TableHead>{t("description")}</TableHead>
+                            <TableHead>Recorded By</TableHead>
+                            <TableHead>{t("date")}</TableHead>
+                            <TableHead className="text-right">{t("amount")}</TableHead>
+                            <TableHead className="text-right sticky right-0 z-10 bg-white dark:bg-gray-800 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.1)]">{t("actions")}</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {filteredExpenses.map((e) => (
+                            <TableRow key={e.id}>
+                              <TableCell><Badge variant="secondary" className="text-[10px]">{e.category}</Badge></TableCell>
+                              <TableCell className="text-sm">{e.description ?? "—"}</TableCell>
+                              <TableCell className="text-sm">
+                                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-xs font-medium bg-muted/80 text-foreground border border-border/60 whitespace-nowrap">
+                                  <User className="h-3 w-3 text-muted-foreground" />
+                                  {getUserName(e.recorded_by, (e as any).recorded_by_name || "Admin")}
+                                </span>
+                              </TableCell>
+                              <TableCell className="text-sm">{formatDate(e.expense_date)}</TableCell>
+                              <TableCell className="text-right font-semibold text-rose-600">{formatBDT(e.amount)}</TableCell>
+                              <TableCell className="text-right sticky right-0 z-10 bg-white dark:bg-gray-800 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.1)]">
+                                <div className="whitespace-nowrap flex items-center justify-end gap-1">
+                                  <Button variant="ghost" size="icon" onClick={() => handleDeleteExpense(e.id)} title={t("delete")}>
+                                    <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                                  </Button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </div>
                 )}
               </CardContent>
             </Card>
@@ -1289,50 +1431,101 @@ export function AccountsPage() {
                 <Button variant="outline" size="sm" onClick={handleExportCashbook}><Download className="h-4 w-4" /> {t("exportExcel")}</Button>
               </div>
             </CardHeader>
-            <CardContent className="p-0 overflow-x-auto relative max-w-full">
+            <CardContent className="p-0 relative max-w-full">
               {filteredCashbookEntries.length === 0 ? (
                 <EmptyState icon={<BookOpen className="h-10 w-10" />} title={t("noData")} description={cashbookStartDate || cashbookEndDate ? "No cash book entries found in selected date range" : undefined} />
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>{t("date")}</TableHead>
-                      <TableHead>{t("description" as string) || "Type"}</TableHead>
-                      <TableHead>{t("reference" as string) || "Reference"}</TableHead>
-                      <TableHead className="text-right">{t("cash" as string) || "In"}</TableHead>
-                      <TableHead className="text-right">{t("expenseEntry" as string) || "Out"}</TableHead>
-                      <TableHead className="text-right">{t("total" as string) || "Balance"}</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
+                <div>
+                  {/* Mobile Cards (screens < 768px) */}
+                  <div className="block md:hidden divide-y divide-border/60">
                     {filteredCashbookEntries.map((e, i) => (
-                      <TableRow key={i}>
-                        <TableCell className="text-sm">{formatDate(e.date)}</TableCell>
-                        <TableCell className="text-sm">{e.type}</TableCell>
-                        <TableCell className="text-xs">
-                          {e.collection ? (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setSelectedCollection(e.collection);
-                                setCollectionDetailsOpen(true);
-                              }}
-                              className="text-blue-600 hover:text-blue-800 hover:underline font-mono font-semibold cursor-pointer text-left transition-colors"
-                              title={`View Collection Receipt for ${e.ref}`}
-                            >
-                              {e.ref}
-                            </button>
-                          ) : (
-                            <span className="text-muted-foreground">{e.ref}</span>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-right text-emerald-600">{e.in > 0 ? formatBDT(e.in) : "—"}</TableCell>
-                        <TableCell className="text-right text-rose-600">{e.out > 0 ? formatBDT(e.out) : "—"}</TableCell>
-                        <TableCell className="text-right font-medium">{formatBDT(e.balance)}</TableCell>
-                      </TableRow>
+                      <div key={i} className="p-3.5 space-y-2 bg-card/50 hover:bg-muted/30 transition-colors">
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <span className="text-xs font-medium text-muted-foreground">{formatDate(e.date)}</span>
+                            <p className="text-sm font-semibold text-foreground">{e.type}</p>
+                            <div className="text-xs font-mono mt-0.5">
+                              {e.collection ? (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedCollection(e.collection);
+                                    setCollectionDetailsOpen(true);
+                                  }}
+                                  className="text-blue-600 hover:text-blue-800 hover:underline font-semibold cursor-pointer text-left transition-colors"
+                                  title={`View Collection Receipt for ${e.ref}`}
+                                >
+                                  {e.ref}
+                                </button>
+                              ) : (
+                                <span className="text-muted-foreground">{e.ref}</span>
+                              )}
+                            </div>
+                          </div>
+                          <div className="text-right space-y-0.5">
+                            {e.in > 0 && (
+                              <div className="text-xs font-semibold text-emerald-600">
+                                In: +{formatBDT(e.in)}
+                              </div>
+                            )}
+                            {e.out > 0 && (
+                              <div className="text-xs font-semibold text-rose-600">
+                                Out: -{formatBDT(e.out)}
+                              </div>
+                            )}
+                            <div className="text-sm font-bold text-foreground pt-1 border-t border-border/40">
+                              Bal: {formatBDT(e.balance)}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
                     ))}
-                  </TableBody>
-                </Table>
+                  </div>
+
+                  {/* Desktop Table (screens md+ >= 768px) */}
+                  <div className="hidden md:block overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>{t("date")}</TableHead>
+                          <TableHead>{t("description" as string) || "Type"}</TableHead>
+                          <TableHead>{t("reference" as string) || "Reference"}</TableHead>
+                          <TableHead className="text-right">{t("cash" as string) || "In"}</TableHead>
+                          <TableHead className="text-right">{t("expenseEntry" as string) || "Out"}</TableHead>
+                          <TableHead className="text-right">{t("total" as string) || "Balance"}</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {filteredCashbookEntries.map((e, i) => (
+                          <TableRow key={i}>
+                            <TableCell className="text-sm">{formatDate(e.date)}</TableCell>
+                            <TableCell className="text-sm">{e.type}</TableCell>
+                            <TableCell className="text-xs">
+                              {e.collection ? (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedCollection(e.collection);
+                                    setCollectionDetailsOpen(true);
+                                  }}
+                                  className="text-blue-600 hover:text-blue-800 hover:underline font-mono font-semibold cursor-pointer text-left transition-colors"
+                                  title={`View Collection Receipt for ${e.ref}`}
+                                >
+                                  {e.ref}
+                                </button>
+                              ) : (
+                                <span className="text-muted-foreground">{e.ref}</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-right text-emerald-600">{e.in > 0 ? formatBDT(e.in) : "—"}</TableCell>
+                            <TableCell className="text-right text-rose-600">{e.out > 0 ? formatBDT(e.out) : "—"}</TableCell>
+                            <TableCell className="text-right font-medium">{formatBDT(e.balance)}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
               )}
             </CardContent>
           </Card>
@@ -1353,56 +1546,113 @@ export function AccountsPage() {
                 <Button variant="outline" size="sm" onClick={handleExportCustomerDues}><Download className="h-4 w-4" /> {t("exportExcel")}</Button>
               </div>
             </CardHeader>
-            <CardContent className="p-0 overflow-x-auto relative max-w-full">
+            <CardContent className="p-0 relative max-w-full">
               {filteredCustomersWithDue.length === 0 ? (
                 <EmptyState icon={<Wallet className="h-10 w-10" />} title={t("noData")} description={dueStartDate || dueEndDate ? "No customer dues found in selected date range" : "No outstanding dues"} />
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>{t("customer")}</TableHead>
-                      <TableHead>{t("customerType")}</TableHead>
-                      <TableHead>{t("phone")}</TableHead>
-                      <TableHead className="text-right">{t("currentDue" as string) || "Due"}</TableHead>
-                      <TableHead>{t("dueStatus")}</TableHead>
-                      <TableHead className="text-right sticky right-0 z-10 bg-white dark:bg-gray-800 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.1)]">{t("actions")}</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
+                <div>
+                  {/* Mobile Cards (screens < 768px) */}
+                  <div className="block md:hidden divide-y divide-border/60">
                     {filteredCustomersWithDue.map(({ customer: c, due, status, opening }) => (
-                      <TableRow key={c.id}>
-                        <TableCell className="font-medium">
-                          <p>{c.outlet_name || c.name}</p>
-                        </TableCell>
-                        <TableCell><Badge variant="secondary" className="text-[10px]">{t(c.customer_type.toLowerCase())}</Badge></TableCell>
-                        <TableCell className="text-sm">{c.phone ?? "—"}</TableCell>
-                        <TableCell className="text-right font-semibold text-amber-600">{formatBDT(due)}</TableCell>
-                        <TableCell><Badge variant={status === "Overdue" ? "destructive" : "warning"} className="text-[10px]">{t(status.toLowerCase())}</Badge></TableCell>
-                        <TableCell className="text-right sticky right-0 z-10 bg-white dark:bg-gray-800 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.1)]">
-                          <div className="whitespace-nowrap flex items-center justify-end gap-1">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-7 text-xs gap-1.5"
-                              onClick={() => {
-                                setSelectedLedgerCustomer({
-                                  ...c,
-                                  current_due: due,
-                                  due_status: status,
-                                  opening_balance: opening,
-                                });
-                                setLedgerOpen(true);
-                              }}
-                            >
-                              <BookOpen className="h-3.5 w-3.5 text-primary" />
-                              <span>View Ledger</span>
-                            </Button>
+                      <div key={c.id} className="p-3.5 space-y-2.5 bg-card/50 hover:bg-muted/30 transition-colors">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="space-y-1 min-w-0">
+                            <p className="font-semibold text-sm text-foreground leading-tight truncate">{c.outlet_name || c.name}</p>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <Badge variant="secondary" className="text-[10px]">{t(c.customer_type.toLowerCase())}</Badge>
+                              <Badge variant={status === "Overdue" ? "destructive" : "warning"} className="text-[10px]">
+                                {t(status.toLowerCase())}
+                              </Badge>
+                            </div>
+                            {c.phone && (
+                              <a
+                                href={`tel:${c.phone}`}
+                                className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors"
+                              >
+                                <Phone className="h-3 w-3 text-emerald-500" />
+                                {c.phone}
+                              </a>
+                            )}
                           </div>
-                        </TableCell>
-                      </TableRow>
+                          <div className="text-right shrink-0">
+                            <span className="text-xs text-muted-foreground block">{t("currentDue" as string) || "Due"}</span>
+                            <span className="text-base font-bold text-amber-600">{formatBDT(due)}</span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-end pt-1 border-t border-border/40">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 text-xs gap-1.5 w-full sm:w-auto"
+                            onClick={() => {
+                              setSelectedLedgerCustomer({
+                                ...c,
+                                current_due: due,
+                                due_status: status,
+                                opening_balance: opening,
+                              });
+                              setLedgerOpen(true);
+                            }}
+                          >
+                            <BookOpen className="h-3.5 w-3.5 text-primary" />
+                            <span>View Ledger</span>
+                          </Button>
+                        </div>
+                      </div>
                     ))}
-                  </TableBody>
-                </Table>
+                  </div>
+
+                  {/* Desktop Table (screens md+ >= 768px) */}
+                  <div className="hidden md:block overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>{t("customer")}</TableHead>
+                          <TableHead>{t("customerType")}</TableHead>
+                          <TableHead>{t("phone")}</TableHead>
+                          <TableHead className="text-right">{t("currentDue" as string) || "Due"}</TableHead>
+                          <TableHead>{t("dueStatus")}</TableHead>
+                          <TableHead className="text-right sticky right-0 z-10 bg-white dark:bg-gray-800 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.1)]">{t("actions")}</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {filteredCustomersWithDue.map(({ customer: c, due, status, opening }) => (
+                          <TableRow key={c.id}>
+                            <TableCell className="font-medium">
+                              <p>{c.outlet_name || c.name}</p>
+                            </TableCell>
+                            <TableCell><Badge variant="secondary" className="text-[10px]">{t(c.customer_type.toLowerCase())}</Badge></TableCell>
+                            <TableCell className="text-sm">{c.phone ?? "—"}</TableCell>
+                            <TableCell className="text-right font-semibold text-amber-600">{formatBDT(due)}</TableCell>
+                            <TableCell><Badge variant={status === "Overdue" ? "destructive" : "warning"} className="text-[10px]">{t(status.toLowerCase())}</Badge></TableCell>
+                            <TableCell className="text-right sticky right-0 z-10 bg-white dark:bg-gray-800 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.1)]">
+                              <div className="whitespace-nowrap flex items-center justify-end gap-1">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 text-xs gap-1.5"
+                                  onClick={() => {
+                                    setSelectedLedgerCustomer({
+                                      ...c,
+                                      current_due: due,
+                                      due_status: status,
+                                      opening_balance: opening,
+                                    });
+                                    setLedgerOpen(true);
+                                  }}
+                                >
+                                  <BookOpen className="h-3.5 w-3.5 text-primary" />
+                                  <span>View Ledger</span>
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
               )}
             </CardContent>
           </Card>

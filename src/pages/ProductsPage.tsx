@@ -133,9 +133,16 @@ export function ProductsPage() {
       if (Array.isArray(refreshedCats) && refreshedCats.length > 0) setCategories(refreshedCats);
     };
 
+    const prodChannel = supabase
+      .channel("products-page-realtime")
+      .on("postgres_changes", { event: "*", schema: "public", table: "products" }, () => loadData())
+      .on("postgres_changes", { event: "*", schema: "public", table: "categories" }, () => loadData())
+      .subscribe();
+
     window.addEventListener("storage", handleStorage);
     window.addEventListener("sales_erp_storage_update", handleStorage);
     return () => {
+      supabase.removeChannel(prodChannel);
       window.removeEventListener("storage", handleStorage);
       window.removeEventListener("sales_erp_storage_update", handleStorage);
     };
@@ -901,7 +908,74 @@ export function ProductsPage() {
                 </Badge>
               </div>
 
-              <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-280px)] border rounded-lg max-w-full">
+              {/* Mobile Product Cards (screens < 768px) */}
+              <div className="block md:hidden divide-y divide-border/60">
+                {filtered.map((p: Product) => {
+                  const dpPrice = p.unit_price ?? (p as any).dp_price ?? (p as any).selling_price ?? (p as any).price ?? (p as any).dealer_price ?? 0;
+                  return (
+                    <div key={p.id} className="p-4 space-y-2.5 bg-card hover:bg-muted/30 transition-colors">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <button
+                            type="button"
+                            onClick={() => navigate(`/inventory?search=${encodeURIComponent(p.name)}`)}
+                            className="font-semibold text-base text-left text-foreground hover:text-primary hover:underline transition-colors leading-snug"
+                            title="Click to view stock in Inventory"
+                          >
+                            {p.name}
+                          </button>
+                          <p className="text-xs text-muted-foreground mt-0.5">{p.brand || "—"}</p>
+                        </div>
+                        <Badge variant="outline" className="font-mono text-[10px] shrink-0 border-border/70">
+                          {p.sku_code}
+                        </Badge>
+                      </div>
+
+                      <div className="flex items-center justify-between text-xs pt-1">
+                        <Badge variant="secondary" className="text-[10px]">
+                          {p.category?.name ?? "General"}
+                        </Badge>
+                        <div className="text-right">
+                          <span className="text-[10px] text-muted-foreground block">Dealer Price (DP)</span>
+                          <span className="font-mono text-sm font-bold text-foreground">{formatBDT(dpPrice)}</span>
+                        </div>
+                      </div>
+
+                      {canManageProducts && (
+                        <div className="flex items-center justify-end gap-1.5 pt-2 border-t border-border/40">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 text-xs gap-1 flex-1"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleEditProduct(p);
+                            }}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                            <span>{t("edit")}</span>
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 text-xs gap-1 text-destructive hover:bg-destructive/10 border-destructive/30"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              remove(p);
+                            }}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            <span>{t("delete")}</span>
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Desktop Table (screens md+ >= 768px) */}
+              <div className="hidden md:block overflow-x-auto overflow-y-auto max-h-[calc(100vh-280px)] border rounded-lg max-w-full">
                 <Table>
                   <TableHeader className="sticky top-0 bg-white dark:bg-card z-10 shadow-sm">
                     <TableRow className="bg-white dark:bg-card border-b">
