@@ -568,11 +568,24 @@ export function OrdersPage() {
       .on("postgres_changes", { event: "*", schema: "public", table: "order_items" }, () => {
         if (isMounted) load();
       })
+      .on("postgres_changes", { event: "*", schema: "public", table: "customers" }, () => {
+        if (isMounted) load();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "products" }, () => {
+        if (isMounted) load();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "collections" }, () => {
+        if (isMounted) load();
+      })
       .subscribe();
 
     return () => {
       isMounted = false;
-      supabase.removeChannel(ordChannel);
+      try {
+        if (ordChannel && supabase?.removeChannel) {
+          supabase.removeChannel(ordChannel);
+        }
+      } catch (e) {}
     };
   }, []);
 

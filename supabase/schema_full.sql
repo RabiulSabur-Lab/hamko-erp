@@ -2756,10 +2756,67 @@ CREATE POLICY roles_modify_policy ON public.roles
   WITH CHECK (is_super_admin());
 
 -- =============================================================================
+-- STEP 5: Realtime Replication Setup (Live Sync for PC & Mobile Clients)
+-- =============================================================================
+
+-- Ensure replica identity is FULL so change payloads include complete records
+ALTER TABLE public.products REPLICA IDENTITY FULL;
+ALTER TABLE public.customers REPLICA IDENTITY FULL;
+ALTER TABLE public.orders REPLICA IDENTITY FULL;
+ALTER TABLE public.order_items REPLICA IDENTITY FULL;
+ALTER TABLE public.collections REPLICA IDENTITY FULL;
+ALTER TABLE public.categories REPLICA IDENTITY FULL;
+ALTER TABLE public.inventory REPLICA IDENTITY FULL;
+ALTER TABLE public.stock_transactions REPLICA IDENTITY FULL;
+ALTER TABLE public.notifications REPLICA IDENTITY FULL;
+
+-- Add core ERP tables to supabase_realtime publication
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.products;
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.customers;
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.orders;
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.order_items;
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.collections;
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.categories;
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.inventory;
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.stock_transactions;
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.notifications;
+  END IF;
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
+-- -----------------------------------------------------------------------------
+-- Unblock Public & Authenticated Read Access for Essential Reference Data
+-- -----------------------------------------------------------------------------
+DROP POLICY IF EXISTS products_public_read ON public.products;
+CREATE POLICY products_public_read ON public.products
+  FOR SELECT TO anon, authenticated
+  USING (true);
+
+DROP POLICY IF EXISTS categories_public_read ON public.categories;
+CREATE POLICY categories_public_read ON public.categories
+  FOR SELECT TO anon, authenticated
+  USING (true);
+
+DROP POLICY IF EXISTS territories_public_read ON public.territories;
+CREATE POLICY territories_public_read ON public.territories
+  FOR SELECT TO anon, authenticated
+  USING (true);
+
+DROP POLICY IF EXISTS roles_public_read ON public.roles;
+CREATE POLICY roles_public_read ON public.roles
+  FOR SELECT TO anon, authenticated
+  USING (true);
+
+-- =============================================================================
 -- VERIFICATION NOTE:
 -- Service role key is strictly forbidden from client repository and builds.
 -- Public client uses exclusively VITE_SUPABASE_ANON_KEY constrained by these
 -- strict Row Level Security policies.
 -- =============================================================================
+
 
 

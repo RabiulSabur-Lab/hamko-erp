@@ -237,19 +237,66 @@ export function OrderCreate() {
 
   useEffect(() => {
     let timeoutId: any;
-    const refresh = () => {
+    let isMounted = true;
+
+    const refreshLocal = () => {
       clearTimeout(timeoutId);
       timeoutId = setTimeout(() => {
+        if (!isMounted) return;
         setCustomers(getCustomers());
         setProducts(getProducts());
       }, 100);
     };
-    window.addEventListener("sales_erp_storage_update", refresh);
-    window.addEventListener("storage", refresh);
+
+    // Live Supabase fetch
+    async function fetchLive() {
+      try {
+        const [cRes, pRes] = await Promise.all([
+          supabase.from("customers").select("*").eq("is_active", true).order("name"),
+          supabase.from("products").select("*").eq("is_active", true).order("name"),
+        ]);
+        if (!isMounted) return;
+        if (!cRes.error && Array.isArray(cRes.data) && cRes.data.length > 0) {
+          setCustomers(cRes.data as Customer[]);
+        }
+        if (!pRes.error && Array.isArray(pRes.data) && pRes.data.length > 0) {
+          setProducts(pRes.data as Product[]);
+        }
+      } catch (err) {
+        console.warn("OrderCreate live fetch notice:", err);
+      }
+    }
+    fetchLive();
+
+    let orderCreateChannel: any = null;
+    try {
+      if (supabase?.channel) {
+        orderCreateChannel = supabase
+          .channel("order-create-realtime")
+          .on("postgres_changes", { event: "*", schema: "public", table: "customers" }, () => {
+            if (isMounted) fetchLive();
+          })
+          .on("postgres_changes", { event: "*", schema: "public", table: "products" }, () => {
+            if (isMounted) fetchLive();
+          })
+          .subscribe();
+      }
+    } catch (e) {
+      console.warn("OrderCreate realtime setup notice:", e);
+    }
+
+    window.addEventListener("sales_erp_storage_update", refreshLocal);
+    window.addEventListener("storage", refreshLocal);
     return () => {
+      isMounted = false;
       clearTimeout(timeoutId);
-      window.removeEventListener("sales_erp_storage_update", refresh);
-      window.removeEventListener("storage", refresh);
+      try {
+        if (orderCreateChannel && supabase?.removeChannel) {
+          supabase.removeChannel(orderCreateChannel);
+        }
+      } catch (e) {}
+      window.removeEventListener("sales_erp_storage_update", refreshLocal);
+      window.removeEventListener("storage", refreshLocal);
     };
   }, []);
 

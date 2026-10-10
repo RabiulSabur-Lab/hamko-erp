@@ -50,6 +50,11 @@ function initSupabase() {
         autoRefreshToken: true,
         detectSessionInUrl: true,
       },
+      realtime: {
+        params: {
+          eventsPerSecond: 20,
+        },
+      },
     });
   } catch (err) {
     console.error("Failed to initialize Supabase client safely:", err);
