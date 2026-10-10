@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { useI18n } from "@/lib/i18n";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,14 +7,33 @@ import { Button } from "@/components/ui/button";
 import { formatBDT, formatDate, toBnDigit } from "@/lib/utils";
 import {
   TrendingUp, TrendingDown, DollarSign, AlertTriangle,
-  Users, ArrowUpRight
+  Users, ArrowUpRight, RefreshCw,
 } from "lucide-react";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell, Legend,
+  ResponsiveContainer, PieChart, Pie, Cell, Legend,
 } from "recharts";
 import { useRouter } from "@/router";
 import { AIInsightsWidget } from "@/components/AIInsightsWidget";
+import {
+  r2,
+  deduplicateCollections,
+  deduplicateOrders,
+  calculateCustomerDues,
+  calculateTotalRevenue,
+  calculateMonthlySales,
+  calculateDailySales,
+  // local-storage helpers used ONLY as offline fallback
+  getOrders,
+  getCollections,
+  getCustomers,
+  getLocalData,
+  getDeletedIds,
+  mergeAndEnrichCustomers,
+  STORAGE_KEYS,
+  type Customer,
+} from "@/utils/localStore";
+import { resolveOrderProduct } from "@/utils/productUtils";
 
 interface KpiData {
   todaySales: number;
@@ -52,173 +71,269 @@ function formatTrend(val: number | null): string {
   return `${sign}${val.toFixed(1)}%`;
 }
 
-import {
-  STORAGE_KEYS,
-  getLocalData,
-  r2,
-  getOrders,
-  getCollections,
-  getCustomers,
-  mergeAndEnrichCustomers,
-  getDeletedIds,
-  calculateCustomerDues,
-  deduplicateCollections,
-  deduplicateOrders,
-  calculateTotalRevenue,
-  calculateMonthlySales,
-  calculateDailySales,
-  type Customer,
-} from "@/utils/localStore";
-import { resolveOrderProduct } from "@/utils/productUtils";
+// ─── Skeleton loader for KPI cards ───────────────────────────────────────────
+function KpiSkeleton() {
+  return (
+    <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+      {Array.from({ length: 6 }).map((_, i) => (
+        <Card key={i} className="overflow-hidden">
+          <CardContent className="p-4 space-y-3">
+            <div className="flex items-start justify-between">
+              <div className="h-9 w-9 rounded-lg bg-muted animate-pulse" />
+              <div className="h-5 w-12 rounded bg-muted animate-pulse" />
+            </div>
+            <div className="h-3 w-24 rounded bg-muted animate-pulse mt-3" />
+            <div className="h-6 w-20 rounded bg-muted animate-pulse" />
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  );
+}
 
 export function DashboardPage() {
   const { t, lang } = useI18n();
   const { navigate } = useRouter();
 
-  // 1. Efficient initial state initialization from live local store
-  const [orders, setOrders] = useState<any[]>(() => {
-    const deletedIds = getDeletedIds(STORAGE_KEYS.DELETED_ORDERS);
-    return getOrders().filter((o: any) => !deletedIds.has(o.id));
-  });
+  // ── State ──────────────────────────────────────────────────────────────────
+  const [orders, setOrders] = useState<any[]>([]);
+  const [collections, setCollections] = useState<any[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [products, setProducts] = useState<any[]>([]);
+  const [prevMetrics, setPrevMetrics] = useState({ prevCollection: 0, prevDue: 0, prevCustCount: 0 });
 
-  const [collections, setCollections] = useState<any[]>(() => {
-    const deletedIds = getDeletedIds(STORAGE_KEYS.DELETED_COLLECTIONS);
-    return getCollections().filter((c: any) => !deletedIds.has(c.id));
-  });
+  const [loading, setLoading] = useState(true);        // true on first load
+  const [refreshing, setRefreshing] = useState(false); // true on manual refresh
+  const [lastSynced, setLastSynced] = useState<Date | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const mountedRef = useRef(true);
 
-  const [customers, setCustomers] = useState<Customer[]>(() => getCustomers());
-  const [products, setProducts] = useState<any[]>(() => getLocalData<any>(STORAGE_KEYS.PRODUCTS, []));
+  // ── Primary Supabase fetch (source of truth) ───────────────────────────────
+  const fetchFromSupabase = useCallback(async (isManual = false) => {
+    if (isManual) setRefreshing(true);
+    setError(null);
 
+    try {
+      const now = new Date();
+      const pad = (n: number) => String(n).padStart(2, "0");
+      const todayStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+      const monthStart = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-01`;
+      const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const prevMonthStart = `${prevMonth.getFullYear()}-${pad(prevMonth.getMonth() + 1)}-01`;
+      const prevWeekEnd = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
-  const [prevMetrics, setPrevMetrics] = useState<{ prevCollection: number; prevDue: number; prevCustCount: number }>({
-    prevCollection: 0, prevDue: 0, prevCustCount: 0,
-  });
+      // Fire all queries in parallel
+      const [
+        oRes,
+        colRes,
+        colPrevRes,
+        custRes,
+        custPrevDue,
+        custPrevCount,
+        prodRes,
+      ] = await Promise.all([
+        supabase
+          .from("orders")
+          .select(
+            "id, order_number, total_amount, status, created_at, order_date, customer_id, due_amount, paid_amount, order_items(*, product:products(name, category_id, category:categories(name))), customer:customers(id, name)"
+          )
+          .order("order_date", { ascending: false }),
+        supabase
+          .from("collections")
+          .select("id, collection_number, amount, collection_date, customer_id, created_at")
+          .order("collection_date", { ascending: false }),
+        supabase
+          .from("collections")
+          .select("id, amount, collection_date")
+          .gte("collection_date", prevMonthStart)
+          .lt("collection_date", monthStart),
+        supabase
+          .from("customers")
+          .select("*, territory:territories(*)")
+          .order("name", { ascending: true }),
+        supabase
+          .from("customers")
+          .select("current_due")
+          .eq("is_active", true)
+          .lt("created_at", prevWeekEnd),
+        supabase
+          .from("customers")
+          .select("id")
+          .eq("is_active", true)
+          .lt("created_at", prevWeekEnd),
+        supabase
+          .from("products")
+          .select("id, name, stock_quantity, reorder_level, category_id, category:categories(name)")
+          .eq("is_active", true),
+      ]);
 
-  // 2. Background non-blocking fetch on mount + targeted event listeners
-  useEffect(() => {
-    let mounted = true;
+      if (!mountedRef.current) return;
 
-    async function fetchRemote() {
-      try {
-        const now = new Date();
-        const pad = (n: number) => String(n).padStart(2, "0");
-        const monthStart = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-01`;
-        const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-        const prevMonthStart = `${prevMonth.getFullYear()}-${pad(prevMonth.getMonth() + 1)}-01`;
-        const prevWeekEnd = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+      // ── Orders ──────────────────────────────────────────────────────────
+      if (!oRes.error && Array.isArray(oRes.data)) {
+        // Merge any locally-created orders not yet in Supabase (offline support)
+        const deletedOrderIds = getDeletedIds(STORAGE_KEYS.DELETED_ORDERS);
+        const remoteOrders = (oRes.data as any[]).filter((o: any) => !deletedOrderIds.has(o.id));
+        const remoteIdSet = new Set(remoteOrders.map((o: any) => String(o.id)));
+        const pendingLocal = getOrders()
+          .filter((lo: any) => !deletedOrderIds.has(lo.id) && !remoteIdSet.has(String(lo.id)));
+        setOrders(deduplicateOrders([...pendingLocal, ...remoteOrders], { excludeDrafts: false, excludeCancelled: false }));
+      } else if (oRes.error) {
+        // Supabase unavailable — fall back to local storage
+        const deletedIds = getDeletedIds(STORAGE_KEYS.DELETED_ORDERS);
+        setOrders(getOrders().filter((o: any) => !deletedIds.has(o.id)));
+        if (!isManual) setError(null); // silent offline fallback on auto-fetch
+      }
 
-        const [oRes, colRes, colPrevRes, custRes, custPrevDue, custPrevCount, prodRes] = await Promise.all([
-          supabase.from("orders").select("id, total_amount, status, created_at, order_date, customer_id, due_amount, paid_amount, order_items(*, product:products(name, category_id, category:categories(name)))").order("order_date", { ascending: false }),
-          supabase.from("collections").select("id, amount, collection_date, customer_id, created_at").order("collection_date", { ascending: false }),
-          supabase.from("collections").select("id, amount, collection_date").gte("collection_date", prevMonthStart).lt("collection_date", monthStart),
-          supabase.from("customers").select("*, territory:territories(*)").order("name", { ascending: true }),
-          supabase.from("customers").select("current_due").eq("is_active", true).lt("created_at", prevWeekEnd),
-          supabase.from("customers").select("id").eq("is_active", true).lt("created_at", prevWeekEnd),
-          supabase.from("products").select("id, name, stock_quantity, reorder_level, category_id, category:categories(name)").eq("is_active", true),
-        ]);
+      // ── Collections ─────────────────────────────────────────────────────
+      const deletedColIds = getDeletedIds(STORAGE_KEYS.DELETED_COLLECTIONS);
+      if (!colRes.error && Array.isArray(colRes.data)) {
+        const remoteCols = colRes.data.filter((c: any) => !deletedColIds.has(c.id));
+        const remoteIdSet = new Set(remoteCols.map((c: any) => String(c.id)));
+        const remoteColNumSet = new Set(
+          remoteCols.map((c: any) => String(c.collection_number || "").trim().toUpperCase()).filter(Boolean)
+        );
+        const pendingLocal = getCollections().filter(
+          (lc: any) =>
+            !deletedColIds.has(lc.id) &&
+            !remoteIdSet.has(String(lc.id)) &&
+            (!lc.collection_number ||
+              !remoteColNumSet.has(String(lc.collection_number).trim().toUpperCase()))
+        );
+        setCollections(deduplicateCollections([...pendingLocal, ...remoteCols]));
+      } else {
+        const deletedIds = getDeletedIds(STORAGE_KEYS.DELETED_COLLECTIONS);
+        setCollections(getCollections().filter((c: any) => !deletedIds.has(c.id)));
+      }
 
-        if (!mounted) return;
+      // ── Customers ────────────────────────────────────────────────────────
+      if (!custRes.error && Array.isArray(custRes.data)) {
+        setCustomers(mergeAndEnrichCustomers(custRes.data as Customer[]));
+      } else {
+        setCustomers(getCustomers());
+      }
 
-        // Sync orders
-        if (!oRes.error && Array.isArray(oRes.data)) {
-          const deletedOrderIds = getDeletedIds(STORAGE_KEYS.DELETED_ORDERS);
-          const remoteOrders = (oRes.data as any[]).filter((o: any) => !deletedOrderIds.has(o.id));
-          const remoteIdSet = new Set(remoteOrders.map((o: any) => String(o.id)));
-          const currentLocal = getOrders().filter((o: any) => !deletedOrderIds.has(o.id));
-          const pendingLocal = currentLocal.filter((lo: any) => !remoteIdSet.has(String(lo.id)));
-          const mergedOrders = [...pendingLocal, ...remoteOrders];
-          setOrders(mergedOrders);
-        }
+      // ── Products ─────────────────────────────────────────────────────────
+      if (!prodRes.error && Array.isArray(prodRes.data)) {
+        setProducts(prodRes.data);
+      } else {
+        setProducts(getLocalData<any>(STORAGE_KEYS.PRODUCTS, []));
+      }
 
-        // Sync collections
-        const deletedColIds = getDeletedIds(STORAGE_KEYS.DELETED_COLLECTIONS);
-        if (!colRes.error && Array.isArray(colRes.data)) {
-          const remoteCols = colRes.data.filter((c: any) => !deletedColIds.has(c.id));
-          const remoteIdSet = new Set(remoteCols.map((c: any) => String(c.id)));
-          const remoteColNumSet = new Set(
-            remoteCols.map((c: any) => String(c.collection_number || "").trim().toUpperCase()).filter(Boolean)
-          );
-          const currentLocalCols = getCollections().filter((c: any) => !deletedColIds.has(c.id));
-          const pendingLocalCols = currentLocalCols.filter(
-            (lc: any) =>
-              !remoteIdSet.has(String(lc.id)) &&
-              (!lc.collection_number || !remoteColNumSet.has(String(lc.collection_number).trim().toUpperCase()))
-          );
-          const mergedCols = deduplicateCollections([...pendingLocalCols, ...remoteCols]);
-          setCollections(mergedCols);
-        }
-
-        // Sync customers using the exact same merge & enrich logic as CRM page
-        if (!custRes.error && Array.isArray(custRes.data)) {
-          const mergedCusts = mergeAndEnrichCustomers(custRes.data as Customer[]);
-          setCustomers(mergedCusts);
-        } else {
-          setCustomers(getCustomers());
-        }
-
-        if (!prodRes.error && Array.isArray(prodRes.data)) {
-          setProducts(prodRes.data);
-        }
-
-        const prevCol = (!colPrevRes.error && Array.isArray(colPrevRes.data))
-          ? colPrevRes.data.filter((c: any) => !deletedColIds.has(c.id)).reduce((s: number, c: any) => s + Number(c.amount || 0), 0)
+      // ── Previous-period metrics for trend calculation ────────────────────
+      const prevCol =
+        !colPrevRes.error && Array.isArray(colPrevRes.data)
+          ? colPrevRes.data
+              .filter((c: any) => !deletedColIds.has(c.id))
+              .reduce((s: number, c: any) => s + Number(c.amount || 0), 0)
           : 0;
-        const prevDue = custPrevDue.data?.reduce((s: number, c: any) => s + Number(c.current_due || 0), 0) ?? 0;
-        const prevCust = custPrevCount.data?.length ?? 0;
-        setPrevMetrics({ prevCollection: prevCol, prevDue, prevCustCount: prevCust });
-      } catch (err) {
-        console.warn("Dashboard background sync notice:", err);
+      const prevDue = custPrevDue.data?.reduce((s: number, c: any) => s + Number(c.current_due || 0), 0) ?? 0;
+      const prevCust = custPrevCount.data?.length ?? 0;
+      setPrevMetrics({ prevCollection: prevCol, prevDue, prevCustCount: prevCust });
+
+      setLastSynced(new Date());
+    } catch (err: any) {
+      console.warn("Dashboard Supabase fetch error — using local fallback:", err);
+      if (mountedRef.current) {
+        // Graceful offline fallback
+        const deletedOrderIds = getDeletedIds(STORAGE_KEYS.DELETED_ORDERS);
+        setOrders(getOrders().filter((o: any) => !deletedOrderIds.has(o.id)));
+        const deletedColIds = getDeletedIds(STORAGE_KEYS.DELETED_COLLECTIONS);
+        setCollections(getCollections().filter((c: any) => !deletedColIds.has(c.id)));
+        setCustomers(getCustomers());
+        setProducts(getLocalData<any>(STORAGE_KEYS.PRODUCTS, []));
+        if (isManual) setError("Could not reach server. Showing local data.");
+      }
+    } finally {
+      if (mountedRef.current) {
+        setLoading(false);
+        setRefreshing(false);
       }
     }
-
-    fetchRemote();
-
-    // Event listener for local mutations across CRM, Orders, and Collections
-    const handleStorageUpdate = () => {
-      if (!mounted) return;
-      const deletedOrderIds = getDeletedIds(STORAGE_KEYS.DELETED_ORDERS);
-      const updatedOrders = getOrders().filter((o: any) => !deletedOrderIds.has(o.id));
-      setOrders([...updatedOrders]);
-
-      const deletedColIds = getDeletedIds(STORAGE_KEYS.DELETED_COLLECTIONS);
-      const updatedCols = getCollections().filter((c: any) => !deletedColIds.has(c.id));
-      setCollections([...updatedCols]);
-
-      const updatedCusts = getCustomers();
-      setCustomers([...updatedCusts]);
-
-      const updatedProds = getLocalData<any>(STORAGE_KEYS.PRODUCTS, []);
-      setProducts([...updatedProds]);
-
-
-    };
-
-    window.addEventListener("storage", handleStorageUpdate);
-    window.addEventListener("sales_erp_storage_update", handleStorageUpdate);
-    window.addEventListener("customer_ledger_updated", handleStorageUpdate);
-
-    return () => {
-      mounted = false;
-      window.removeEventListener("storage", handleStorageUpdate);
-      window.removeEventListener("sales_erp_storage_update", handleStorageUpdate);
-      window.removeEventListener("customer_ledger_updated", handleStorageUpdate);
-    };
   }, []);
 
-  // 3. Memoized KPI & Growth calculations
+  // ── Mount: seed loading state from localStorage for instant paint, then fetch Supabase ──
+  useEffect(() => {
+    mountedRef.current = true;
+
+    // Instant paint with cached local data (eliminates blank loading flash)
+    const deletedOrderIds = getDeletedIds(STORAGE_KEYS.DELETED_ORDERS);
+    const cachedOrders = getOrders().filter((o: any) => !deletedOrderIds.has(o.id));
+    const deletedColIds = getDeletedIds(STORAGE_KEYS.DELETED_COLLECTIONS);
+    const cachedCols = getCollections().filter((c: any) => !deletedColIds.has(c.id));
+    const cachedCustomers = getCustomers();
+    const cachedProducts = getLocalData<any>(STORAGE_KEYS.PRODUCTS, []);
+
+    if (cachedOrders.length || cachedCols.length || cachedCustomers.length) {
+      setOrders(cachedOrders);
+      setCollections(cachedCols);
+      setCustomers(cachedCustomers);
+      setProducts(cachedProducts);
+      setLoading(false); // Show cached data immediately
+    }
+
+    // Fetch fresh from Supabase (updates over cached paint)
+    fetchFromSupabase(false);
+
+    // ── Supabase Realtime subscriptions for live updates ──────────────────
+    const ordersSub = supabase
+      .channel("dashboard_orders")
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => {
+        if (mountedRef.current) fetchFromSupabase(false);
+      })
+      .subscribe();
+
+    const collectionsSub = supabase
+      .channel("dashboard_collections")
+      .on("postgres_changes", { event: "*", schema: "public", table: "collections" }, () => {
+        if (mountedRef.current) fetchFromSupabase(false);
+      })
+      .subscribe();
+
+    const customersSub = supabase
+      .channel("dashboard_customers")
+      .on("postgres_changes", { event: "*", schema: "public", table: "customers" }, () => {
+        if (mountedRef.current) fetchFromSupabase(false);
+      })
+      .subscribe();
+
+    const productsSub = supabase
+      .channel("dashboard_products")
+      .on("postgres_changes", { event: "*", schema: "public", table: "products" }, () => {
+        if (mountedRef.current) fetchFromSupabase(false);
+      })
+      .subscribe();
+
+    // ── Local mutation events (from other pages) ──────────────────────────
+    const handleLocalUpdate = () => {
+      if (!mountedRef.current) return;
+      fetchFromSupabase(false);
+    };
+    window.addEventListener("sales_erp_storage_update", handleLocalUpdate);
+    window.addEventListener("customer_ledger_updated", handleLocalUpdate);
+
+    return () => {
+      mountedRef.current = false;
+      supabase.removeChannel(ordersSub);
+      supabase.removeChannel(collectionsSub);
+      supabase.removeChannel(customersSub);
+      supabase.removeChannel(productsSub);
+      window.removeEventListener("sales_erp_storage_update", handleLocalUpdate);
+      window.removeEventListener("customer_ledger_updated", handleLocalUpdate);
+    };
+  }, [fetchFromSupabase]);
+
+  // ── KPI & Growth calculations ──────────────────────────────────────────────
   const { kpi, trends } = useMemo(() => {
     const now = new Date();
     const pad = (n: number) => String(n).padStart(2, "0");
     const todayStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-
     const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
     const yesterdayStr = `${yesterday.getFullYear()}-${pad(yesterday.getMonth() + 1)}-${pad(yesterday.getDate())}`;
-
     const currentMonthPrefix = `${now.getFullYear()}-${pad(now.getMonth() + 1)}`;
     const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const prevMonthPrefix = `${prevMonth.getFullYear()}-${pad(prevMonth.getMonth() + 1)}`;
 
-    // CRIT-001: Deduplicate orders by order_number/ID and strictly exclude Draft and Cancelled orders
     const validOrders = deduplicateOrders(orders, { excludeDrafts: true, excludeCancelled: true });
 
     const todaySales = calculateDailySales(validOrders, todayStr);
@@ -233,30 +348,26 @@ export function DashboardPage() {
         .filter((c: any) => (c.collection_date || c.created_at || "").slice(0, 10).startsWith(currentMonthPrefix))
         .reduce((s: number, c: any) => s + Number(c.amount || 0), 0)
     );
-    const totalCollections = r2(
-      uniqueCollections.reduce((s: number, c: any) => s + Number(c.amount || 0), 0)
-    );
-    // CRIT-003: Disallow lifetime fallback. Always display true current month collection (0 if none)
+    const totalCollections = r2(uniqueCollections.reduce((s: number, c: any) => s + Number(c.amount || 0), 0));
     const collection = monthCollections;
 
-    const prevMonthCollections = prevMetrics.prevCollection || r2(
-      uniqueCollections
-        .filter((c: any) => (c.collection_date || c.created_at || "").slice(0, 10).startsWith(prevMonthPrefix))
-        .reduce((s: number, c: any) => s + Number(c.amount || 0), 0)
-    );
+    const prevMonthCollections =
+      prevMetrics.prevCollection ||
+      r2(
+        uniqueCollections
+          .filter((c: any) => (c.collection_date || c.created_at || "").slice(0, 10).startsWith(prevMonthPrefix))
+          .reduce((s: number, c: any) => s + Number(c.amount || 0), 0)
+      );
 
-    // Calculate customer due matching CRM, Accounts, and Reports logic exactly (excluding cancelled/draft orders)
     const { totalDue: outstandingDue } = calculateCustomerDues(customers, validOrders, uniqueCollections);
 
     const totalCustomers = customers.length;
     const activeCount = customers.filter(
       (c: any) => (c.status === "Active" || !c.status) && c.status !== "Inactive" && c.is_active !== false
     ).length;
-
     const inactiveCount = customers.filter(
       (c: any) => c.status === "Inactive" || c.is_active === false
     ).length;
-
     const lowStockCount = products.filter((p: any) => {
       const stock = Number(p.stock_quantity ?? p.stock ?? 0);
       const minStock = Number(p.reorder_level ?? p.minStockThreshold ?? 5);
@@ -264,16 +375,9 @@ export function DashboardPage() {
     }).length;
 
     const k: KpiData = {
-      todaySales,
-      monthSales,
-      totalRevenue,
-      collection,
-      totalCollections,
-      outstandingDue,
-      totalCustomers,
-      activeCustomers: activeCount,
-      inactiveCustomers: inactiveCount,
-      lowStockCount,
+      todaySales, monthSales, totalRevenue, collection, totalCollections,
+      outstandingDue, totalCustomers, activeCustomers: activeCount,
+      inactiveCustomers: inactiveCount, lowStockCount,
     };
 
     const tr: KpiTrends = {
@@ -288,7 +392,7 @@ export function DashboardPage() {
     return { kpi: k, trends: tr };
   }, [orders, collections, customers, products, prevMetrics]);
 
-  // 4. Memoized 7-day Sales Trend with normalized start-of-day buckets
+  // ── 7-day Sales Trend ───────────────────────────────────────────────────────
   const trend = useMemo(() => {
     const now = new Date();
     const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
@@ -296,75 +400,54 @@ export function DashboardPage() {
 
     const days: { date: string; sales: number }[] = [];
     for (let i = 6; i >= 0; i--) {
-      const dayTime = todayMidnight - i * ONE_DAY_MS;
-      const d = new Date(dayTime);
+      const d = new Date(todayMidnight - i * ONE_DAY_MS);
       const label = d.toLocaleDateString(lang === "bn" ? "bn-BD" : "en", { weekday: "short" });
       days.push({ date: label, sales: 0 });
     }
 
-    const nonCancelled = orders.filter((o: any) => o.status !== "Cancelled");
-    nonCancelled.forEach((o: any) => {
-      const rawDate = o.order_date || o.created_at;
-      if (!rawDate) return;
-      const od = new Date(rawDate);
-      const orderMidnight = new Date(od.getFullYear(), od.getMonth(), od.getDate()).getTime();
-      const diffDays = Math.round((todayMidnight - orderMidnight) / ONE_DAY_MS);
-      const idx = 6 - diffDays;
-      if (idx >= 0 && idx < 7) {
-        days[idx].sales = r2(days[idx].sales + Number(o.total_amount || 0));
-      }
-    });
+    orders
+      .filter((o: any) => o.status !== "Cancelled")
+      .forEach((o: any) => {
+        const rawDate = o.order_date || o.created_at;
+        if (!rawDate) return;
+        const od = new Date(rawDate);
+        const orderMidnight = new Date(od.getFullYear(), od.getMonth(), od.getDate()).getTime();
+        const diffDays = Math.round((todayMidnight - orderMidnight) / ONE_DAY_MS);
+        const idx = 6 - diffDays;
+        if (idx >= 0 && idx < 7) {
+          days[idx].sales = r2(days[idx].sales + Number(o.total_amount || 0));
+        }
+      });
+
     return days;
   }, [orders, lang]);
 
-  // 5. Memoized Top Selling Products (Top 5 sorted by total sales descending)
+  // ── Top 5 Products ─────────────────────────────────────────────────────────
   const topProducts = useMemo(() => {
-    const prodLookup = new Map<string, any>();
-    products.forEach((p: any) => {
-      if (p.id) prodLookup.set(String(p.id), p);
-      if (p.name) prodLookup.set(String(p.name).toLowerCase().trim(), p);
-    });
+    const salesMap: Record<string, { id: string; name: string; category: string; soldQty: number; totalSales: number }> = {};
 
-    const salesMap: Record<string, {
-      id: string;
-      name: string;
-      category: string;
-      soldQty: number;
-      totalSales: number;
-    }> = {};
+    orders
+      .filter((o: any) => o.status !== "Cancelled")
+      .flatMap((o: any) => o.order_items ?? o.items ?? [])
+      .forEach((it: any) => {
+        const prodId = it.product_id ? String(it.product_id) : "";
+        const prodInfo = resolveOrderProduct(it.product, it.product_id, products);
+        const name = prodInfo.exists ? prodInfo.name : "[Deleted Product]";
+        const matchedProd = prodInfo.exists ? prodInfo.product : null;
+        const key = prodId || name;
+        const qty = Number(it.quantity || 0);
+        const unitPrice = Number(it.unit_price || matchedProd?.unit_price || 0);
+        const revenue = Number(it.total_price || qty * unitPrice || 0);
+        const rawCategory = matchedProd?.category || it.product?.category;
+        const category =
+          typeof rawCategory === "object"
+            ? rawCategory?.name || "General"
+            : rawCategory || matchedProd?.category_name || "General";
 
-    const nonCancelledOrders = orders.filter((o: any) => o.status !== "Cancelled");
-    const itemPool = nonCancelledOrders.flatMap((o: any) => o.order_items ?? o.items ?? []);
-
-    itemPool.forEach((it: any) => {
-      const prodId = it.product_id ? String(it.product_id) : "";
-      const prodInfo = resolveOrderProduct(it.product, it.product_id, products);
-      const matchedProd = prodInfo.exists ? prodInfo.product : null;
-      const name = prodInfo.exists ? prodInfo.name : "[Deleted Product]";
-      const key = prodId || name;
-
-      const qty = Number(it.quantity || 0);
-      const unitPrice = Number(it.unit_price || matchedProd?.unit_price || 0);
-      const revenue = Number(it.total_price || (qty * unitPrice) || 0);
-
-      const rawCategory = matchedProd?.category || it.product?.category;
-      const category =
-        typeof rawCategory === "object"
-          ? (rawCategory?.name || "General")
-          : (rawCategory || matchedProd?.category_name || "General");
-
-      if (!salesMap[key]) {
-        salesMap[key] = {
-          id: key,
-          name,
-          category,
-          soldQty: 0,
-          totalSales: 0,
-        };
-      }
-      salesMap[key].soldQty += qty;
-      salesMap[key].totalSales = r2(salesMap[key].totalSales + revenue);
-    });
+        if (!salesMap[key]) salesMap[key] = { id: key, name, category, soldQty: 0, totalSales: 0 };
+        salesMap[key].soldQty += qty;
+        salesMap[key].totalSales = r2(salesMap[key].totalSales + revenue);
+      });
 
     return Object.values(salesMap)
       .filter((p) => p.soldQty > 0 || p.totalSales > 0)
@@ -372,15 +455,21 @@ export function DashboardPage() {
       .slice(0, 5);
   }, [orders, products]);
 
-  // 6. Memoized Recent Orders (excluding cancelled)
-  const recentOrders = useMemo(() => {
-    return [...orders]
-      .filter((o: any) => o && o.status !== "Cancelled")
-      .sort((a: any, b: any) => new Date(b.order_date || b.created_at || 0).getTime() - new Date(a.order_date || a.created_at || 0).getTime())
-      .slice(0, 5);
-  }, [orders]);
+  // ── Recent Orders ───────────────────────────────────────────────────────────
+  const recentOrders = useMemo(
+    () =>
+      [...orders]
+        .filter((o: any) => o && o.status !== "Cancelled")
+        .sort(
+          (a: any, b: any) =>
+            new Date(b.order_date || b.created_at || 0).getTime() -
+            new Date(a.order_date || a.created_at || 0).getTime()
+        )
+        .slice(0, 5),
+    [orders]
+  );
 
-  // 7. Memoized Sales by Status
+  // ── Sales by Status ─────────────────────────────────────────────────────────
   const salesByStatus = useMemo(() => {
     const statusMap: Record<string, number> = {};
     orders.forEach((o: any) => {
@@ -389,90 +478,141 @@ export function DashboardPage() {
     return Object.entries(statusMap).map(([name, value]) => ({ name, value }));
   }, [orders]);
 
-  const kpiCards = useMemo(() => [
-    { label: t("todaysSales"), value: formatBDT(kpi.todaySales), icon: DollarSign, color: "text-sky-600", bg: "bg-sky-50 dark:bg-sky-950/30", trend: formatTrend(trends.todaySales), up: (trends.todaySales ?? 0) >= 0, route: "orders" },
-    { label: t("monthlySales"), value: formatBDT(kpi.monthSales), icon: TrendingUp, color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-950/30", trend: formatTrend(trends.monthSales), up: (trends.monthSales ?? 0) >= 0, route: "orders" },
-    {
-      label: t("monthlyCollection") || (lang === "bn" ? "চলতি মাসের কালেকশন" : "Current Month Collection"),
-      subtitle: lang === "bn" ? `সর্বমোট: ${formatBDT(kpi.totalCollections)}` : `Lifetime: ${formatBDT(kpi.totalCollections)}`,
-      value: formatBDT(kpi.collection),
-      icon: DollarSign,
-      color: "text-emerald-600",
-      bg: "bg-emerald-50 dark:bg-emerald-950/30",
-      trend: formatTrend(trends.collection),
-      up: (trends.collection ?? 0) >= 0,
-      route: "accounts",
-    },
-    { label: t("outstandingDue"), value: formatBDT(kpi.outstandingDue), icon: TrendingDown, color: "text-amber-600", bg: "bg-amber-50 dark:bg-amber-950/30", trend: formatTrend(trends.outstandingDue), up: (trends.outstandingDue ?? 0) < 0, route: "accounts" },
-    {
-      label: t("totalCustomers") || "Total Customers",
-      value: String(kpi.totalCustomers),
-      icon: Users,
-      color: "text-violet-600",
-      bg: "bg-violet-50 dark:bg-violet-950/30",
-      trend: formatTrend(trends.totalCustomers),
-      up: (trends.totalCustomers ?? 0) >= 0,
-      route: "customers",
-      breakdown: {
-        active: kpi.activeCustomers,
-        inactive: kpi.inactiveCustomers,
+  // ── KPI Card definitions ────────────────────────────────────────────────────
+  const kpiCards = useMemo(
+    () => [
+      {
+        label: t("todaysSales"), value: formatBDT(kpi.todaySales),
+        icon: DollarSign, color: "text-sky-600", bg: "bg-sky-50 dark:bg-sky-950/30",
+        trend: formatTrend(trends.todaySales), up: (trends.todaySales ?? 0) >= 0, route: "orders",
       },
-    },
-    { label: t("lowStockProducts"), value: String(kpi.lowStockCount), icon: AlertTriangle, color: "text-rose-600", bg: "bg-rose-50 dark:bg-rose-950/30", trend: kpi.lowStockCount > 0 ? "Alert" : "OK", up: false, route: "inventory" },
-  ], [kpi, trends, t, lang]);
+      {
+        label: t("monthlySales"), value: formatBDT(kpi.monthSales),
+        icon: TrendingUp, color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-950/30",
+        trend: formatTrend(trends.monthSales), up: (trends.monthSales ?? 0) >= 0, route: "orders",
+      },
+      {
+        label: t("monthlyCollection") || (lang === "bn" ? "চলতি মাসের কালেকশন" : "Current Month Collection"),
+        subtitle: lang === "bn" ? `সর্বমোট: ${formatBDT(kpi.totalCollections)}` : `Lifetime: ${formatBDT(kpi.totalCollections)}`,
+        value: formatBDT(kpi.collection),
+        icon: DollarSign, color: "text-emerald-600", bg: "bg-emerald-50 dark:bg-emerald-950/30",
+        trend: formatTrend(trends.collection), up: (trends.collection ?? 0) >= 0, route: "accounts",
+      },
+      {
+        label: t("outstandingDue"), value: formatBDT(kpi.outstandingDue),
+        icon: TrendingDown, color: "text-amber-600", bg: "bg-amber-50 dark:bg-amber-950/30",
+        trend: formatTrend(trends.outstandingDue), up: (trends.outstandingDue ?? 0) < 0, route: "accounts",
+      },
+      {
+        label: t("totalCustomers") || "Total Customers",
+        value: String(kpi.totalCustomers),
+        icon: Users, color: "text-violet-600", bg: "bg-violet-50 dark:bg-violet-950/30",
+        trend: formatTrend(trends.totalCustomers), up: (trends.totalCustomers ?? 0) >= 0, route: "customers",
+        breakdown: { active: kpi.activeCustomers, inactive: kpi.inactiveCustomers },
+      },
+      {
+        label: t("lowStockProducts"), value: String(kpi.lowStockCount),
+        icon: AlertTriangle, color: "text-rose-600", bg: "bg-rose-50 dark:bg-rose-950/30",
+        trend: kpi.lowStockCount > 0 ? "Alert" : "OK", up: false, route: "inventory",
+      },
+    ],
+    [kpi, trends, t, lang]
+  );
 
   const statusColors: Record<string, string> = {
     Draft: "#94a3b8", Pending: "#f59e0b", Approved: "#3b82f6", Delivered: "#10b981", Cancelled: "#ef4444",
   };
 
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-6">
-      {/* KPI cards */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
-        {kpiCards.map((card: any) => {
-          const Icon = card.icon;
-          return (
-            <Card
-              key={card.label}
-              className="overflow-hidden cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md flex flex-col justify-between"
-              onClick={() => navigate(card.route)}
-            >
-              <CardContent className="p-4 flex flex-col justify-between h-full">
-                <div>
-                  <div className="flex items-start justify-between">
-                    <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${card.bg}`}>
-                      <Icon className={`h-4 w-4 ${card.color}`} />
-                    </div>
-                    <Badge variant={card.up ? "success" : "secondary"} className="text-[10px]">
-                      {card.up ? <ArrowUpRight className="h-2.5 w-2.5 mr-0.5" /> : <TrendingDown className="h-2.5 w-2.5 mr-0.5" />}
-                      {card.trend}
-                    </Badge>
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-3">{card.label}</p>
-                  <p className="text-lg font-bold mt-0.5 truncate">{card.value}</p>
-                  {card.subtitle && (
-                    <p className="text-[10px] text-muted-foreground/80 mt-0.5 font-medium truncate">{card.subtitle}</p>
-                  )}
-                </div>
-                {card.breakdown && (
-                  <div className="flex items-center gap-1.5 mt-2 pt-1.5 border-t border-border/40 text-[10px] font-semibold">
-                    <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-1.5 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
-                      Active: {card.breakdown.active}
-                    </span>
-                    <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-800">
-                      <span className="h-1.5 w-1.5 rounded-full bg-amber-500"></span>
-                      Inactive: {card.breakdown.inactive}
-                    </span>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          );
-        })}
+      {/* Header row: title + sync indicator + refresh button */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-bold text-foreground">{t("dashboard") || "Dashboard"}</h1>
+          {lastSynced && (
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {lang === "bn" ? "সর্বশেষ আপডেট: " : "Last synced: "}
+              {lastSynced.toLocaleTimeString(lang === "bn" ? "bn-BD" : "en", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+            </p>
+          )}
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={refreshing || loading}
+          onClick={() => fetchFromSupabase(true)}
+          className="gap-2 text-xs h-8"
+        >
+          <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
+          {refreshing
+            ? (lang === "bn" ? "লোড হচ্ছে..." : "Syncing...")
+            : (lang === "bn" ? "রিফ্রেশ" : "Refresh")}
+        </Button>
       </div>
 
-      {/* AI Executive Insights Widget (Gemini 1.5 Flash) */}
+      {/* Error banner */}
+      {error && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30 px-4 py-2.5 text-sm text-amber-700 dark:text-amber-400 flex items-center gap-2">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          {error}
+        </div>
+      )}
+
+      {/* KPI cards — skeleton while initial load, data thereafter */}
+      {loading ? (
+        <KpiSkeleton />
+      ) : (
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+          {kpiCards.map((card: any) => {
+            const Icon = card.icon;
+            return (
+              <Card
+                key={card.label}
+                className="overflow-hidden cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md flex flex-col justify-between"
+                onClick={() => navigate(card.route)}
+              >
+                <CardContent className="p-4 flex flex-col justify-between h-full">
+                  <div>
+                    <div className="flex items-start justify-between">
+                      <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${card.bg}`}>
+                        <Icon className={`h-4 w-4 ${card.color}`} />
+                      </div>
+                      <Badge variant={card.up ? "success" : "secondary"} className="text-[10px]">
+                        {card.up ? (
+                          <ArrowUpRight className="h-2.5 w-2.5 mr-0.5" />
+                        ) : (
+                          <TrendingDown className="h-2.5 w-2.5 mr-0.5" />
+                        )}
+                        {card.trend}
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-3">{card.label}</p>
+                    <p className="text-lg font-bold mt-0.5 truncate">{card.value}</p>
+                    {card.subtitle && (
+                      <p className="text-[10px] text-muted-foreground/80 mt-0.5 font-medium truncate">{card.subtitle}</p>
+                    )}
+                  </div>
+                  {card.breakdown && (
+                    <div className="flex items-center gap-1.5 mt-2 pt-1.5 border-t border-border/40 text-[10px] font-semibold">
+                      <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-1.5 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
+                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                        Active: {card.breakdown.active}
+                      </span>
+                      <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-800">
+                        <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                        Inactive: {card.breakdown.inactive}
+                      </span>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+      {/* AI Executive Insights Widget */}
       <AIInsightsWidget orders={orders} products={products} />
 
       {/* Charts row */}
@@ -543,13 +683,11 @@ export function DashboardPage() {
 
       {/* Bottom row */}
       <div className="grid gap-4 lg:grid-cols-2">
-        {/* Top products (Top 5) */}
+        {/* Top products */}
         <Card>
           <CardHeader className="pb-2 flex flex-row items-center justify-between">
             <CardTitle className="text-base font-semibold">{t("topSellingProducts")}</CardTitle>
-            <Badge variant="outline" className="text-[11px] font-medium text-muted-foreground">
-              Top 5
-            </Badge>
+            <Badge variant="outline" className="text-[11px] font-medium text-muted-foreground">Top 5</Badge>
           </CardHeader>
           <CardContent>
             {topProducts.length === 0 ? (
@@ -557,31 +695,19 @@ export function DashboardPage() {
             ) : (
               <div className="space-y-2">
                 {topProducts.map((p, idx) => (
-                  <div
-                    key={p.id || p.name}
-                    className="flex items-center justify-between rounded-lg border p-2.5 hover:bg-muted/30 transition-colors"
-                  >
+                  <div key={p.id || p.name} className="flex items-center justify-between rounded-lg border p-2.5 hover:bg-muted/30 transition-colors">
                     <div className="flex items-center gap-2.5 min-w-0 flex-1">
                       <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
                         {idx + 1}
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium truncate text-foreground" title={p.name}>
-                          {p.name}
-                        </p>
-                        <p className="text-xs text-muted-foreground truncate">
-                          {p.category}
-                        </p>
+                        <p className="text-sm font-medium truncate text-foreground" title={p.name}>{p.name}</p>
+                        <p className="text-xs text-muted-foreground truncate">{p.category}</p>
                       </div>
                     </div>
-
                     <div className="text-right ml-3 shrink-0">
-                      <p className="text-sm font-semibold text-foreground">
-                        {formatBDT(p.totalSales)}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {p.soldQty} pcs sold
-                      </p>
+                      <p className="text-sm font-semibold text-foreground">{formatBDT(p.totalSales)}</p>
+                      <p className="text-xs text-muted-foreground">{p.soldQty} pcs sold</p>
                     </div>
                   </div>
                 ))}
@@ -625,8 +751,6 @@ export function DashboardPage() {
           </CardContent>
         </Card>
       </div>
-
-
     </div>
   );
 }
