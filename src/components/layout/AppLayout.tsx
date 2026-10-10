@@ -171,9 +171,10 @@ export function AppLayout({ children }: { children: ReactNode }) {
                     <Badge variant="secondary" className="mt-1 text-[10px]">{profile?.role_name ?? "Staff"}</Badge>
                   </div>
                   <button
-                    onClick={() => {
+                    onClick={async () => {
                       setUserMenuOpen(false);
-                      signOut();
+                      await signOut();
+                      navigate("/login");
                     }}
                     className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-destructive hover:bg-destructive/10"
                   >

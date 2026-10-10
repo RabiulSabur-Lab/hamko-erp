@@ -54,7 +54,7 @@ export function ResetPassword() {
         if (!data.session) {
           if (isMounted) {
             toast.error("Access denied. Please click the password reset link sent to your email inbox.");
-            navigate("/signin");
+            navigate("/login");
           }
           return;
         }
@@ -130,7 +130,7 @@ export function ResetPassword() {
           setVerifyingSession(false);
         } else {
           toast.error("Your password reset link is invalid or has expired. Please request a new link.");
-          navigate("/signin");
+          navigate("/login");
         }
       }, 1500);
     }
@@ -177,7 +177,7 @@ export function ResetPassword() {
       toast.success("Password updated successfully! Please sign in with your new credentials.");
 
       setTimeout(() => {
-        navigate("/signin");
+        navigate("/login");
       }, 1500);
     } catch (err: any) {
       console.error("Password reset error:", err);
@@ -216,7 +216,7 @@ export function ResetPassword() {
           <p className="text-xs text-muted-foreground">
             A valid password reset token is required. Please request a new link from the login page.
           </p>
-          <Button size="sm" onClick={() => navigate("/signin")} className="mt-2 text-xs">
+          <Button size="sm" onClick={() => navigate("/login")} className="mt-2 text-xs">
             Return to Sign In
           </Button>
         </div>
@@ -285,7 +285,7 @@ export function ResetPassword() {
                   Your new password is set. Redirecting you to the sign-in screen...
                 </p>
                 <Button
-                  onClick={() => navigate("/signin")}
+                  onClick={() => navigate("/login")}
                   className="mt-2 text-xs h-8"
                   size="sm"
                 >
@@ -376,7 +376,7 @@ export function ResetPassword() {
                   <Button
                     type="button"
                     variant="ghost"
-                    onClick={() => navigate("/signin")}
+                    onClick={() => navigate("/login")}
                     className="w-full text-xs h-8 gap-1 text-muted-foreground hover:text-foreground"
                   >
                     <ArrowLeft className="h-3.5 w-3.5" />

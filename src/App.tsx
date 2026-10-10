@@ -96,9 +96,29 @@ export function App() {
   useEffect(() => {
     if (cleanPath === "/signup" || route === "signup" || cleanPath.startsWith("/signup")) {
       toast.info("Registration is managed by system administrator");
-      navigate(session ? "/dashboard" : "/signin");
+      navigate(session ? "/dashboard" : "/login");
     }
   }, [cleanPath, route, session, navigate]);
+
+  // If already authenticated and visiting auth pages, navigate to dashboard
+  useEffect(() => {
+    if (session && (route === "login" || route === "signin" || route === "auth" || cleanPath === "/login" || cleanPath === "/signin")) {
+      navigate("/dashboard");
+    }
+  }, [session, route, cleanPath, navigate]);
+
+  // Protected Route enforcement (Facebook / Gmail style):
+  // When unauthenticated, visiting internal ERP routes (Dashboard, Orders, CRM/Customers, Products, etc.)
+  // immediately navigates to /login so protected modules cannot be accessed without logging in.
+  useEffect(() => {
+    if (!session && !loading) {
+      const publicRoutes = ["login", "signin", "auth", "signup", "reset-password", "landing", "about", "welcome"];
+      if (!publicRoutes.includes(route) && cleanPath !== "/" && cleanPath !== "") {
+        toast.info("Please sign in to access Hamko ERP");
+        navigate("/login");
+      }
+    }
+  }, [session, loading, route, cleanPath, navigate]);
 
   if (cleanPath === "/reset-password" || cleanPath.startsWith("/reset-password") || route === "reset-password") {
     return (
@@ -116,16 +136,25 @@ export function App() {
         </ErrorBoundary>
       );
     }
-    if (route === "signin" || route === "auth" || route === "login") {
+    if (route === "signin" || route === "auth" || route === "login" || cleanPath === "/login" || cleanPath === "/signin") {
       return (
         <ErrorBoundary name="AuthPage:SignIn">
           <AuthPage />
         </ErrorBoundary>
       );
     }
+    if (route === "landing" || cleanPath === "/landing" || route === "about" || cleanPath === "/about" || route === "welcome" || cleanPath === "/welcome") {
+      return (
+        <ErrorBoundary name="LandingPage">
+          <LandingPage />
+        </ErrorBoundary>
+      );
+    }
+    // Protected routes fallback: Unauthenticated users visiting root or any internal route
+    // see the Auth Login Page (Facebook/Gmail style)
     return (
-      <ErrorBoundary name="LandingPage">
-        <LandingPage />
+      <ErrorBoundary name="AuthPage:ProtectedLogin">
+        <AuthPage />
       </ErrorBoundary>
     );
   }

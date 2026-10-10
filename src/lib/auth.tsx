@@ -204,19 +204,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let mounted = true;
 
-    if (restoreDemoSession()) {
-      setLoading(false);
-    } else {
-      supabase.auth.getSession().then(({ data }) => {
+    async function initAuth() {
+      try {
+        const { data } = await supabase.auth.getSession();
         if (!mounted) return;
-        setSession(data.session);
         if (data.session?.user) {
-          loadProfile(data.session.user.id).finally(() => mounted && setLoading(false));
+          setSession(data.session);
+          setIsDemo(false);
+          isDemoRef.current = false;
+          // Clear any conflicting demo session key
+          if (typeof window !== "undefined") {
+            sessionStorage.removeItem(DEMO_SESSION_KEY);
+            localStorage.removeItem(DEMO_SESSION_KEY);
+          }
+          try {
+            await loadProfile(data.session.user.id);
+          } catch (profileErr) {
+            console.warn("Profile load notice:", profileErr);
+          }
+          if (mounted) setLoading(false);
+          return;
+        }
+      } catch (err) {
+        console.warn("Supabase getSession notice:", err);
+      }
+
+      // No Supabase session found: check for offline/demo fallback
+      if (mounted) {
+        if (restoreDemoSession()) {
+          setLoading(false);
         } else {
           setLoading(false);
         }
-      });
+      }
     }
+
+    initAuth();
 
     const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => {
       if (isDemoRef.current) return;
@@ -327,18 +350,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function signOut() {
-    if (isDemoRef.current) {
-      if (typeof window !== "undefined" && window.sessionStorage) sessionStorage.removeItem(DEMO_SESSION_KEY);
-      if (typeof window !== "undefined" && window.localStorage) localStorage.removeItem(DEMO_SESSION_KEY);
+    try {
+      if (typeof window !== "undefined") {
+        sessionStorage.removeItem(DEMO_SESSION_KEY);
+        localStorage.removeItem(DEMO_SESSION_KEY);
+      }
       isDemoRef.current = false;
       setIsDemo(false);
-      setSession(null);
+      await supabase.auth.signOut();
+    } catch (err) {
+      console.warn("Sign out notice:", err);
+    } finally {
       setProfile(null);
-      return;
+      setSession(null);
     }
-    await supabase.auth.signOut();
-    setProfile(null);
-    setSession(null);
   }
 
   async function refreshProfile() {

@@ -296,7 +296,7 @@ export function LandingPage() {
               {theme === "dark" ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
             </Button>
             <Button
-              onClick={() => navigate("signin")}
+              onClick={() => navigate("login")}
               size="sm"
               className="rounded-full bg-foreground text-background hover:bg-foreground/90 font-medium px-4 h-8 text-xs shadow-sm transition-all gap-1.5"
             >

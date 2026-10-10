@@ -73,8 +73,8 @@ export function LogVisitModal({
   const [capturingLocation, setCapturingLocation] = useState(false);
 
   function captureLocation() {
-    if (!navigator.geolocation) {
-      toast.error("Geolocation not supported by this browser");
+    if (typeof window === "undefined" || !navigator.geolocation) {
+      toast.info("GPS is optional. Geolocation is not available on this device.");
       return;
     }
     setCapturingLocation(true);
@@ -84,20 +84,19 @@ export function LogVisitModal({
         const lat = position.coords.latitude;
         const lng = position.coords.longitude;
         setCoords({ lat, lng });
-        toast.success("Location captured");
+        toast.success("GPS location captured successfully");
       },
       (error) => {
         setCapturingLocation(false);
-        console.error("Error fetching location", error);
-        toast.error("Unable to fetch exact GPS location. Please ensure location permissions are enabled.");
-        if (typeof alert === "function") {
-          alert("Unable to fetch exact GPS location. Please ensure location permissions are enabled.");
-        }
+        console.warn("GPS capture skipped or failed (non-blocking):", error);
+        // Fall back gracefully to null coordinates without blocking the submission
+        setCoords(null);
+        toast.info("GPS is optional: could not fetch exact location. You can proceed and save the visit.");
       },
       {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 0,
+        enableHighAccuracy: false,
+        timeout: 5000,
+        maximumAge: 60000,
       }
     );
   }
@@ -246,29 +245,51 @@ export function LogVisitModal({
           />
         </div>
 
-        {/* 5. Geo Location */}
+        {/* 5. Geo Location (Optional) */}
         <div className="space-y-1.5">
-          <Label>{t("warehouse" as string) || "Geo Location"}</Label>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={captureLocation}
-            disabled={capturingLocation}
-            className="gap-2"
-          >
-            {capturingLocation ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <MapPin className="h-4 w-4" />
+          <div className="flex items-center justify-between">
+            <Label className="flex items-center gap-1.5">
+              <span>Geo Location</span>
+              <span className="text-[11px] font-normal text-muted-foreground bg-muted/60 px-1.5 py-0.5 rounded">
+                Optional
+              </span>
+            </Label>
+            {coords && (
+              <button
+                type="button"
+                onClick={() => setCoords(null)}
+                className="text-xs text-muted-foreground hover:text-destructive transition-colors cursor-pointer"
+              >
+                Clear GPS
+              </button>
             )}
-            {capturingLocation ? "Capturing..." : "Capture Location"}
-          </Button>
-          {coords && (
-            <p className="text-xs text-muted-foreground">
-              Lat: {coords.lat.toFixed(4)}, Lng: {coords.lng.toFixed(4)}
-            </p>
-          )}
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={captureLocation}
+              disabled={capturingLocation}
+              className="gap-2"
+            >
+              {capturingLocation ? (
+                <Loader2 className="h-4 w-4 animate-spin text-primary" />
+              ) : (
+                <MapPin className="h-4 w-4 text-primary" />
+              )}
+              {capturingLocation ? "Fetching GPS..." : coords ? "Update Location" : "Capture Location (Optional)"}
+            </Button>
+            {coords ? (
+              <p className="text-xs font-mono text-emerald-600 dark:text-emerald-400">
+                ✓ {coords.lat.toFixed(4)}, {coords.lng.toFixed(4)}
+              </p>
+            ) : (
+              <span className="text-xs text-muted-foreground">
+                Optional — leave blank if GPS unavailable
+              </span>
+            )}
+          </div>
         </div>
 
         {/* 6. Notes */}

@@ -47,7 +47,7 @@ export function AuthPage() {
   useEffect(() => {
     if (path === "/signup" || path.startsWith("/signup")) {
       toast.info(t("registrationNotice"));
-      navigate("/signin");
+      navigate("/login");
     }
   }, [path, navigate, t]);
 
@@ -81,12 +81,25 @@ export function AuthPage() {
     };
   }, [countdown]);
 
+  const [showPassword, setShowPassword] = useState(false);
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    const cleanEmail = email.trim();
+    const cleanPass = password.trim();
+    if (!cleanEmail || !cleanPass) {
+      toast.error(lang === "bn" ? "অনুগ্রহ করে ইমেইল ও পাসওয়ার্ড প্রদান করুন" : "Please enter your email and password");
+      return;
+    }
     setLoading(true);
     try {
-      const { error } = await signIn(email, password);
-      if (error) toast.error(error);
+      const { error } = await signIn(cleanEmail, cleanPass);
+      if (error) {
+        toast.error(error);
+      } else {
+        toast.success(lang === "bn" ? "লগইন সফল হয়েছে!" : "Signed in successfully!");
+        navigate("/dashboard");
+      }
     } finally {
       setLoading(false);
     }
@@ -297,9 +310,9 @@ export function AuthPage() {
               <img src="/Hamko.png" alt="Hamko" className="h-8 sm:h-9 w-auto object-contain" />
             </div>
             <div>
-              <p className="text-white font-semibold text-xl leading-tight">Sales ERP Pro</p>
+              <p className="text-white font-semibold text-xl leading-tight">Hamko ERP</p>
               <p className="text-blue-100 text-xs mt-0.5">
-                {lang === "bn" ? "কুকওয়্যার ডিস্ট্রিবিউশন ইআরপি" : "Cookware Distribution ERP"}
+                {lang === "bn" ? "হামকো কুকওয়্যার ডিস্ট্রিবিউশন ইআরপি" : "Hamko Cookware Distribution ERP"}
               </p>
             </div>
           </div>
@@ -307,7 +320,7 @@ export function AuthPage() {
 
         <div className="relative max-w-md">
           <h2 className="text-3xl lg:text-4xl font-bold leading-tight mb-4">
-            {t("welcomeTo")} {t("appName")}
+            {t("welcomeTo")} Hamko ERP
           </h2>
           <p className="text-white/80 text-sm lg:text-base leading-relaxed">
             {lang === "bn"
@@ -329,8 +342,8 @@ export function AuthPage() {
 
         <div className="relative text-xs text-white/60 mt-8">
           {lang === "bn"
-            ? `© ${toBengaliNumerals(new Date().getFullYear())} সেলস ইআরপি প্রো। সর্বস্বত্ব সংরক্ষিত।`
-            : `© ${new Date().getFullYear()} Sales ERP Pro. All rights reserved.`}
+            ? `© ${toBengaliNumerals(new Date().getFullYear())} হামকো ইআরপি। সর্বস্বত্ব সংরক্ষিত।`
+            : `© ${new Date().getFullYear()} Hamko ERP. All rights reserved.`}
         </div>
       </div>
 
@@ -342,9 +355,9 @@ export function AuthPage() {
             <div className="inline-flex items-center justify-center bg-white p-2 rounded-xl shadow-sm mb-3 border border-border/40">
               <img src="/Hamko.png" alt="Hamko" className="h-12 w-auto object-contain" />
             </div>
-            <h1 className="text-lg font-bold text-foreground leading-tight">Sales ERP Pro</h1>
+            <h1 className="text-lg font-bold text-foreground leading-tight">Hamko ERP</h1>
             <p className="text-xs text-muted-foreground mt-0.5">
-              {lang === "bn" ? "কুকওয়্যার ডিস্ট্রিবিউশন ইআরপি" : "Cookware Distribution ERP"}
+              {lang === "bn" ? "হামকো কুকওয়্যার ডিস্ট্রিবিউশন ইআরপি" : "Hamko Cookware Distribution ERP"}
             </p>
           </div>
           <div className="flex justify-between gap-2 mb-6">
@@ -371,7 +384,15 @@ export function AuthPage() {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-1.5">
               <Label htmlFor="email">{t("email")}</Label>
-              <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+              <Input
+                id="email"
+                type="email"
+                placeholder="name@company.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                autoComplete="email"
+                required
+              />
             </div>
 
             <div className="space-y-1.5">
@@ -385,13 +406,26 @@ export function AuthPage() {
                   {t("forgotPassword")}
                 </button>
               </div>
-              <Input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-              />
+              <div className="relative">
+                <Input
+                  id="password"
+                  type={showPassword ? "text" : "password"}
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  autoComplete="current-password"
+                  className="pr-10"
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((prev) => !prev)}
+                  tabIndex={-1}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
             </div>
 
             <Button type="submit" className="w-full" disabled={loading}>
