@@ -11,9 +11,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { EmptyState } from "@/components/ui/empty";
 import { formatBDT, formatDate, toBnDigit } from "@/lib/utils";
 import { exportToExcel } from "@/lib/export";
-import { Plus, Search, Pencil, Trash2, Download, Users, Phone, Loader2, BookOpen, ShieldCheck, Sparkles, User, X } from "lucide-react";
+import { Plus, Search, Pencil, Trash2, Download, Users, Phone, Loader2, BookOpen, ShieldCheck, Sparkles, User, X, RefreshCw } from "lucide-react";
 import { useUsers } from "@/context/UsersContext";
 import { toast } from "sonner";
+import { useAutoSync } from "@/hooks/useAutoSync";
 import { useRouter } from "@/router";
 import { CustomerLedgerModal } from "@/components/CustomerLedgerModal";
 import { AddCustomerModal, parseCustomerNotes } from "@/components/AddCustomerModal";
@@ -117,7 +118,13 @@ export function CustomersPage() {
     };
   }, []);
 
-  async function loadData() {
+  // Anti-stale data: auto re-fetch on window focus, visibility change, and mobile app resume
+  useAutoSync(() => {
+    loadData(false);
+  });
+
+  async function loadData(isManual = false) {
+    if (isManual) setLoading(true);
     try {
       const [cRes, tRes, oRes, colRes] = await Promise.all([
         supabase.from("customers").select("*, territory:territories(*)").order("name", { ascending: true }),
@@ -128,6 +135,9 @@ export function CustomersPage() {
       if (!cRes.error && Array.isArray(cRes.data)) {
         const merged = mergeAndEnrichCustomers(cRes.data as Customer[]);
         setCustomers(Array.isArray(merged) ? merged : []);
+        if (isManual) {
+          toast.success(`Live sync: ${merged.length} customers/outlets synchronized`);
+        }
       }
       if (tRes.data) {
         setTerritories(tRes.data);
@@ -523,6 +533,10 @@ export function CustomersPage() {
           </Select>
         </div>
         <div className="flex gap-2 w-full sm:w-auto justify-end">
+          <Button variant="outline" size="sm" onClick={() => loadData(true)} disabled={loading} title="Live cloud sync" className="gap-1.5">
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin text-primary' : ''}`} />
+            <span className="hidden sm:inline">{loading ? "Syncing..." : "Live Sync"}</span>
+          </Button>
           <Button variant="outline" size="sm" onClick={handleExport}>
             <Download className="h-4 w-4" /> {t("exportExcel")}
           </Button>

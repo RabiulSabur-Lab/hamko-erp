@@ -15,6 +15,7 @@ import {
 } from "recharts";
 import { useRouter } from "@/router";
 import { AIInsightsWidget } from "@/components/AIInsightsWidget";
+import { useAutoSync } from "@/hooks/useAutoSync";
 import {
   r2,
   deduplicateCollections,
@@ -251,6 +252,11 @@ export function DashboardPage() {
       }
     }
   }, []);
+
+  // Anti-stale data: auto re-fetch on window focus, visibility change, and mobile app resume
+  useAutoSync(() => {
+    fetchFromSupabase(false);
+  });
 
   // ── Mount: seed loading state from localStorage for instant paint, then fetch Supabase ──
   useEffect(() => {

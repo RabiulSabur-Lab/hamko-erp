@@ -30,8 +30,10 @@ import {
   XCircle,
   FileText,
   User,
+  RefreshCw,
 } from "lucide-react";
 import { useRouter } from "@/router";
+import { useAutoSync } from "@/hooks/useAutoSync";
 import { CustomerLedgerModal } from "@/components/CustomerLedgerModal";
 import { OrderPrintInvoice } from "@/components/OrderPrintInvoice";
 import { AddOrderModal, type OrderItemForm } from "@/components/AddOrderModal";
@@ -345,10 +347,14 @@ export function OrdersPage() {
     }
   }, [query.search]);
 
-  useEffect(() => {
-    let isMounted = true;
-    async function load() {
-      try {
+  // Anti-stale data: auto re-fetch on window focus, visibility change, and mobile app resume
+  useAutoSync(() => {
+    load(false);
+  });
+
+  async function load(isManual = false) {
+    if (isManual) setLoading(true);
+    try {
         const [usersQueryRes, oRes, cRes, pRes, officersData] = await Promise.all([
           supabase.from("users").select("id, full_name, email, role_name"),
           supabase.from("orders").select("*, customer:customers(name, current_due, address, city, phone, trade_license_number), sales_rep:users(id, full_name, email), order_items(*, product:products(name, sku_code, unit_price))").order("order_date", { ascending: false }),
@@ -513,6 +519,9 @@ export function OrdersPage() {
 
           setOrders(mergedOrders);
           saveOrders(mergedOrders);
+          if (isManual) {
+            toast.success(`Live sync: ${mergedOrders.length} orders synchronized`);
+          }
         } else {
           // Fallback to local storage when remote Supabase fetch fails or is offline
           const fallbackOrders = cleanCorruptedStoredOrders();
@@ -555,10 +564,13 @@ export function OrdersPage() {
       } catch (err) {
         console.warn("Using cached orders data due to network error:", err);
       } finally {
-        if (isMounted) setLoading(false);
+        setLoading(false);
       }
     }
-    load();
+
+  useEffect(() => {
+    let isMounted = true;
+    load(false);
 
     const ordChannel = supabase
       .channel("orders-page-realtime")
@@ -1570,6 +1582,10 @@ export function OrdersPage() {
           </Select>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => load(true)} disabled={loading} title="Live cloud sync" className="gap-1.5">
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin text-primary' : ''}`} />
+            <span className="hidden sm:inline">{loading ? "Syncing..." : "Live Sync"}</span>
+          </Button>
           <Button variant="outline" size="sm" onClick={handleExport}><Download className="h-4 w-4" /> {t("exportExcel")}</Button>
           <Button size="sm" onClick={openNew}><Plus className="h-4 w-4" /> {t("addOrder")}</Button>
         </div>

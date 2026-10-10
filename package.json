@@ -9,7 +9,8 @@
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
     "lint": "eslint .",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "sync": "powershell -ExecutionPolicy Bypass -File ./scripts/sync_and_push.ps1"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.3",

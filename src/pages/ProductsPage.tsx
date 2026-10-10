@@ -13,9 +13,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { EmptyState } from "@/components/ui/empty";
 import { formatBDT, toBnDigit } from "@/lib/utils";
 import { exportToExcel } from "@/lib/export";
-import { Plus, Search, Pencil, Trash2, Download, Package, Loader2, ExternalLink, HelpCircle, Info, X } from "lucide-react";
+import { Plus, Search, Pencil, Trash2, Download, Package, Loader2, ExternalLink, HelpCircle, Info, X, RefreshCw } from "lucide-react";
 import { useRouter } from "@/router";
 import { toast } from "sonner";
+import { useAutoSync } from "@/hooks/useAutoSync";
 
 import {
   STORAGE_KEYS,
@@ -148,14 +149,19 @@ export function ProductsPage() {
     };
   }, []);
 
+  // Anti-stale data: auto re-fetch on window focus, visibility change, and mobile app resume
+  useAutoSync(() => {
+    loadData(false);
+  });
+
   useEffect(() => {
     if (query.search && query.search !== search) {
       setSearch(query.search);
     }
   }, [query.search]);
 
-  async function loadData() {
-    setLoading(true);
+  async function loadData(isManual = false) {
+    if (isManual) setLoading(true);
     try {
       const [pRes, cRes] = await Promise.all([
         supabase.from("products").select("*, category:categories(*)").order("name", { ascending: true }),
@@ -255,6 +261,9 @@ export function ProductsPage() {
 
         setProducts(merged);
         setLocalData(STORAGE_KEYS.PRODUCTS, merged);
+        if (isManual) {
+          toast.success(lang === "bn" ? `ক্লাউড ডাটাবেজ থেকে ${merged.length}টি পণ্য সিন্ক হয়েছে` : `Live sync: ${merged.length} products loaded from cloud`);
+        }
       } else {
         const storedLocal = getLocalData<Product[]>(STORAGE_KEYS.PRODUCTS, []);
         const localList: Product[] = (Array.isArray(storedLocal) ? storedLocal : [])
@@ -873,6 +882,10 @@ export function ProductsPage() {
           </Select>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => loadData(true)} disabled={loading} title="Live cloud refresh" className="gap-1.5">
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin text-primary' : ''}`} />
+            <span className="hidden sm:inline">{loading ? (lang === "bn" ? "সিন্ক হচ্ছে..." : "Syncing...") : (lang === "bn" ? "সিন্ক করুন" : "Live Sync")}</span>
+          </Button>
           <Button variant="outline" size="sm" onClick={handleExport}><Download className="h-4 w-4" /> {t("exportExcel")}</Button>
           {canManageProducts && (
             <Button size="sm" onClick={openNew}><Plus className="h-4 w-4" /> {t("addProduct")}</Button>

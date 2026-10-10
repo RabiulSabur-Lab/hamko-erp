@@ -24,8 +24,8 @@ jobs:
 
       - name: Build web application
         env:
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL || 'https://rkjelornojeooqufcuwk.supabase.co' }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJramVsb3Jub2plb29xdWZjdXdrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQzMjQ3OTYsImV4cCI6MjA5OTkwMDc5Nn0.gs4GtGqYHbparOAx-h8Ny0GXcMX5opx2_7LSIHfc0sk' }}
         run: npm run build
 
       - name: Sync Capacitor Android assets

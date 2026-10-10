@@ -1,21 +1,22 @@
 import { createClient } from "@supabase/supabase-js";
 
-const DEFAULT_URL = "https://aqbacbamlvwymiedubli.supabase.co";
 const DEFAULT_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJramVsb3Jub2plb29xdWZjdXdrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQzMjQ3OTYsImV4cCI6MjA5OTkwMDc5Nn0.gs4GtGqYHbparOAx-h8Ny0GXcMX5opx2_7LSIHfc0sk";
+const DEFAULT_URL = "https://rkjelornojeooqufcuwk.supabase.co";
 
-function sanitizeUrl(candidate?: string | null): string {
-  if (!candidate || typeof candidate !== "string") return DEFAULT_URL;
-  const trimmed = candidate.trim();
-  if (!trimmed || trimmed === "undefined" || trimmed === "null") return DEFAULT_URL;
+function extractRefFromKey(key: string): string | null {
   try {
-    const parsed = new URL(trimmed);
-    if (parsed.protocol === "http:" || parsed.protocol === "https:") {
-      return trimmed;
+    const parts = key.split(".");
+    if (parts.length >= 2) {
+      let b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+      while (b64.length % 4) b64 += "=";
+      const json = typeof atob === "function" ? atob(b64) : Buffer.from(b64, "base64").toString("utf-8");
+      const payload = JSON.parse(json);
+      return payload.ref || null;
     }
   } catch {
-    // Malformed URL, fallback to verified production endpoint
+    // ignore
   }
-  return DEFAULT_URL;
+  return null;
 }
 
 function sanitizeKey(candidate?: string | null): string {
@@ -25,16 +26,47 @@ function sanitizeKey(candidate?: string | null): string {
   return trimmed;
 }
 
-const rawEnvUrl =
-  (typeof import.meta !== "undefined" && import.meta.env?.VITE_SUPABASE_URL) ||
-  (typeof process !== "undefined" && process.env?.VITE_SUPABASE_URL);
+function sanitizeUrl(candidate?: string | null, keyCandidate?: string | null): string {
+  const activeKey = sanitizeKey(keyCandidate);
+  const keyRef = extractRefFromKey(activeKey);
+
+  if (candidate && typeof candidate !== "string") candidate = String(candidate);
+  const trimmed = candidate ? candidate.trim() : "";
+
+  if (trimmed && trimmed !== "undefined" && trimmed !== "null") {
+    try {
+      const parsed = new URL(trimmed);
+      if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+        const hostRef = parsed.hostname.split(".")[0];
+        // If the key specifically has a ref (e.g. rkjelornojeooqufcuwk) and the candidate URL has
+        // a different ref that causes 401 Invalid API Key, resolve to the matching live project
+        if (keyRef && hostRef !== keyRef) {
+          console.info(`Supabase URL auto-aligned to match key project ref: https://${keyRef}.supabase.co`);
+          return `https://${keyRef}.supabase.co`;
+        }
+        return trimmed;
+      }
+    } catch {
+      // Malformed URL, fallback below
+    }
+  }
+
+  if (keyRef) {
+    return `https://${keyRef}.supabase.co`;
+  }
+  return DEFAULT_URL;
+}
 
 const rawEnvKey =
   (typeof import.meta !== "undefined" && import.meta.env?.VITE_SUPABASE_ANON_KEY) ||
   (typeof process !== "undefined" && process.env?.VITE_SUPABASE_ANON_KEY);
 
-export const SUPABASE_URL: string = sanitizeUrl(rawEnvUrl);
+const rawEnvUrl =
+  (typeof import.meta !== "undefined" && import.meta.env?.VITE_SUPABASE_URL) ||
+  (typeof process !== "undefined" && process.env?.VITE_SUPABASE_URL);
+
 export const SUPABASE_ANON_KEY: string = sanitizeKey(rawEnvKey);
+export const SUPABASE_URL: string = sanitizeUrl(rawEnvUrl, SUPABASE_ANON_KEY);
 
 export const isSupabaseConfigured: boolean = Boolean(
   SUPABASE_URL &&
@@ -50,6 +82,19 @@ function initSupabase() {
         autoRefreshToken: true,
         detectSessionInUrl: true,
       },
+      // Bypass aggressive Android WebView / HTTP caching to guarantee live cloud data
+      global: {
+        fetch: (url, options = {}) => {
+          const headers = new Headers(options.headers || {});
+          headers.set("Cache-Control", "no-cache, no-store, must-revalidate");
+          headers.set("Pragma", "no-cache");
+          return fetch(url, {
+            ...options,
+            headers,
+            cache: "no-store",
+          });
+        },
+      },
       realtime: {
         params: {
           eventsPerSecond: 20,
@@ -58,7 +103,7 @@ function initSupabase() {
     });
   } catch (err) {
     console.error("Failed to initialize Supabase client safely:", err);
-    return createClient(DEFAULT_URL, DEFAULT_KEY, {
+    return createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       auth: {
         persistSession: false,
         autoRefreshToken: false,
