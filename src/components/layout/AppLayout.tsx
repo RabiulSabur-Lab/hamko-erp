@@ -2,7 +2,7 @@ import { useState, useEffect, type ReactNode } from "react";
 import {
   Menu, X, Moon, Sun, Globe, Bell, LogOut, ChevronDown,
   LayoutDashboard, Users, Package, ShoppingCart, Truck, Warehouse,
-  Wallet, MapPin, BarChart3, UserCog,
+  Wallet, MapPin, BarChart3, UserCog, CloudUpload,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth";
@@ -13,6 +13,7 @@ import { cn, initials } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { STORAGE_KEYS, getLocalData } from "@/utils/localStore";
+import { CloudSyncModal } from "@/components/CloudSyncModal";
 
 import { Sidebar, navItems, type NavItem } from "@/components/Sidebar";
 export type { NavItem };
@@ -24,6 +25,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
   const { path, navigate } = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [cloudSyncOpen, setCloudSyncOpen] = useState(false);
 
   const [unreadCount, setUnreadCount] = useState<number>(() => {
     const list = getLocalData<any>(STORAGE_KEYS.NOTIFICATIONS, []);
@@ -119,6 +121,28 @@ export function AppLayout({ children }: { children: ReactNode }) {
             </h1>
           </div>
 
+          {/* Cloud Sync Button */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setCloudSyncOpen(true)}
+            className="hidden sm:inline-flex items-center gap-1.5 border-primary/40 bg-primary/5 text-primary hover:bg-primary/15 text-xs font-semibold px-2.5 h-8 rounded-lg transition-colors"
+            title="Push all local ERP data to Supabase cloud"
+          >
+            <CloudUpload className="h-4 w-4" />
+            <span>Sync to Cloud</span>
+          </Button>
+
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setCloudSyncOpen(true)}
+            className="sm:hidden text-primary"
+            title="Push all local ERP data to Supabase cloud"
+          >
+            <CloudUpload className="h-5 w-5" />
+          </Button>
+
           {/* Language toggle */}
           <Button
             variant="ghost"
@@ -171,6 +195,16 @@ export function AppLayout({ children }: { children: ReactNode }) {
                     <Badge variant="secondary" className="mt-1 text-[10px]">{profile?.role_name ?? "Staff"}</Badge>
                   </div>
                   <button
+                    onClick={() => {
+                      setUserMenuOpen(false);
+                      setCloudSyncOpen(true);
+                    }}
+                    className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-foreground hover:bg-accent"
+                  >
+                    <CloudUpload className="h-4 w-4 text-primary" />
+                    <span>Sync Local to Cloud</span>
+                  </button>
+                  <button
                     onClick={async () => {
                       setUserMenuOpen(false);
                       await signOut();
@@ -189,6 +223,12 @@ export function AppLayout({ children }: { children: ReactNode }) {
 
         {/* Page content */}
         <main className="p-4 lg:p-6">{children}</main>
+
+        {/* Cloud Sync Modal */}
+        <CloudSyncModal
+          open={cloudSyncOpen}
+          onClose={() => setCloudSyncOpen(false)}
+        />
       </div>
     </div>
   );
