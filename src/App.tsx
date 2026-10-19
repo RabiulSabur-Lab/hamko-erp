@@ -94,7 +94,8 @@ export function App() {
 
   const loading = authLoading && !initTimeout;
   const cleanPath = (path || "/").split("?")[0].split("#")[0];
-  const route = cleanPath === "/" || cleanPath === "" ? "dashboard" : cleanPath.replace(/^\//, "").split("/")[0];
+  const isRoot = cleanPath === "/" || cleanPath === "";
+  const route = isRoot ? (session ? "dashboard" : "landing") : cleanPath.replace(/^\//, "").split("/")[0];
 
   // Restrict public sign up route - internal ERP accounts are strictly created by Super Admin
   useEffect(() => {
@@ -105,26 +106,28 @@ export function App() {
     }
   }, [cleanPath, route, session, navigate, loading]);
 
-  // If already authenticated and visiting auth pages, navigate to dashboard
+  // If already authenticated and visiting landing or auth pages, automatically route to dashboard
   useEffect(() => {
     if (loading) return;
-    if (session && (route === "login" || route === "signin" || route === "auth" || cleanPath === "/login" || cleanPath === "/signin")) {
-      navigate("/dashboard");
+    if (session && (isRoot || route === "login" || route === "signin" || route === "auth" || route === "landing" || cleanPath === "/login" || cleanPath === "/signin" || cleanPath === "/landing")) {
+      if (cleanPath !== "/dashboard") {
+        navigate("/dashboard");
+      }
     }
-  }, [session, route, cleanPath, navigate, loading]);
+  }, [session, route, cleanPath, isRoot, navigate, loading]);
 
-  // Protected Route enforcement (Facebook / Gmail style):
+  // Protected Route enforcement:
   // When unauthenticated, visiting internal ERP routes (Dashboard, Orders, CRM/Customers, Products, etc.)
   // immediately navigates to /login so protected modules cannot be accessed without logging in.
   useEffect(() => {
     if (loading) return;
     if (!session) {
       const publicRoutes = ["login", "signin", "auth", "signup", "reset-password", "landing", "about", "welcome"];
-      if (!publicRoutes.includes(route) && cleanPath !== "/" && cleanPath !== "") {
+      if (!publicRoutes.includes(route) && !isRoot) {
         navigate("/login");
       }
     }
-  }, [session, loading, route, cleanPath, navigate]);
+  }, [session, loading, route, isRoot, navigate]);
 
   if (loading) {
     return (
@@ -157,15 +160,14 @@ export function App() {
         </ErrorBoundary>
       );
     }
-    if (route === "landing" || cleanPath === "/landing" || route === "about" || cleanPath === "/about" || route === "welcome" || cleanPath === "/welcome") {
+    if (isRoot || route === "landing" || cleanPath === "/landing" || route === "about" || cleanPath === "/about" || route === "welcome" || cleanPath === "/welcome") {
       return (
         <ErrorBoundary name="LandingPage">
           <LandingPage />
         </ErrorBoundary>
       );
     }
-    // Protected routes fallback: Unauthenticated users visiting root or any internal route
-    // see the Auth Login Page (Facebook/Gmail style)
+    // Protected routes fallback: Unauthenticated users visiting any protected route see the Login Page
     return (
       <ErrorBoundary name="AuthPage:ProtectedLogin">
         <AuthPage />
