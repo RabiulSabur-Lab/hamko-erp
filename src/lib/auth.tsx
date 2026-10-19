@@ -159,18 +159,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let mounted = true;
 
-    // Safety timeout: If Supabase auth network drops, ensure UI unlocks after 5s
+    // Hard 2.5-second fallback timeout: Guaranteed UI unlock even if network or locks stall
     const safetyTimeout = setTimeout(() => {
       if (mounted) {
+        console.warn("[Auth] Hard fallback timeout reached (2.5s). Forcing loading to false.");
         setLoading(false);
       }
-    }, 5000);
+    }, 2500);
 
     async function initAuth() {
       try {
         const sessionPromise = supabase.auth.getSession();
         const timeoutPromise = new Promise<{ data: { session: any } }>((_, reject) =>
-          setTimeout(() => reject(new Error("getSession timeout")), 4500)
+          setTimeout(() => reject(new Error("getSession timeout")), 2000)
         );
 
         const { data } = await Promise.race([sessionPromise, timeoutPromise]).catch(() => ({
@@ -178,13 +179,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }));
 
         if (!mounted) return;
-        if (data.session?.user) {
+        if (data?.session?.user) {
           setSession(data.session);
-          try {
-            await loadProfile(data.session.user.id, data.session.user);
-          } catch (profileErr) {
-            console.warn("Profile load notice:", profileErr);
-          }
+          // Load profile in background non-blockingly so UI renders instantly
+          loadProfile(data.session.user.id, data.session.user).catch((err) => {
+            console.warn("Background profile load notice:", err);
+          });
         }
       } catch (err) {
         console.warn("Supabase getSession notice:", err);
@@ -199,13 +199,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => {
       if (!mounted) return;
       (async () => {
-        setSession(sess);
-        if (sess?.user) {
-          await loadProfile(sess.user.id, sess.user);
-        } else {
-          setProfile(null);
+        try {
+          setSession(sess);
+          if (sess?.user) {
+            await loadProfile(sess.user.id, sess.user);
+          } else {
+            setProfile(null);
+          }
+        } catch (authChangeErr) {
+          console.warn("[Auth] onAuthStateChange loadProfile notice:", authChangeErr);
+        } finally {
+          if (mounted) setLoading(false);
         }
-        setLoading(false);
       })();
     });
 

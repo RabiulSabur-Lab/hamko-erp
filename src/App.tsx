@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import { toast } from "sonner";
 import { useAuth } from "./lib/auth";
 import { useRouter } from "./router";
@@ -80,8 +80,19 @@ function ProtectedRoute({
 }
 
 export function App() {
-  const { session, user, profile, loading } = useAuth();
+  const { session, user, profile, loading: authLoading } = useAuth();
   const { path, navigate } = useRouter();
+  const [initTimeout, setInitTimeout] = useState(false);
+
+  // Hard 3-second fallback timeout: Force UI unlock and render login if initialization stalls
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setInitTimeout(true);
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, []);
+
+  const loading = authLoading && !initTimeout;
 
   if (loading) {
     return (
