@@ -331,11 +331,14 @@ export function OrdersPage() {
     return map;
   }, [salesOfficers, usersMap]);
 
+  const openedQueryOrderRef = useRef<string | null>(null);
+
   // Sync order query parameter from URL (e.g. redirected from customer ledger statement)
   useEffect(() => {
-    if (query.order && orders.length > 0) {
+    if (query.order && orders.length > 0 && openedQueryOrderRef.current !== query.order) {
       const match = orders.find((o) => o.id === query.order || o.order_number === query.order);
       if (match) {
+        openedQueryOrderRef.current = query.order;
         view(match);
       }
     }

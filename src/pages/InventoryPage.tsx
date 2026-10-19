@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { supabase, type Product } from "@/lib/supabase";
 import { useI18n } from "@/lib/i18n";
 import { useAuth } from "@/lib/auth";
@@ -83,7 +83,10 @@ export function InventoryPage() {
     }
   }, [query.search]);
 
+  const mountedRef = useRef(true);
+
   useEffect(() => {
+    mountedRef.current = true;
     loadData();
 
     const handleStorage = () => {
@@ -109,6 +112,7 @@ export function InventoryPage() {
     window.addEventListener("storage", handleStorage);
     window.addEventListener("sales_erp_storage_update", handleStorage);
     return () => {
+      mountedRef.current = false;
       supabase.removeChannel(invChannel);
       window.removeEventListener("storage", handleStorage);
       window.removeEventListener("sales_erp_storage_update", handleStorage);
@@ -123,7 +127,7 @@ export function InventoryPage() {
       ]);
 
       if (!cRes.error && Array.isArray(cRes.data)) {
-        setLocalData(STORAGE_KEYS.CATEGORIES, cRes.data);
+        setLocalData(STORAGE_KEYS.CATEGORIES, cRes.data, null, true);
       }
 
       const cachedCategories: any[] = !cRes.error && Array.isArray(cRes.data)
@@ -156,13 +160,13 @@ export function InventoryPage() {
           };
         });
         const sorted = enriched.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-        setProducts(sorted);
-        setLocalData(STORAGE_KEYS.PRODUCTS, sorted);
+        if (mountedRef.current) setProducts(sorted);
+        setLocalData(STORAGE_KEYS.PRODUCTS, sorted, null, true);
       }
     } catch (err) {
       console.warn("Using local inventory cache:", err);
     } finally {
-      setLoading(false);
+      if (mountedRef.current) setLoading(false);
     }
   }
 

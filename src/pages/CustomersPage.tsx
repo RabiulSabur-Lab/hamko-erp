@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { supabase, type Customer, type Territory, type Order, type Collection } from "@/lib/supabase";
 import { useI18n } from "@/lib/i18n";
 import { useAuth } from "@/lib/auth";
@@ -89,8 +89,10 @@ export function CustomersPage() {
   const [areas, setAreas] = useState<Area[]>(() => getAreas());
   const [areaFilter, setAreaFilter] = useState("");
   const [officerFilter, setOfficerFilter] = useState("");
+  const mountedRef = useRef(true);
 
   useEffect(() => {
+    mountedRef.current = true;
     loadData();
 
     const handleStorage = () => {
@@ -111,6 +113,7 @@ export function CustomersPage() {
     window.addEventListener("sales_erp_storage_update", handleStorage);
     window.addEventListener("customer_ledger_updated", handleStorage);
     return () => {
+      mountedRef.current = false;
       supabase.removeChannel(custChannel);
       window.removeEventListener("storage", handleStorage);
       window.removeEventListener("sales_erp_storage_update", handleStorage);
@@ -132,14 +135,15 @@ export function CustomersPage() {
         supabase.from("orders").select("id, customer_id, total_amount, status, created_at, order_date, customer:customers(name)").order("order_date", { ascending: false }),
         supabase.from("collections").select("id, customer_id, amount, collection_date, customer:customers(name)").order("collection_date", { ascending: false }),
       ]);
+      if (!mountedRef.current) return;
       if (!cRes.error && Array.isArray(cRes.data)) {
         const merged = mergeAndEnrichCustomers(cRes.data as Customer[]);
-        setCustomers(Array.isArray(merged) ? merged : []);
+        if (mountedRef.current) setCustomers(Array.isArray(merged) ? merged : []);
         if (isManual) {
           toast.success(`Live sync: ${merged.length} customers/outlets synchronized`);
         }
       }
-      if (tRes.data) {
+      if (tRes.data && mountedRef.current) {
         setTerritories(tRes.data);
       }
       if (!oRes.error && Array.isArray(oRes.data)) {
@@ -149,8 +153,8 @@ export function CustomersPage() {
         const currentLocal = getOrders().filter((o: any) => !deletedOrderIds.has(o.id));
         const pendingLocal = currentLocal.filter((lo) => !remoteIdSet.has(String(lo.id)));
         const merged = [...pendingLocal, ...remoteOrders];
-        setOrders(merged);
-        setLocalData(STORAGE_KEYS.ORDERS, merged);
+        if (mountedRef.current) setOrders(merged);
+        setLocalData(STORAGE_KEYS.ORDERS, merged, null, true);
       }
       if (!colRes.error && Array.isArray(colRes.data)) {
         const deletedColIds = getDeletedIds(STORAGE_KEYS.DELETED_COLLECTIONS);
@@ -166,8 +170,8 @@ export function CustomersPage() {
             (!lc.collection_number || !remoteColNumSet.has(String(lc.collection_number).trim().toUpperCase()))
         );
         const merged = deduplicateCollections([...pendingLocal, ...remoteCols]);
-        setCollections(merged);
-        setLocalData(STORAGE_KEYS.COLLECTIONS, merged);
+        if (mountedRef.current) setCollections(merged);
+        setLocalData(STORAGE_KEYS.COLLECTIONS, merged, null, true);
       }
     } catch (err) {
       console.warn("Using local customer cache due to fetch error:", err);

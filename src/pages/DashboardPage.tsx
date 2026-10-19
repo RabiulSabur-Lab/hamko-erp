@@ -108,9 +108,12 @@ export function DashboardPage() {
   const [lastSynced, setLastSynced] = useState<Date | null>(null);
   const [error, setError] = useState<string | null>(null);
   const mountedRef = useRef(true);
+  const isFetchingRef = useRef(false);
 
   // ── Primary Supabase fetch (source of truth) ───────────────────────────────
   const fetchFromSupabase = useCallback(async (isManual = false) => {
+    if (isFetchingRef.current) return;
+    isFetchingRef.current = true;
     if (isManual) setRefreshing(true);
     setError(null);
 
@@ -246,6 +249,7 @@ export function DashboardPage() {
         if (isManual) setError("Could not reach server. Showing local data.");
       }
     } finally {
+      isFetchingRef.current = false;
       if (mountedRef.current) {
         setLoading(false);
         setRefreshing(false);
@@ -313,7 +317,18 @@ export function DashboardPage() {
     // ── Local mutation events (from other pages) ──────────────────────────
     const handleLocalUpdate = () => {
       if (!mountedRef.current) return;
-      fetchFromSupabase(false);
+      const deletedOrderIds = getDeletedIds(STORAGE_KEYS.DELETED_ORDERS);
+      const cachedOrders = getOrders().filter((o: any) => !deletedOrderIds.has(o.id));
+      const deletedColIds = getDeletedIds(STORAGE_KEYS.DELETED_COLLECTIONS);
+      const cachedCols = getCollections().filter((c: any) => !deletedColIds.has(c.id));
+      const cachedCustomers = getCustomers();
+      const cachedProducts = getLocalData<any>(STORAGE_KEYS.PRODUCTS, []);
+      if (cachedOrders.length || cachedCols.length || cachedCustomers.length) {
+        setOrders(cachedOrders);
+        setCollections(cachedCols);
+        setCustomers(cachedCustomers);
+        setProducts(cachedProducts);
+      }
     };
     window.addEventListener("sales_erp_storage_update", handleLocalUpdate);
     window.addEventListener("customer_ledger_updated", handleLocalUpdate);
@@ -327,7 +342,7 @@ export function DashboardPage() {
       window.removeEventListener("sales_erp_storage_update", handleLocalUpdate);
       window.removeEventListener("customer_ledger_updated", handleLocalUpdate);
     };
-  }, [fetchFromSupabase]);
+  }, []);
 
   // ── KPI & Growth calculations ──────────────────────────────────────────────
   const { kpi, trends } = useMemo(() => {

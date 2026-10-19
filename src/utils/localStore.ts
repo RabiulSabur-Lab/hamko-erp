@@ -172,7 +172,7 @@ export function getLocalData<T = any>(key: string, defaultValue?: T): T {
   }
 }
 
-export function setLocalData<T = any>(key: string, value: T, ttlMs?: number | null): void {
+export function setLocalData<T = any>(key: string, value: T, ttlMs?: number | null, silent = false): void {
   if (typeof window === "undefined" || !window.localStorage) return;
   try {
     let sanitizedValue = value;
@@ -187,12 +187,14 @@ export function setLocalData<T = any>(key: string, value: T, ttlMs?: number | nu
       }) as unknown as T;
     }
     setItemWithTTL(key, sanitizedValue, ttlMs);
-    try {
-      window.dispatchEvent(new CustomEvent('sales_erp_storage_update', { detail: { key } }));
-      window.dispatchEvent(new Event('sales_erp_storage_update'));
-      window.dispatchEvent(new Event('storage'));
-    } catch {
-      // ignore
+    if (!silent) {
+      try {
+        window.dispatchEvent(new CustomEvent('sales_erp_storage_update', { detail: { key } }));
+        window.dispatchEvent(new Event('sales_erp_storage_update'));
+        window.dispatchEvent(new Event('storage'));
+      } catch {
+        // ignore
+      }
     }
   } catch (e) {
     console.warn(`Error saving to localStorage key ${key}:`, e);
@@ -1465,11 +1467,7 @@ export function mergeAndEnrichCustomers(remoteCustomers: Customer[]): Customer[]
     (a.outlet_name || a.name || "").localeCompare(b.outlet_name || b.name || "")
   );
 
-  setLocalData(STORAGE_KEYS.CUSTOMERS, merged);
-  try {
-    window.dispatchEvent(new CustomEvent('sales_erp_storage_update', { detail: { key: STORAGE_KEYS.CUSTOMERS } }));
-    window.dispatchEvent(new CustomEvent('sales_erp_storage_update'));
-  } catch {}
+  setLocalData(STORAGE_KEYS.CUSTOMERS, merged, null, true);
   return merged;
 }
 

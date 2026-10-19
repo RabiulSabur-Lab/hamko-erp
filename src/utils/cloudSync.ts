@@ -73,6 +73,33 @@ function encodeCustomerNotes(cust: any): string {
 }
 
 /**
+ * Concurrency execution guard to prevent overlapping or infinite recursive synchronization calls.
+ */
+let isCloudSyncing = false;
+
+export function getIsCloudSyncing(): boolean {
+  return isCloudSyncing;
+}
+
+/**
+ * Yields control back to the browser's event loop to prevent "Page Unresponsive" freezing
+ */
+const yieldToUI = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+
+/**
+ * Wraps asynchronous Supabase operations with a timeout to prevent network dropouts from hanging the thread
+ */
+async function withTimeout<T>(promise: PromiseLike<T>, ms = 25000, label = "Operation"): Promise<T> {
+  let timer: any;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${ms / 1000}s (network dropped or server unresponsive)`));
+    }, ms);
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timer));
+}
+
+/**
  * Performs a 100% comprehensive push of all local ERP data from browser localStorage to Supabase.
  * Respects table foreign-key hierarchies and sanitizes all physical PostgreSQL schema columns.
  */
@@ -90,6 +117,16 @@ export async function pushAllLocalDataToSupabase(
     inventory: 0,
     errors: [],
   };
+
+  // Execution guard: Reject duplicate or recursive synchronization calls
+  if (isCloudSyncing) {
+    console.warn("[CloudSync] Duplicate synchronization call blocked by isCloudSyncing execution guard.");
+    toast.warning("Cloud synchronization is already in progress. Please wait...");
+    summary.errors.push("Synchronization already in progress");
+    return summary;
+  }
+
+  isCloudSyncing = true;
 
   const report = (phase: string, completed: number, total: number, msg?: string) => {
     if (msg) summary.errors.push(msg);
@@ -110,7 +147,11 @@ export async function pushAllLocalDataToSupabase(
     // ---------------------------------------------------------
     report("Synchronizing Categories", 0, 1);
     const localCategories = getLocalData<any[]>(STORAGE_KEYS.CATEGORIES, []);
-    const { data: remoteCategories } = await supabase.from("categories").select("id, name");
+    const { data: remoteCategories } = await withTimeout(
+      supabase.from("categories").select("id, name"),
+      20000,
+      "Categories fetch"
+    );
     const categoryMap = new Map<string, string>(); // name.toLowerCase() -> id
 
     (remoteCategories || []).forEach((rc: any) => {
@@ -251,6 +292,7 @@ export async function pushAllLocalDataToSupabase(
       } else {
         summary.products++;
       }
+      if (i % 5 === 0) await yieldToUI();
       report("Synchronizing Products", i + 1, localProducts.length);
     }
 
@@ -260,7 +302,11 @@ export async function pushAllLocalDataToSupabase(
     const localCustomers = getCustomers();
     report("Synchronizing Customers", 0, localCustomers.length);
 
-    const { data: remoteTerritories } = await supabase.from("territories").select("id, name");
+    const { data: remoteTerritories } = await withTimeout(
+      supabase.from("territories").select("id, name"),
+      20000,
+      "Territories fetch"
+    );
     const territoryMap = new Map<string, string>();
     (remoteTerritories || []).forEach((t: any) => {
       if (t.name && t.id) territoryMap.set(t.name.trim().toLowerCase(), t.id);
@@ -313,6 +359,7 @@ export async function pushAllLocalDataToSupabase(
       } else {
         summary.customers++;
       }
+      if (i % 5 === 0) await yieldToUI();
       report("Synchronizing Customers", i + 1, localCustomers.length);
     }
 
@@ -323,13 +370,21 @@ export async function pushAllLocalDataToSupabase(
     report("Synchronizing Orders", 0, localOrders.length);
 
     // Fetch existing customer IDs to avoid foreign-key violations
-    const { data: dbCustomers } = await supabase.from("customers").select("id, name");
+    const { data: dbCustomers } = await withTimeout(
+      supabase.from("customers").select("id, name"),
+      20000,
+      "Customers fetch"
+    );
     const validCustIds = new Set<string>((dbCustomers || []).map((dc) => dc.id));
     const custNameToId = new Map<string, string>();
     (dbCustomers || []).forEach((dc) => custNameToId.set(dc.name.trim().toLowerCase(), dc.id));
 
     // Fetch products to map order product IDs
-    const { data: dbProducts } = await supabase.from("products").select("id, name, sku_code");
+    const { data: dbProducts } = await withTimeout(
+      supabase.from("products").select("id, name, sku_code"),
+      20000,
+      "Products fetch"
+    );
     const validProdIds = new Set<string>((dbProducts || []).map((dp) => dp.id));
     const prodNameToId = new Map<string, string>();
     (dbProducts || []).forEach((dp) => {
@@ -437,6 +492,7 @@ export async function pushAllLocalDataToSupabase(
           }
         }
       }
+      if (i % 5 === 0) await yieldToUI();
       report("Synchronizing Orders", i + 1, localOrders.length);
     }
 
@@ -485,6 +541,7 @@ export async function pushAllLocalDataToSupabase(
       } else {
         summary.collections++;
       }
+      if (i % 5 === 0) await yieldToUI();
       report("Synchronizing Collections", i + 1, localCollections.length);
     }
 
@@ -517,6 +574,7 @@ export async function pushAllLocalDataToSupabase(
       } else {
         summary.expenses++;
       }
+      if (i % 5 === 0) await yieldToUI();
       report("Synchronizing Expenses", i + 1, localExpenses.length);
     }
 
@@ -544,6 +602,7 @@ export async function pushAllLocalDataToSupabase(
 
         if (!invError) summary.inventory++;
       }
+      if (i % 5 === 0) await yieldToUI();
       report("Synchronizing Inventory", i + 1, localInventory.length);
     }
 
@@ -560,6 +619,8 @@ export async function pushAllLocalDataToSupabase(
     const errorMsg = err?.message || String(err);
     summary.errors.push(errorMsg);
     toast.error(`Sync error: ${errorMsg}`);
+  } finally {
+    isCloudSyncing = false;
   }
 
   return summary;

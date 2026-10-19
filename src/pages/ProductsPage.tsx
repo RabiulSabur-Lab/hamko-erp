@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { useI18n } from "@/lib/i18n";
 import { Card, CardContent } from "@/components/ui/card";
@@ -121,8 +121,10 @@ export function ProductsPage() {
   const [newCatName, setNewCatName] = useState("");
   const [editingCat, setEditingCat] = useState<Category | null>(null);
   const [savingCat, setSavingCat] = useState(false);
+  const mountedRef = useRef(true);
 
   useEffect(() => {
+    mountedRef.current = true;
     loadData();
 
     const handleStorage = () => {
@@ -143,6 +145,7 @@ export function ProductsPage() {
     window.addEventListener("storage", handleStorage);
     window.addEventListener("sales_erp_storage_update", handleStorage);
     return () => {
+      mountedRef.current = false;
       supabase.removeChannel(prodChannel);
       window.removeEventListener("storage", handleStorage);
       window.removeEventListener("sales_erp_storage_update", handleStorage);
@@ -168,11 +171,13 @@ export function ProductsPage() {
         supabase.from("categories").select("*").order("name"),
       ]);
 
+      if (!mountedRef.current) return;
+
       let cats: Category[] = categories;
       if (cRes.data && Array.isArray(cRes.data)) {
         cats = cRes.data as Category[];
-        setCategories(cRes.data as Category[]);
-        setLocalData(STORAGE_KEYS.CATEGORIES, cRes.data);
+        if (mountedRef.current) setCategories(cRes.data as Category[]);
+        setLocalData(STORAGE_KEYS.CATEGORIES, cRes.data, null, true);
       }
       const catMap = new Map<string, Category>(cats.map((c: Category) => [c.id, c]));
 
@@ -259,8 +264,8 @@ export function ProductsPage() {
           (a.name || "").localeCompare(b.name || "")
         );
 
-        setProducts(merged);
-        setLocalData(STORAGE_KEYS.PRODUCTS, merged);
+        if (mountedRef.current) setProducts(merged);
+        setLocalData(STORAGE_KEYS.PRODUCTS, merged, null, true);
         if (isManual) {
           toast.success(lang === "bn" ? `ক্লাউড ডাটাবেজ থেকে ${merged.length}টি পণ্য সিন্ক হয়েছে` : `Live sync: ${merged.length} products loaded from cloud`);
         }
