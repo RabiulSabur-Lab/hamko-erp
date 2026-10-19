@@ -237,11 +237,21 @@ export const ALLOWED_SUPABASE_PRODUCT_COLUMNS = new Set([
 
 /**
  * Filters a raw product payload so only valid database columns are sent to Supabase.
+ * If the brand field is omitted, undefined, or empty, it is gracefully omitted from the payload
+ * so that database defaults apply and missing schema column issues are avoided.
  */
 export function filterProductPayloadForSupabase(payload: Record<string, any>): Record<string, any> {
   const filtered: Record<string, any> = {};
   for (const key of Object.keys(payload)) {
     if (ALLOWED_SUPABASE_PRODUCT_COLUMNS.has(key) && payload[key] !== undefined) {
+      if (key === "brand") {
+        const val = payload[key];
+        if (val === undefined || val === null || (typeof val === "string" && val.trim() === "")) {
+          continue; // Gracefully omit brand when empty or undefined
+        }
+        filtered[key] = typeof val === "string" ? val.trim() : val;
+        continue;
+      }
       filtered[key] = payload[key];
     }
   }
@@ -272,10 +282,15 @@ export function useUpdateProduct() {
         .select("*, category:categories(*)")
         .single();
 
-      // If Postgres schema cache doesn't have price_tiers column, retry without price_tiers
-      if (res.error && (res.error.message.includes("price_tiers") || res.error.message.includes("schema cache"))) {
-        console.warn("Retrying update without price_tiers column due to DB schema cache:", res.error.message);
-        const { price_tiers, ...fallbackPayload } = cleanPayload;
+      // If Postgres schema cache doesn't have brand or price_tiers column, retry without missing columns
+      if (res.error && (res.error.message.includes("price_tiers") || res.error.message.includes("brand") || res.error.message.includes("schema cache"))) {
+        console.warn("Retrying update without missing columns due to DB schema cache:", res.error.message);
+        const fallbackPayload: Record<string, any> = { ...cleanPayload };
+        if (res.error.message.includes("brand")) delete fallbackPayload.brand;
+        if (res.error.message.includes("price_tiers")) delete fallbackPayload.price_tiers;
+        const match = res.error.message.match(/Could not find the '([^']+)' column/i);
+        if (match && match[1]) delete fallbackPayload[match[1]];
+
         const retryRes = await supabase
           .from("products")
           .update(fallbackPayload)

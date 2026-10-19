@@ -408,9 +408,14 @@ export function ProductsPage() {
       .select("*, category:categories(*)")
       .single();
 
-    if (res.error && (res.error.message.includes("price_tiers") || res.error.message.includes("schema cache"))) {
-      console.warn("Retrying insert without price_tiers column due to DB schema cache:", res.error.message);
-      const { price_tiers, ...fallbackPayload } = payload;
+    if (res.error && (res.error.message.includes("price_tiers") || res.error.message.includes("brand") || res.error.message.includes("schema cache"))) {
+      console.warn("Retrying insert without missing columns due to DB schema cache:", res.error.message);
+      const fallbackPayload: Record<string, any> = { ...payload };
+      if (res.error.message.includes("brand")) delete fallbackPayload.brand;
+      if (res.error.message.includes("price_tiers")) delete fallbackPayload.price_tiers;
+      const match = res.error.message.match(/Could not find the '([^']+)' column/i);
+      if (match && match[1]) delete fallbackPayload[match[1]];
+
       res = await supabase
         .from("products")
         .insert(fallbackPayload)
@@ -478,9 +483,14 @@ export function ProductsPage() {
       .select("*, category:categories(*)")
       .single();
 
-    if (res.error && (res.error.message.includes("price_tiers") || res.error.message.includes("schema cache"))) {
-      console.warn("Retrying update without price_tiers column due to DB schema cache:", res.error.message);
-      const { price_tiers, ...fallbackPayload } = payload;
+    if (res.error && (res.error.message.includes("price_tiers") || res.error.message.includes("brand") || res.error.message.includes("schema cache"))) {
+      console.warn("Retrying update without missing columns due to DB schema cache:", res.error.message);
+      const fallbackPayload: Record<string, any> = { ...payload };
+      if (res.error.message.includes("brand")) delete fallbackPayload.brand;
+      if (res.error.message.includes("price_tiers")) delete fallbackPayload.price_tiers;
+      const match = res.error.message.match(/Could not find the '([^']+)' column/i);
+      if (match && match[1]) delete fallbackPayload[match[1]];
+
       res = await supabase
         .from("products")
         .update(fallbackPayload)

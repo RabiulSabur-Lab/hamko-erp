@@ -163,11 +163,10 @@ export async function pushAllLocalDataToSupabase(
       const skuCode = (p.sku_code || (p as any).sku || `PRD-${Date.now()}-${i}`).trim();
       const productId = isValidUUID(p.id) ? p.id : generateUUID();
 
-      const prodPayload = {
+      const prodPayload: Record<string, any> = {
         id: productId,
         sku_code: skuCode,
         name: p.name.trim(),
-        brand: p.brand || "Hamko",
         category_id: isValidUUID(categoryId) ? categoryId : null,
         unit_price: Number(p.unit_price) || Number(p.dealer_price) || 0,
         dealer_price: Number(p.dealer_price) || Number(p.unit_price) || 0,
@@ -182,9 +181,33 @@ export async function pushAllLocalDataToSupabase(
         updated_at: new Date().toISOString(),
       };
 
-      const { error } = await supabase
+      if (p.brand && typeof p.brand === "string" && p.brand.trim().length > 0) {
+        prodPayload.brand = p.brand.trim();
+      }
+
+      let { error } = await supabase
         .from("products")
         .upsert(prodPayload, { onConflict: "sku_code" });
+
+      // Resilient fallback: Retry if schema cache or database column is missing (e.g., brand or pricing tiers)
+      if (error && (error.message.includes("schema cache") || error.message.includes("column") || error.message.includes("brand"))) {
+        const fallbackPayload: Record<string, any> = { ...prodPayload };
+        if (error.message.includes("brand")) delete fallbackPayload.brand;
+        if (error.message.includes("d10_price")) delete fallbackPayload.d10_price;
+        if (error.message.includes("b12_price")) delete fallbackPayload.b12_price;
+        if (error.message.includes("price_tiers")) delete fallbackPayload.price_tiers;
+
+        const match = error.message.match(/Could not find the '([^']+)' column/i);
+        if (match && match[1]) {
+          delete fallbackPayload[match[1]];
+        }
+
+        const retryRes = await supabase
+          .from("products")
+          .upsert(fallbackPayload, { onConflict: "sku_code" });
+
+        error = retryRes.error;
+      }
 
       if (error) {
         summary.errors.push(`Product "${p.name}": ${error.message}`);
