@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, memo } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -13,7 +13,7 @@ interface AIInsightsWidgetProps {
   products: any[];
 }
 
-export function AIInsightsWidget({ orders, products }: AIInsightsWidgetProps) {
+export const AIInsightsWidget = memo(function AIInsightsWidget({ orders, products }: AIInsightsWidgetProps) {
   const [loading, setLoading] = useState(false);
   const [insights, setInsights] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -228,6 +228,6 @@ export function AIInsightsWidget({ orders, products }: AIInsightsWidgetProps) {
       </CardContent>
     </Card>
   );
-}
+});
 
 export default AIInsightsWidget;

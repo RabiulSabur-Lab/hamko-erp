@@ -126,16 +126,8 @@ export function DashboardPage() {
       const prevMonthStart = `${prevMonth.getFullYear()}-${pad(prevMonth.getMonth() + 1)}-01`;
       const prevWeekEnd = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
-      // Fire all queries in parallel
-      const [
-        oRes,
-        colRes,
-        colPrevRes,
-        custRes,
-        custPrevDue,
-        custPrevCount,
-        prodRes,
-      ] = await Promise.all([
+      // Fire all queries in parallel with a 15-second timeout protection
+      const queriesPromise = Promise.all([
         supabase
           .from("orders")
           .select(
@@ -170,6 +162,20 @@ export function DashboardPage() {
           .select("id, name, stock_quantity, reorder_level, category_id, category:categories(name)")
           .eq("is_active", true),
       ]);
+
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Dashboard query timeout after 15s")), 15000)
+      );
+
+      const [
+        oRes,
+        colRes,
+        colPrevRes,
+        custRes,
+        custPrevDue,
+        custPrevCount,
+        prodRes,
+      ] = await Promise.race([queriesPromise, timeoutPromise]);
 
       if (!mountedRef.current) return;
 
@@ -257,10 +263,12 @@ export function DashboardPage() {
     }
   }, []);
 
-  // Anti-stale data: auto re-fetch on window focus, visibility change, and mobile app resume
+  // Anti-stale data: auto re-fetch on window focus, visibility change, and mobile app resume (guarded and debounced to 10s)
   useAutoSync(() => {
-    fetchFromSupabase(false);
-  });
+    if (!loading && !refreshing && !isFetchingRef.current) {
+      fetchFromSupabase(false);
+    }
+  }, !loading, 10000);
 
   // ── Mount: seed loading state from localStorage for instant paint, then fetch Supabase ──
   useEffect(() => {
@@ -344,7 +352,7 @@ export function DashboardPage() {
     };
   }, []);
 
-  // ── KPI & Growth calculations ──────────────────────────────────────────────
+  // ── High-Performance KPI & Growth calculations (Single-Pass) ─────────────────
   const { kpi, trends } = useMemo(() => {
     const now = new Date();
     const pad = (n: number) => String(n).padStart(2, "0");
@@ -357,43 +365,71 @@ export function DashboardPage() {
 
     const validOrders = deduplicateOrders(orders, { excludeDrafts: true, excludeCancelled: true });
 
-    const todaySales = calculateDailySales(validOrders, todayStr);
-    const yesterdaySales = calculateDailySales(validOrders, yesterdayStr);
-    const monthSales = calculateMonthlySales(validOrders, currentMonthPrefix);
-    const prevMonthSales = calculateMonthlySales(validOrders, prevMonthPrefix);
-    const totalRevenue = calculateTotalRevenue(validOrders);
+    let todaySales = 0;
+    let yesterdaySales = 0;
+    let monthSales = 0;
+    let prevMonthSales = 0;
+    let totalRevenue = 0;
+
+    for (let i = 0; i < validOrders.length; i++) {
+      const o = validOrders[i];
+      const amt = Number(o.total_amount || 0);
+      totalRevenue += amt;
+      const dStr = (o.order_date || o.created_at || "").slice(0, 10);
+      if (dStr === todayStr) todaySales += amt;
+      else if (dStr === yesterdayStr) yesterdaySales += amt;
+      if (dStr.startsWith(currentMonthPrefix)) monthSales += amt;
+      else if (dStr.startsWith(prevMonthPrefix)) prevMonthSales += amt;
+    }
+    todaySales = r2(todaySales);
+    yesterdaySales = r2(yesterdaySales);
+    monthSales = r2(monthSales);
+    prevMonthSales = r2(prevMonthSales);
+    totalRevenue = r2(totalRevenue);
 
     const uniqueCollections = deduplicateCollections(collections);
-    const monthCollections = r2(
-      uniqueCollections
-        .filter((c: any) => (c.collection_date || c.created_at || "").slice(0, 10).startsWith(currentMonthPrefix))
-        .reduce((s: number, c: any) => s + Number(c.amount || 0), 0)
-    );
-    const totalCollections = r2(uniqueCollections.reduce((s: number, c: any) => s + Number(c.amount || 0), 0));
+    let monthCollections = 0;
+    let totalCollections = 0;
+    let calculatedPrevMonthCollections = 0;
+
+    for (let i = 0; i < uniqueCollections.length; i++) {
+      const c = uniqueCollections[i];
+      const amt = Number(c.amount || 0);
+      totalCollections += amt;
+      const cDate = (c.collection_date || c.created_at || "").slice(0, 10);
+      if (cDate.startsWith(currentMonthPrefix)) monthCollections += amt;
+      else if (cDate.startsWith(prevMonthPrefix)) calculatedPrevMonthCollections += amt;
+    }
+    monthCollections = r2(monthCollections);
+    totalCollections = r2(totalCollections);
     const collection = monthCollections;
 
     const prevMonthCollections =
-      prevMetrics.prevCollection ||
-      r2(
-        uniqueCollections
-          .filter((c: any) => (c.collection_date || c.created_at || "").slice(0, 10).startsWith(prevMonthPrefix))
-          .reduce((s: number, c: any) => s + Number(c.amount || 0), 0)
-      );
+      prevMetrics.prevCollection || r2(calculatedPrevMonthCollections);
 
     const { totalDue: outstandingDue } = calculateCustomerDues(customers, validOrders, uniqueCollections);
 
-    const totalCustomers = customers.length;
-    const activeCount = customers.filter(
-      (c: any) => (c.status === "Active" || !c.status) && c.status !== "Inactive" && c.is_active !== false
-    ).length;
-    const inactiveCount = customers.filter(
-      (c: any) => c.status === "Inactive" || c.is_active === false
-    ).length;
-    const lowStockCount = products.filter((p: any) => {
+    let activeCount = 0;
+    let inactiveCount = 0;
+    const custList = Array.isArray(customers) ? customers : [];
+    for (let i = 0; i < custList.length; i++) {
+      const c = custList[i];
+      if ((c.status === "Active" || !c.status) && c.status !== "Inactive" && c.is_active !== false) {
+        activeCount++;
+      } else {
+        inactiveCount++;
+      }
+    }
+    const totalCustomers = custList.length;
+
+    let lowStockCount = 0;
+    const prodList = Array.isArray(products) ? products : [];
+    for (let i = 0; i < prodList.length; i++) {
+      const p = prodList[i];
       const stock = Number(p.stock_quantity ?? p.stock ?? 0);
       const minStock = Number(p.reorder_level ?? p.minStockThreshold ?? 5);
-      return stock <= minStock;
-    }).length;
+      if (stock <= minStock) lowStockCount++;
+    }
 
     const k: KpiData = {
       todaySales, monthSales, totalRevenue, collection, totalCollections,
@@ -413,11 +449,12 @@ export function DashboardPage() {
     return { kpi: k, trends: tr };
   }, [orders, collections, customers, products, prevMetrics]);
 
-  // ── 7-day Sales Trend ───────────────────────────────────────────────────────
+  // ── 7-day Sales Trend (Optimized single pass) ──────────────────────────────
   const trend = useMemo(() => {
     const now = new Date();
     const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
     const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+    const SEVEN_DAYS_AGO = todayMidnight - 6 * ONE_DAY_MS;
 
     const days: { date: string; sales: number }[] = [];
     for (let i = 6; i >= 0; i--) {
@@ -426,35 +463,55 @@ export function DashboardPage() {
       days.push({ date: label, sales: 0 });
     }
 
-    orders
-      .filter((o: any) => o.status !== "Cancelled")
-      .forEach((o: any) => {
-        const rawDate = o.order_date || o.created_at;
-        if (!rawDate) return;
-        const od = new Date(rawDate);
-        const orderMidnight = new Date(od.getFullYear(), od.getMonth(), od.getDate()).getTime();
-        const diffDays = Math.round((todayMidnight - orderMidnight) / ONE_DAY_MS);
-        const idx = 6 - diffDays;
-        if (idx >= 0 && idx < 7) {
-          days[idx].sales = r2(days[idx].sales + Number(o.total_amount || 0));
-        }
-      });
+    if (!Array.isArray(orders) || orders.length === 0) return days;
+
+    for (let i = 0; i < orders.length; i++) {
+      const o = orders[i];
+      if (!o || o.status === "Cancelled") continue;
+      const rawDate = o.order_date || o.created_at;
+      if (!rawDate) continue;
+      const od = new Date(rawDate);
+      const orderMidnight = new Date(od.getFullYear(), od.getMonth(), od.getDate()).getTime();
+      if (orderMidnight < SEVEN_DAYS_AGO || orderMidnight > todayMidnight) continue;
+
+      const diffDays = Math.round((todayMidnight - orderMidnight) / ONE_DAY_MS);
+      const idx = 6 - diffDays;
+      if (idx >= 0 && idx < 7) {
+        days[idx].sales = r2(days[idx].sales + Number(o.total_amount || 0));
+      }
+    }
 
     return days;
   }, [orders, lang]);
 
-  // ── Top 5 Products ─────────────────────────────────────────────────────────
+  // ── Top 5 Products (Optimized O(1) Catalog Map) ────────────────────────────
   const topProducts = useMemo(() => {
-    const salesMap: Record<string, { id: string; name: string; category: string; soldQty: number; totalSales: number }> = {};
+    if (!Array.isArray(orders) || orders.length === 0) return [];
 
-    orders
-      .filter((o: any) => o.status !== "Cancelled")
-      .flatMap((o: any) => o.order_items ?? o.items ?? [])
-      .forEach((it: any) => {
+    const productMap = new Map<string, any>();
+    if (Array.isArray(products)) {
+      for (let i = 0; i < products.length; i++) {
+        const p = products[i];
+        if (p?.id) productMap.set(String(p.id), p);
+      }
+    }
+    const deletedProdIds = getDeletedIds(STORAGE_KEYS.DELETED_PRODUCTS);
+    const salesMap = new Map<string, { id: string; name: string; category: string; soldQty: number; totalSales: number }>();
+
+    for (let i = 0; i < orders.length; i++) {
+      const o = orders[i];
+      if (!o || o.status === "Cancelled") continue;
+      const items = o.order_items || o.items;
+      if (!Array.isArray(items)) continue;
+
+      for (let j = 0; j < items.length; j++) {
+        const it = items[j];
+        if (!it) continue;
         const prodId = it.product_id ? String(it.product_id) : "";
-        const prodInfo = resolveOrderProduct(it.product, it.product_id, products);
-        const name = prodInfo.exists ? prodInfo.name : "[Deleted Product]";
-        const matchedProd = prodInfo.exists ? prodInfo.product : null;
+        if (prodId && deletedProdIds.has(prodId)) continue;
+
+        const matchedProd = prodId ? productMap.get(prodId) : null;
+        const name = it.product?.name || matchedProd?.name || (prodId ? "Product" : "[Deleted Product]");
         const key = prodId || name;
         const qty = Number(it.quantity || 0);
         const unitPrice = Number(it.unit_price || matchedProd?.unit_price || 0);
@@ -465,12 +522,17 @@ export function DashboardPage() {
             ? rawCategory?.name || "General"
             : rawCategory || matchedProd?.category_name || "General";
 
-        if (!salesMap[key]) salesMap[key] = { id: key, name, category, soldQty: 0, totalSales: 0 };
-        salesMap[key].soldQty += qty;
-        salesMap[key].totalSales = r2(salesMap[key].totalSales + revenue);
-      });
+        const existing = salesMap.get(key);
+        if (existing) {
+          existing.soldQty += qty;
+          existing.totalSales = r2(existing.totalSales + revenue);
+        } else {
+          salesMap.set(key, { id: key, name, category, soldQty: qty, totalSales: r2(revenue) });
+        }
+      }
+    }
 
-    return Object.values(salesMap)
+    return Array.from(salesMap.values())
       .filter((p) => p.soldQty > 0 || p.totalSales > 0)
       .sort((a, b) => b.totalSales - a.totalSales)
       .slice(0, 5);
@@ -478,24 +540,29 @@ export function DashboardPage() {
 
   // ── Recent Orders ───────────────────────────────────────────────────────────
   const recentOrders = useMemo(
-    () =>
-      [...orders]
+    () => {
+      if (!Array.isArray(orders) || orders.length === 0) return [];
+      return [...orders]
         .filter((o: any) => o && o.status !== "Cancelled")
         .sort(
           (a: any, b: any) =>
             new Date(b.order_date || b.created_at || 0).getTime() -
             new Date(a.order_date || a.created_at || 0).getTime()
         )
-        .slice(0, 5),
+        .slice(0, 5);
+    },
     [orders]
   );
 
   // ── Sales by Status ─────────────────────────────────────────────────────────
   const salesByStatus = useMemo(() => {
+    if (!Array.isArray(orders) || orders.length === 0) return [];
     const statusMap: Record<string, number> = {};
-    orders.forEach((o: any) => {
+    for (let i = 0; i < orders.length; i++) {
+      const o = orders[i];
+      if (!o || !o.status) continue;
       statusMap[o.status] = r2((statusMap[o.status] ?? 0) + Number(o.total_amount || 0));
-    });
+    }
     return Object.entries(statusMap).map(([name, value]) => ({ name, value }));
   }, [orders]);
 
@@ -639,56 +706,66 @@ export function DashboardPage() {
       {/* Charts row */}
       <div className="grid gap-4 lg:grid-cols-3">
         {/* Sales trend */}
-        <Card className="lg:col-span-2">
+        <Card className="lg:col-span-2 min-w-0 min-h-[320px]">
           <CardHeader className="pb-2">
             <CardTitle className="text-base">{t("salesTrend")}</CardTitle>
           </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={260}>
-              <AreaChart data={trend}>
-                <defs>
-                  <linearGradient id="salesGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#0ea5e9" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="#0ea5e9" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                <XAxis
-                  dataKey="date"
-                  tick={{ fontSize: 12 }}
-                  stroke="hsl(var(--muted-foreground))"
-                  tickFormatter={(v) => (lang === "bn" ? toBnDigit(String(v)) : String(v))}
-                />
-                <YAxis
-                  tick={{ fontSize: 11 }}
-                  stroke="hsl(var(--muted-foreground))"
-                  tickFormatter={(v) => {
-                    const rawK = `${(v / 1000).toFixed(0)}k`;
-                    return lang === "bn" ? toBnDigit(rawK) : rawK;
-                  }}
-                />
-                <Tooltip
-                  contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 }}
-                  formatter={(v: number) => [formatBDT(v, lang), t("totalSales")]}
-                />
-                <Area type="monotone" dataKey="sales" stroke="#0ea5e9" strokeWidth={2} fill="url(#salesGradient)" />
-              </AreaChart>
-            </ResponsiveContainer>
+          <CardContent className="min-w-0">
+            {loading ? (
+              <div className="flex h-[260px] items-center justify-center">
+                <div className="h-40 w-full rounded-lg bg-muted/40 animate-pulse" />
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={260}>
+                <AreaChart data={trend}>
+                  <defs>
+                    <linearGradient id="salesGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#0ea5e9" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#0ea5e9" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                  <XAxis
+                    dataKey="date"
+                    tick={{ fontSize: 12 }}
+                    stroke="hsl(var(--muted-foreground))"
+                    tickFormatter={(v) => (lang === "bn" ? toBnDigit(String(v)) : String(v))}
+                  />
+                  <YAxis
+                    tick={{ fontSize: 11 }}
+                    stroke="hsl(var(--muted-foreground))"
+                    tickFormatter={(v) => {
+                      const rawK = `${(v / 1000).toFixed(0)}k`;
+                      return lang === "bn" ? toBnDigit(rawK) : rawK;
+                    }}
+                  />
+                  <Tooltip
+                    contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 }}
+                    formatter={(v: number) => [formatBDT(v, lang), t("totalSales")]}
+                  />
+                  <Area type="monotone" dataKey="sales" stroke="#0ea5e9" strokeWidth={2} fill="url(#salesGradient)" isAnimationActive={false} />
+                </AreaChart>
+              </ResponsiveContainer>
+            )}
           </CardContent>
         </Card>
 
         {/* Sales by status */}
-        <Card>
+        <Card className="min-w-0 min-h-[320px]">
           <CardHeader className="pb-2">
             <CardTitle className="text-base">{t("salesByStatus")}</CardTitle>
           </CardHeader>
-          <CardContent>
-            {salesByStatus.length === 0 ? (
+          <CardContent className="min-w-0">
+            {loading ? (
+              <div className="flex h-[260px] items-center justify-center">
+                <div className="h-40 w-40 rounded-full bg-muted/40 animate-pulse" />
+              </div>
+            ) : salesByStatus.length === 0 ? (
               <div className="flex h-[260px] items-center justify-center text-sm text-muted-foreground">{t("noData")}</div>
             ) : (
               <ResponsiveContainer width="100%" height={260}>
                 <PieChart>
-                  <Pie data={salesByStatus} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={50} outerRadius={80} paddingAngle={2}>
+                  <Pie data={salesByStatus} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={50} outerRadius={80} paddingAngle={2} isAnimationActive={false}>
                     {salesByStatus.map((entry) => (
                       <Cell key={entry.name} fill={statusColors[entry.name] ?? "#94a3b8"} />
                     ))}
@@ -711,7 +788,13 @@ export function DashboardPage() {
             <Badge variant="outline" className="text-[11px] font-medium text-muted-foreground">Top 5</Badge>
           </CardHeader>
           <CardContent>
-            {topProducts.length === 0 ? (
+            {loading ? (
+              <div className="space-y-2 py-2">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} className="h-12 w-full rounded-lg bg-muted/40 animate-pulse" />
+                ))}
+              </div>
+            ) : topProducts.length === 0 ? (
               <div className="flex h-[220px] items-center justify-center text-sm text-muted-foreground">{t("noData")}</div>
             ) : (
               <div className="space-y-2">
@@ -746,7 +829,13 @@ export function DashboardPage() {
             </Button>
           </CardHeader>
           <CardContent>
-            {recentOrders.length === 0 ? (
+            {loading ? (
+              <div className="space-y-2 py-2">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} className="h-12 w-full rounded-lg bg-muted/40 animate-pulse" />
+                ))}
+              </div>
+            ) : recentOrders.length === 0 ? (
               <div className="flex h-[220px] items-center justify-center text-sm text-muted-foreground">{t("noData")}</div>
             ) : (
               <div className="space-y-2">
