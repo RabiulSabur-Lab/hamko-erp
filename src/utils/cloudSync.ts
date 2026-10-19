@@ -281,11 +281,11 @@ export async function pushAllLocalDataToSupabase(
       const o = localOrders[i];
       if (!o || !o.order_number) continue;
 
-      let targetCustId = o.customer_id || (o.customer && o.customer.id) || null;
-      if (!validCustIds.has(targetCustId)) {
+      let targetCustId: string | null = o.customer_id || (o.customer && o.customer.id) || null;
+      if (!targetCustId || !validCustIds.has(targetCustId)) {
         const cName = o.customer?.name || o.customer?.outlet_name;
         if (cName && custNameToId.has(cName.trim().toLowerCase())) {
-          targetCustId = custNameToId.get(cName.trim().toLowerCase())!;
+          targetCustId = custNameToId.get(cName.trim().toLowerCase()) || null;
         }
       }
 
@@ -332,11 +332,11 @@ export async function pushAllLocalDataToSupabase(
         const rawItems = (o as any).items || (o as any).order_items || [];
         if (Array.isArray(rawItems) && rawItems.length > 0) {
           for (const item of rawItems) {
-            let prodId = item.product_id || (item.product && item.product.id) || null;
-            if (!validProdIds.has(prodId)) {
+            let prodId: string | null = item.product_id || (item.product && item.product.id) || null;
+            if (!prodId || !validProdIds.has(prodId)) {
               const pName = item.product?.name || item.name;
               if (pName && prodNameToId.has(pName.trim().toLowerCase())) {
-                prodId = prodNameToId.get(pName.trim().toLowerCase())!;
+                prodId = prodNameToId.get(pName.trim().toLowerCase()) || null;
               }
             }
 
@@ -390,11 +390,11 @@ export async function pushAllLocalDataToSupabase(
       const col = localCollections[i];
       if (!col || !col.collection_number) continue;
 
-      let custId = col.customer_id || (col.customer && col.customer.id) || null;
-      if (!validCustIds.has(custId)) {
+      let custId: string | null = col.customer_id || (col.customer && col.customer.id) || null;
+      if (!custId || !validCustIds.has(custId)) {
         const cName = col.customer?.name;
         if (cName && custNameToId.has(cName.trim().toLowerCase())) {
-          custId = custNameToId.get(cName.trim().toLowerCase())!;
+          custId = custNameToId.get(cName.trim().toLowerCase()) || null;
         }
       }
 
@@ -470,7 +470,7 @@ export async function pushAllLocalDataToSupabase(
       const inv = localInventory[i];
       if (!inv || !inv.product_id) continue;
 
-      if (validProdIds.has(inv.product_id)) {
+      if (inv.product_id && validProdIds.has(String(inv.product_id))) {
         const invPayload = {
           product_id: inv.product_id,
           warehouse: inv.warehouse === "Main Warehouse" ? "Main" : (inv.warehouse || "Main"),

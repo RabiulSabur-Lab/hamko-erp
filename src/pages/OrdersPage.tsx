@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { supabase, type Order, type OrderItem, type Customer, type Product, type StockTransaction, type Collection } from "@/lib/supabase";
 import { useI18n } from "@/lib/i18n";
 import { useAuth } from "@/lib/auth";
@@ -235,6 +235,7 @@ export function cleanCorruptedStoredOrders(): Order[] {
 }
 
 export function OrdersPage() {
+  const isMountedRef = useRef(true);
   const { t } = useI18n();
   const { profile, user } = useAuth();
   const { query, navigate } = useRouter();
@@ -362,7 +363,7 @@ export function OrdersPage() {
           supabase.from("products").select("*").eq("is_active", true).order("name"),
           fetchActiveSalesOfficers(),
         ]);
-        if (!isMounted) return;
+        if (!isMountedRef.current) return;
 
         // Build enriched user lookup map from database query, officers list, and orders
         const updatedUsersMap: Record<string, UserLookupInfo> = { ...buildUserLookupMap(profile) };
@@ -593,6 +594,7 @@ export function OrdersPage() {
 
     return () => {
       isMounted = false;
+      isMountedRef.current = false;
       try {
         if (ordChannel && supabase?.removeChannel) {
           supabase.removeChannel(ordChannel);
