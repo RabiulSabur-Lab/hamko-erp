@@ -127,11 +127,26 @@ export async function pushAllLocalDataToSupabase(
           name: cleanName,
           description: cat.description || null,
         };
-        const { data, error } = await supabase
+        let { data, error } = await supabase
           .from("categories")
           .upsert(catPayload, { onConflict: "name" })
           .select("id, name")
           .single();
+
+        if (error) {
+          // If upsert fails due to policy or conflict, attempt to select existing by name
+          const { data: existing } = await supabase
+            .from("categories")
+            .select("id, name")
+            .ilike("name", cleanName)
+            .maybeSingle();
+
+          if (existing) {
+            categoryMap.set(lowerName, existing.id);
+            summary.categories++;
+            error = null;
+          }
+        }
 
         if (error) {
           summary.errors.push(`Category "${cleanName}": ${error.message}`);
