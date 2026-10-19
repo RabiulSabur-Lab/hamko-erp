@@ -83,6 +83,7 @@ CREATE TABLE IF NOT EXISTS products (
   unit_price numeric(12,2) NOT NULL DEFAULT 0,
   dealer_price numeric(12,2) NOT NULL DEFAULT 0,
   distributor_price numeric(12,2) NOT NULL DEFAULT 0,
+  mrp numeric(12,2) DEFAULT NULL,
   d10_price numeric DEFAULT NULL,
   b12_price numeric DEFAULT NULL,
   price_tiers jsonb DEFAULT '[]'::jsonb,

@@ -402,25 +402,41 @@ export function ProductsPage() {
 
     console.log("Adding product payload:", payload);
 
-    let res = await supabase
-      .from("products")
-      .insert(payload)
-      .select("*, category:categories(*)")
-      .single();
+    let res: any = null;
+    const currentPayload: Record<string, any> = { ...payload };
 
-    if (res.error && (res.error.message.includes("price_tiers") || res.error.message.includes("brand") || res.error.message.includes("schema cache"))) {
-      console.warn("Retrying insert without missing columns due to DB schema cache:", res.error.message);
-      const fallbackPayload: Record<string, any> = { ...payload };
-      if (res.error.message.includes("brand")) delete fallbackPayload.brand;
-      if (res.error.message.includes("price_tiers")) delete fallbackPayload.price_tiers;
-      const match = res.error.message.match(/Could not find the '([^']+)' column/i);
-      if (match && match[1]) delete fallbackPayload[match[1]];
-
+    for (let attempt = 0; attempt < 6; attempt++) {
       res = await supabase
         .from("products")
-        .insert(fallbackPayload)
+        .insert(currentPayload)
         .select("*, category:categories(*)")
         .single();
+
+      if (!res.error && res.data) {
+        break;
+      }
+
+      const match = res.error?.message?.match(/Could not find the '([^']+)' column/i);
+      if (match && match[1] && match[1] in currentPayload) {
+        console.warn(`Retrying insert without missing column '${match[1]}' due to schema cache:`, res.error?.message);
+        delete currentPayload[match[1]];
+        continue;
+      }
+
+      if (res.error?.message?.includes("distributor_price") && "distributor_price" in currentPayload) {
+        delete currentPayload.distributor_price;
+        continue;
+      }
+      if (res.error?.message?.includes("brand") && "brand" in currentPayload) {
+        delete currentPayload.brand;
+        continue;
+      }
+      if (res.error?.message?.includes("price_tiers") && "price_tiers" in currentPayload) {
+        delete currentPayload.price_tiers;
+        continue;
+      }
+
+      break;
     }
 
     if (res.error || !res.data) {
@@ -476,27 +492,42 @@ export function ProductsPage() {
 
     console.log("Updating product payload:", payload);
 
-    let res = await supabase
-      .from("products")
-      .update(payload)
-      .eq("id", id)
-      .select("*, category:categories(*)")
-      .single();
+    let res: any = null;
+    const currentPayload: Record<string, any> = { ...payload };
 
-    if (res.error && (res.error.message.includes("price_tiers") || res.error.message.includes("brand") || res.error.message.includes("schema cache"))) {
-      console.warn("Retrying update without missing columns due to DB schema cache:", res.error.message);
-      const fallbackPayload: Record<string, any> = { ...payload };
-      if (res.error.message.includes("brand")) delete fallbackPayload.brand;
-      if (res.error.message.includes("price_tiers")) delete fallbackPayload.price_tiers;
-      const match = res.error.message.match(/Could not find the '([^']+)' column/i);
-      if (match && match[1]) delete fallbackPayload[match[1]];
-
+    for (let attempt = 0; attempt < 6; attempt++) {
       res = await supabase
         .from("products")
-        .update(fallbackPayload)
+        .update(currentPayload)
         .eq("id", id)
         .select("*, category:categories(*)")
         .single();
+
+      if (!res.error && res.data) {
+        break;
+      }
+
+      const match = res.error?.message?.match(/Could not find the '([^']+)' column/i);
+      if (match && match[1] && match[1] in currentPayload) {
+        console.warn(`Retrying update without missing column '${match[1]}' due to schema cache:`, res.error?.message);
+        delete currentPayload[match[1]];
+        continue;
+      }
+
+      if (res.error?.message?.includes("distributor_price") && "distributor_price" in currentPayload) {
+        delete currentPayload.distributor_price;
+        continue;
+      }
+      if (res.error?.message?.includes("brand") && "brand" in currentPayload) {
+        delete currentPayload.brand;
+        continue;
+      }
+      if (res.error?.message?.includes("price_tiers") && "price_tiers" in currentPayload) {
+        delete currentPayload.price_tiers;
+        continue;
+      }
+
+      break;
     }
 
     if (res.error || !res.data) {

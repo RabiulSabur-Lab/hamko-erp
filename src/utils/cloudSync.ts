@@ -185,32 +185,54 @@ export async function pushAllLocalDataToSupabase(
         prodPayload.brand = p.brand.trim();
       }
 
-      let { error } = await supabase
-        .from("products")
-        .upsert(prodPayload, { onConflict: "sku_code" });
+      const currentPayload: Record<string, any> = { ...prodPayload };
+      let lastError: any = null;
+      let syncSuccess = false;
 
-      // Resilient fallback: Retry if schema cache or database column is missing (e.g., brand or pricing tiers)
-      if (error && (error.message.includes("schema cache") || error.message.includes("column") || error.message.includes("brand"))) {
-        const fallbackPayload: Record<string, any> = { ...prodPayload };
-        if (error.message.includes("brand")) delete fallbackPayload.brand;
-        if (error.message.includes("d10_price")) delete fallbackPayload.d10_price;
-        if (error.message.includes("b12_price")) delete fallbackPayload.b12_price;
-        if (error.message.includes("price_tiers")) delete fallbackPayload.price_tiers;
+      for (let attempt = 0; attempt < 6; attempt++) {
+        const { error } = await supabase
+          .from("products")
+          .upsert(currentPayload, { onConflict: "sku_code" });
 
-        const match = error.message.match(/Could not find the '([^']+)' column/i);
-        if (match && match[1]) {
-          delete fallbackPayload[match[1]];
+        if (!error) {
+          syncSuccess = true;
+          lastError = null;
+          break;
         }
 
-        const retryRes = await supabase
-          .from("products")
-          .upsert(fallbackPayload, { onConflict: "sku_code" });
+        lastError = error;
+        const match = error.message?.match(/Could not find the '([^']+)' column/i);
+        if (match && match[1] && match[1] in currentPayload) {
+          delete currentPayload[match[1]];
+          continue;
+        }
 
-        error = retryRes.error;
+        if (error.message?.includes("distributor_price") && "distributor_price" in currentPayload) {
+          delete currentPayload.distributor_price;
+          continue;
+        }
+        if (error.message?.includes("brand") && "brand" in currentPayload) {
+          delete currentPayload.brand;
+          continue;
+        }
+        if (error.message?.includes("price_tiers") && "price_tiers" in currentPayload) {
+          delete currentPayload.price_tiers;
+          continue;
+        }
+        if (error.message?.includes("d10_price") && "d10_price" in currentPayload) {
+          delete currentPayload.d10_price;
+          continue;
+        }
+        if (error.message?.includes("b12_price") && "b12_price" in currentPayload) {
+          delete currentPayload.b12_price;
+          continue;
+        }
+
+        break;
       }
 
-      if (error) {
-        summary.errors.push(`Product "${p.name}": ${error.message}`);
+      if (!syncSuccess && lastError) {
+        summary.errors.push(`Product "${p.name}": ${lastError.message}`);
       } else {
         summary.products++;
       }

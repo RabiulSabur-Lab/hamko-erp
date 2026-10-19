@@ -205,6 +205,7 @@ export const productSchema = z.object({
   unit: z.string().default("pcs"),
   is_active: z.boolean().default(true),
   price_tiers: z.any().optional(),
+  mrp: z.coerce.number().nullable().optional(),
   d10_price: z.coerce.number().nullable().optional(),
   b12_price: z.coerce.number().nullable().optional(),
   image_url: z.string().nullable().optional(),
@@ -224,6 +225,7 @@ export const ALLOWED_SUPABASE_PRODUCT_COLUMNS = new Set([
   "unit_price",
   "dealer_price",
   "distributor_price",
+  "mrp",
   "d10_price",
   "b12_price",
   "price_tiers",
@@ -275,31 +277,42 @@ export function useUpdateProduct() {
       const cleanPayload = filterProductPayloadForSupabase(payload);
       console.log("Updating product payload:", cleanPayload);
 
-      let res = await supabase
-        .from("products")
-        .update(cleanPayload)
-        .eq("id", id)
-        .select("*, category:categories(*)")
-        .single();
+      let res: any = null;
+      const currentPayload: Record<string, any> = { ...cleanPayload };
 
-      // If Postgres schema cache doesn't have brand or price_tiers column, retry without missing columns
-      if (res.error && (res.error.message.includes("price_tiers") || res.error.message.includes("brand") || res.error.message.includes("schema cache"))) {
-        console.warn("Retrying update without missing columns due to DB schema cache:", res.error.message);
-        const fallbackPayload: Record<string, any> = { ...cleanPayload };
-        if (res.error.message.includes("brand")) delete fallbackPayload.brand;
-        if (res.error.message.includes("price_tiers")) delete fallbackPayload.price_tiers;
-        const match = res.error.message.match(/Could not find the '([^']+)' column/i);
-        if (match && match[1]) delete fallbackPayload[match[1]];
-
-        const retryRes = await supabase
+      for (let attempt = 0; attempt < 6; attempt++) {
+        res = await supabase
           .from("products")
-          .update(fallbackPayload)
+          .update(currentPayload)
           .eq("id", id)
           .select("*, category:categories(*)")
           .single();
-        if (!retryRes.error && retryRes.data) {
-          res = retryRes;
+
+        if (!res.error && res.data) {
+          break;
         }
+
+        const match = res.error?.message?.match(/Could not find the '([^']+)' column/i);
+        if (match && match[1] && match[1] in currentPayload) {
+          console.warn(`Retrying update without missing column '${match[1]}' due to schema cache:`, res.error?.message);
+          delete currentPayload[match[1]];
+          continue;
+        }
+
+        if (res.error?.message?.includes("distributor_price") && "distributor_price" in currentPayload) {
+          delete currentPayload.distributor_price;
+          continue;
+        }
+        if (res.error?.message?.includes("brand") && "brand" in currentPayload) {
+          delete currentPayload.brand;
+          continue;
+        }
+        if (res.error?.message?.includes("price_tiers") && "price_tiers" in currentPayload) {
+          delete currentPayload.price_tiers;
+          continue;
+        }
+
+        break;
       }
 
       if (res.error || !res.data) {
