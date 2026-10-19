@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, useCallback, useMemo, type ReactNode } from "react";
 
 export interface RouterContextValue {
   path: string;
@@ -72,21 +72,26 @@ export function RouterProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("hashchange", handler);
   }, []);
 
-  const navigate = (to: string) => {
+  const navigate = useCallback((to: string) => {
     const clean = to.startsWith("/") ? to : `/${to}`;
-    window.location.hash = clean;
-  };
+    if (window.location.hash !== `#${clean}`) {
+      window.location.hash = clean;
+    }
+  }, []);
+
+  const contextValue = useMemo<RouterContextValue>(
+    () => ({
+      path: routeState.path,
+      fullPath: routeState.fullPath,
+      search: routeState.search,
+      query: routeState.query,
+      navigate,
+    }),
+    [routeState, navigate]
+  );
 
   return (
-    <RouterContext.Provider
-      value={{
-        path: routeState.path,
-        fullPath: routeState.fullPath,
-        search: routeState.search,
-        query: routeState.query,
-        navigate,
-      }}
-    >
+    <RouterContext.Provider value={contextValue}>
       {children}
     </RouterContext.Provider>
   );

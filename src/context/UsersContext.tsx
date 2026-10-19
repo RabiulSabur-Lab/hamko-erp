@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, useCallback, useMemo, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, useCallback, useMemo, useRef, type ReactNode } from "react";
 import { useAuth } from "@/lib/auth";
 import {
   getStoredUsers,
@@ -24,13 +24,14 @@ export interface UsersContextValue {
 const UsersContext = createContext<UsersContextValue | undefined>(undefined);
 
 export function UsersProvider({ children }: { children: ReactNode }) {
-  const { profile } = useAuth();
+  const { profile, session } = useAuth();
 
   // 1. Initial State: Synchronous resolution for zero-lag UI render across page reloads
   const [usersMap, setUsersMap] = useState<Record<string, UserLookupInfo>>(() => buildUserLookupMap(profile));
   const [users, setUsers] = useState<ManagedUser[]>(() => getStoredUsers());
   const [salesOfficers, setSalesOfficers] = useState<ManagedUser[]>(() => getLocalSalesOfficers());
   const [loading, setLoading] = useState(false);
+  const isRefreshingRef = useRef(false);
 
   // Sync usersMap with profile when authentication state becomes available
   useEffect(() => {
@@ -52,6 +53,10 @@ export function UsersProvider({ children }: { children: ReactNode }) {
 
   // Master fetch function to query users table and populate active system roster
   const refreshUsers = useCallback(async () => {
+    // Execution guard: Only query Supabase when authenticated, and prevent concurrent overlapping calls
+    if (!session || isRefreshingRef.current) return;
+    isRefreshingRef.current = true;
+
     try {
       setLoading(true);
       const [reconciledUsers, officersData] = await Promise.all([
@@ -100,13 +105,16 @@ export function UsersProvider({ children }: { children: ReactNode }) {
       setSalesOfficers(getLocalSalesOfficers());
     } finally {
       setLoading(false);
+      isRefreshingRef.current = false;
     }
-  }, [profile]);
+  }, [session, profile]);
 
-  // Initial fetch on mount
+  // Initial fetch on mount: ONLY when authenticated session exists
   useEffect(() => {
-    refreshUsers();
-  }, [refreshUsers]);
+    if (session) {
+      refreshUsers();
+    }
+  }, [session, refreshUsers]);
 
   // Real-time synchronization on local storage updates or cross-tab events
   useEffect(() => {

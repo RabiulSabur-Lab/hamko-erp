@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, useRef, type ReactNode } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase, type UserProfile, type Role } from "./supabase";
 import {
@@ -29,14 +29,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const activeProfileUidRef = useRef<string | null>(null);
 
   async function loadProfile(uid: string, authUser?: User | null) {
+    if (!uid) return;
+    // Guard against concurrent duplicate profile requests for same user ID
+    if (activeProfileUidRef.current === uid && profile?.id === uid) return;
+    activeProfileUidRef.current = uid;
+
     try {
-      const { data, error } = await supabase
+      // 5-second timeout protection for profile query
+      const timeoutPromise = new Promise<{ data: any; error: any }>((_, reject) =>
+        setTimeout(() => reject(new Error("Profile query timeout")), 5000)
+      );
+
+      const queryPromise = supabase
         .from("users")
         .select("*")
         .eq("id", uid)
         .maybeSingle();
+
+      const { data, error } = await Promise.race([queryPromise, timeoutPromise]).catch((err) => {
+        console.warn("Profile fetch timed out or network error:", err?.message || err);
+        return { data: null, error: err };
+      });
 
       if (data) {
         setProfile(data as UserProfile);
@@ -56,7 +72,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 created_at: data.created_at || new Date().toISOString(),
               },
               ...currentStored,
-            ]);
+            ], true);
           } else {
             const updated = currentStored.map((u) =>
               u.id === data.id
@@ -68,7 +84,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                   }
                 : u
             );
-            saveStoredUsers(updated);
+            saveStoredUsers(updated, true);
           }
         } catch (e) {
           console.warn("Notice syncing profile into stored users:", e);
@@ -77,7 +93,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       if (error) {
-        console.warn("Profile fetch note:", error.message);
+        console.warn("Profile fetch note:", error.message || error);
       }
 
       // If user profile is not yet in public.users, construct verified profile from authenticated user metadata
@@ -123,7 +139,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 created_at: fallbackProfile.created_at,
               },
               ...currentStored,
-            ]);
+            ], true);
           }
         } catch (e) {
           console.warn("Notice syncing fallback profile into stored users:", e);
@@ -135,15 +151,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (err) {
       console.error("loadProfile exception:", err);
       setProfile(null);
+    } finally {
+      activeProfileUidRef.current = null;
     }
   }
 
   useEffect(() => {
     let mounted = true;
 
+    // Safety timeout: If Supabase auth network drops, ensure UI unlocks after 5s
+    const safetyTimeout = setTimeout(() => {
+      if (mounted) {
+        setLoading(false);
+      }
+    }, 5000);
+
     async function initAuth() {
       try {
-        const { data } = await supabase.auth.getSession();
+        const sessionPromise = supabase.auth.getSession();
+        const timeoutPromise = new Promise<{ data: { session: any } }>((_, reject) =>
+          setTimeout(() => reject(new Error("getSession timeout")), 4500)
+        );
+
+        const { data } = await Promise.race([sessionPromise, timeoutPromise]).catch(() => ({
+          data: { session: null },
+        }));
+
         if (!mounted) return;
         if (data.session?.user) {
           setSession(data.session);
@@ -157,12 +190,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         console.warn("Supabase getSession notice:", err);
       } finally {
         if (mounted) setLoading(false);
+        clearTimeout(safetyTimeout);
       }
     }
 
     initAuth();
 
     const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => {
+      if (!mounted) return;
       (async () => {
         setSession(sess);
         if (sess?.user) {
@@ -176,6 +211,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     return () => {
       mounted = false;
+      clearTimeout(safetyTimeout);
       sub.subscription.unsubscribe();
     };
   }, []);

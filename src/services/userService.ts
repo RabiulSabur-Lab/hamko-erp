@@ -480,12 +480,11 @@ export function getStoredUsers(): ManagedUser[] {
  * Uses TTL.PERMANENT so created and updated user accounts NEVER expire or disappear.
  * Strips any sensitive password properties before storage.
  */
-export function saveStoredUsers(users: ManagedUser[]): void {
+export function saveStoredUsers(users: ManagedUser[], silent = false): void {
   const sanitized = users.map((u) => sanitizeManagedUser(u) as ManagedUser);
-  setLocalData(STORAGE_KEYS.USERS, sanitized, TTL.PERMANENT);
-  if (typeof window !== "undefined") {
+  setLocalData(STORAGE_KEYS.USERS, sanitized, TTL.PERMANENT, silent);
+  if (!silent && typeof window !== "undefined") {
     window.dispatchEvent(new Event("sales_erp_storage_update"));
-    window.dispatchEvent(new Event("storage"));
   }
 }
 
@@ -739,8 +738,8 @@ export function mergeAndEnrichUsers(
   const result = Array.from(mergedMap.values()).map((u) => sanitizeManagedUser(u) as ManagedUser);
   result.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
-  // Save the reconciled state
-  saveStoredUsers(result);
+  // Save the reconciled state silently to prevent event recursion
+  saveStoredUsers(result, true);
   return result;
 }
 

@@ -126,6 +126,20 @@ export async function pushAllLocalDataToSupabase(
     return summary;
   }
 
+  // Authentication guard: Remove background sync execution on unauthenticated sessions
+  try {
+    const { data: sessionData } = await withTimeout(supabase.auth.getSession(), 6000, "Auth session verification");
+    if (!sessionData?.session) {
+      console.warn("[CloudSync] Cloud sync skipped: User is unauthenticated.");
+      summary.errors.push("User is not authenticated");
+      return summary;
+    }
+  } catch (authErr) {
+    console.warn("[CloudSync] Cloud sync aborted: Unable to verify auth session:", authErr);
+    summary.errors.push("Authentication verification failed");
+    return summary;
+  }
+
   isCloudSyncing = true;
 
   const report = (phase: string, completed: number, total: number, msg?: string) => {
