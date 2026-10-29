@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/table";
 import { Printer, Loader2 } from "lucide-react";
 import { OrderPrintInvoice } from "@/components/OrderPrintInvoice";
+import { printElementOrDocument } from "@/lib/export";
 
 export interface OrderDetailsModalProps {
   open: boolean;
@@ -107,14 +108,13 @@ export function OrderDetailsModal({ open, onClose, order: initialOrder }: OrderD
   if (!open || !order) return null;
 
   function handlePrint() {
-    document.body.classList.add("printing-invoice");
-    const cleanup = () => {
-      document.body.classList.remove("printing-invoice");
-      window.removeEventListener("afterprint", cleanup);
-    };
-    window.addEventListener("afterprint", cleanup, { once: true });
-    setTimeout(cleanup, 3000);
-    window.print();
+    void printElementOrDocument({
+      elementId: "print-invoice",
+      filename: `Invoice_${order?.order_number || order?.id || "Order"}`,
+      bodyPrintClass: "printing-invoice",
+      orientation: "portrait",
+      title: `Order Invoice ${order?.order_number || ""}`,
+    });
   }
 
   const orderItems = deduplicateItems(order.order_items || (order as any).items || []);

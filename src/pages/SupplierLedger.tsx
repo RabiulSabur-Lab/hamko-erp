@@ -43,6 +43,7 @@ import {
 
 import * as XLSX from "xlsx";
 import { toast } from "sonner";
+import { exportWorkbookToExcel, printElementOrDocument } from "@/lib/export";
 import { Dialog } from "@/components/ui/dialog";
 import { SupplierLedgerPdfTemplate } from "@/components/SupplierLedgerPdfTemplate";
 import type { SupplierLedgerPdfItem } from "@/components/SupplierLedgerPdfTemplate";
@@ -338,10 +339,18 @@ export function SupplierLedger() {
 
   const handlePrint = () => {
     setIsPrinting(true);
-    // Small delay to allow the portal to mount before printing
+    const safeName = (supplier?.name || "Supplier").replace(/[^a-zA-Z0-9]/g, "_");
+    const dateStr = new Date().toISOString().slice(0, 10);
+    // Small delay to allow the portal to mount before printing / rendering PDF
     setTimeout(() => {
-      window.print();
-      setTimeout(() => setIsPrinting(false), 500);
+      void printElementOrDocument({
+        elementId: "print-supplier-ledger",
+        filename: `Supplier_Ledger_${safeName}_${dateStr}`,
+        orientation: "portrait",
+        title: `Supplier Ledger - ${supplier?.name || "HAMKO Industries Ltd."}`,
+      }).finally(() => {
+        setTimeout(() => setIsPrinting(false), 600);
+      });
     }, 150);
   };
 
@@ -398,8 +407,8 @@ export function SupplierLedger() {
 
     const safeName = (supplier.name || "Supplier").replace(/[^a-zA-Z0-9]/g, "_");
     const dateStr = new Date().toISOString().slice(0, 10);
-    XLSX.writeFile(wb, `Supplier_Ledger_${safeName}_${dateStr}.xlsx`);
-    toast.success("Excel ledger statement downloaded successfully.");
+    void exportWorkbookToExcel(wb, `Supplier_Ledger_${safeName}_${dateStr}.xlsx`);
+    toast.success("Excel ledger statement prepared successfully.");
   };
 
   // Build PDF items from procurementLedger entries

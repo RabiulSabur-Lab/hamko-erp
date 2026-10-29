@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { EmptyState } from "@/components/ui/empty";
 import { formatBDT, formatDate, toBnDigit } from "@/lib/utils";
-import { exportToExcel } from "@/lib/export";
+import { exportToExcel, printElementOrDocument } from "@/lib/export";
 import {
   getOrders,
   getCollections,
@@ -297,14 +297,14 @@ export function CustomerLedgerModal({ open, onClose, customer }: CustomerLedgerM
   }
 
   function handlePrint() {
-    document.body.classList.add("printing-ledger");
-    const cleanup = () => {
-      document.body.classList.remove("printing-ledger");
-      window.removeEventListener("afterprint", cleanup);
-    };
-    window.addEventListener("afterprint", cleanup, { once: true });
-    setTimeout(cleanup, 3000);
-    window.print();
+    const safeCode = (currentCust?.party_code || currentCust?.name || "Ledger").replace(/[^a-zA-Z0-9]/g, "_");
+    void printElementOrDocument({
+      elementId: "print-ledger",
+      filename: `Party_Ledger_${safeCode}_${new Date().toISOString().slice(0, 10)}`,
+      bodyPrintClass: "printing-ledger",
+      orientation: "portrait",
+      title: `Party Ledger - ${currentCust?.outlet_name || currentCust?.name || ""}`,
+    });
   }
 
   if (!open || !currentCust) return null;

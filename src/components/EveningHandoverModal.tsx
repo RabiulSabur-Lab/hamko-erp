@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
+import { printElementOrDocument } from "@/lib/export";
 import {
   STORAGE_KEYS,
   getLocalData,
@@ -332,7 +333,7 @@ export function EveningHandoverModal({
 
             {/* Generated Slip Display (if completed) */}
             {generatedSlip ? (
-              <div className="rounded-xl border-2 border-primary/40 bg-card p-5 space-y-4 shadow-sm">
+              <div id="print-handover-slip" className="rounded-xl border-2 border-primary/40 bg-card p-5 space-y-4 shadow-sm">
                 <div className="flex justify-between items-start border-b pb-3">
                   <div>
                     <div className="flex items-center gap-2">
@@ -433,8 +434,20 @@ export function EveningHandoverModal({
                   </div>
                 </div>
 
-                <div className="flex justify-between items-center pt-2">
-                  <Button variant="outline" size="sm" onClick={() => window.print()} className="gap-1.5 text-xs">
+                <div className="flex justify-between items-center pt-2 no-print">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      void printElementOrDocument({
+                        elementId: "print-handover-slip",
+                        filename: `Cash_Handover_${generatedSlip.handover_number}`,
+                        orientation: "portrait",
+                        title: `Cash Handover Slip ${generatedSlip.handover_number}`,
+                      })
+                    }
+                    className="gap-1.5 text-xs"
+                  >
                     <Printer className="h-3.5 w-3.5" /> Print Cash Slip
                   </Button>
                   <Button

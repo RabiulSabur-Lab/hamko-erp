@@ -11,8 +11,8 @@ import { Select } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { EmptyState } from "@/components/ui/empty";
 import { formatBDT, formatDate, toBnDigit } from "@/lib/utils";
-import { exportToExcel, exportToPdf } from "@/lib/export";
-import { Download, FileText, Loader2, BarChart3, RefreshCw, AlertTriangle, CheckCircle2, AlertCircle } from "lucide-react";
+import { exportToExcel, exportToPdf, printElementOrDocument } from "@/lib/export";
+import { Download, FileText, Printer, Loader2, BarChart3, RefreshCw, AlertTriangle, CheckCircle2, AlertCircle } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
@@ -803,17 +803,26 @@ export function ReportsPage() {
     toast.success("Report updated with latest live records");
   };
 
-  const handleExcel = () => {
+  const handleExcel = async () => {
     const filename = `Sales_ERP_${reportType}_${startDate}_to_${endDate}`;
-    exportToExcel(filename, data);
+    await exportToExcel(filename, data);
     toast.success(`Exported ${data.length} records to Excel`);
   };
 
-  const handlePdf = () => {
+  const handlePdf = async () => {
     const el = document.getElementById("report-content");
     if (!el) return;
-    exportToPdf("report-content", `Sales_ERP_${reportType}_${startDate}_to_${endDate}`);
+    await exportToPdf("report-content", `Sales_ERP_${reportType}_${startDate}_to_${endDate}`);
     toast.success("PDF generated successfully");
+  };
+
+  const handlePrintReport = () => {
+    void printElementOrDocument({
+      elementId: "report-content",
+      filename: `Sales_ERP_${reportType}_${startDate}_to_${endDate}`,
+      orientation: "landscape",
+      title: `Sales ERP Report (${reportType})`,
+    });
   };
 
   const reportTypes: { value: ReportType; label: string }[] = [
@@ -879,12 +888,15 @@ export function ReportsPage() {
             </div>
           )}
           <div className="flex items-center justify-between mt-3 pt-3 border-t border-border">
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm" onClick={handleExcel} disabled={data.length === 0}>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" size="sm" onClick={() => void handleExcel()} disabled={data.length === 0}>
                 <Download className="h-4 w-4" /> {t("exportExcel") || "Export Excel"}
               </Button>
-              <Button variant="outline" size="sm" onClick={handlePdf} disabled={data.length === 0}>
+              <Button variant="outline" size="sm" onClick={() => void handlePdf()} disabled={data.length === 0}>
                 <FileText className="h-4 w-4" /> {t("exportPdf") || "Export PDF"}
+              </Button>
+              <Button variant="outline" size="sm" onClick={handlePrintReport} disabled={data.length === 0}>
+                <Printer className="h-4 w-4" /> {t("print" as string) || "Print"}
               </Button>
             </div>
             <p className="text-xs text-muted-foreground hidden sm:block">

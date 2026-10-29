@@ -18,6 +18,7 @@ import {
   getAreas,
 } from "./localStore";
 import { toast } from "sonner";
+import { exportJsonBackup } from "@/lib/export";
 
 export interface SyncProgress {
   phase: string;
@@ -1028,14 +1029,6 @@ export function exportAllLocalData(): void {
   };
 
   const jsonStr = JSON.stringify(exportData, null, 2);
-  const blob = new Blob([jsonStr], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
   const dateStr = new Date().toISOString().slice(0, 10);
-  a.href = url;
-  a.download = `hamko_erp_full_backup_${dateStr}.json`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  void exportJsonBackup(`hamko_erp_full_backup_${dateStr}.json`, jsonStr);
 }

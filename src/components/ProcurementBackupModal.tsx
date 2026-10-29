@@ -24,6 +24,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
+import { exportJsonBackup } from "@/lib/export";
 
 export interface ProcurementBackupModalProps {
   open: boolean;
@@ -51,18 +52,10 @@ export function ProcurementBackupModal({
     try {
       const data = exportProcurementBackupData();
       const jsonStr = JSON.stringify(data, null, 2);
-      const blob = new Blob([jsonStr], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
       const dateStr = new Date().toISOString().slice(0, 10);
-      a.href = url;
-      a.download = `procurement_backup_${dateStr}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      void exportJsonBackup(`procurement_backup_${dateStr}.json`, jsonStr);
 
-      toast.success("Procurement dataset backup (JSON) downloaded successfully.");
+      toast.success("Procurement dataset backup (JSON) prepared successfully.");
     } catch (err: any) {
       toast.error(err?.message || "Failed to generate backup file");
     }

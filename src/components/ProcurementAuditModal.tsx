@@ -25,6 +25,7 @@ import {
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import { useUsers } from "@/context/UsersContext";
+import { exportWorkbookToExcel } from "@/lib/export";
 
 export interface ProcurementAuditModalProps {
   open: boolean;
@@ -88,7 +89,7 @@ export function ProcurementAuditModal({ open, onClose, supplierId }: Procurement
     const ws = XLSX.utils.json_to_sheet(exportRows);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Audit Trail");
-    XLSX.writeFile(wb, `Procurement_Audit_Trail_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    void exportWorkbookToExcel(wb, `Procurement_Audit_Trail_${new Date().toISOString().slice(0, 10)}.xlsx`);
     toast.success("Audit trail exported successfully.");
   }
 

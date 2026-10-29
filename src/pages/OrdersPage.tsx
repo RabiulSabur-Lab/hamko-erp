@@ -11,7 +11,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { EmptyState } from "@/components/ui/empty";
 import { formatBDT, formatCurrency, formatDate, cn } from "@/lib/utils";
-import { exportToExcel } from "@/lib/export";
+import { exportToExcel, printElementOrDocument } from "@/lib/export";
 import {
   Plus,
   Search,
@@ -656,14 +656,13 @@ export function OrdersPage() {
   }
 
   function handlePrintInvoice() {
-    document.body.classList.add("printing-invoice");
-    const cleanup = () => {
-      document.body.classList.remove("printing-invoice");
-      window.removeEventListener("afterprint", cleanup);
-    };
-    window.addEventListener("afterprint", cleanup, { once: true });
-    setTimeout(cleanup, 3000);
-    window.print();
+    void printElementOrDocument({
+      elementId: "print-invoice",
+      filename: `Invoice_${viewing?.order_number || viewing?.id || "Order"}`,
+      bodyPrintClass: "printing-invoice",
+      orientation: "portrait",
+      title: `Order Invoice ${viewing?.order_number || ""}`,
+    });
   }
 
   function openEdit(o: Order) {

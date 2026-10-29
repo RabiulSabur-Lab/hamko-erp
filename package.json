@@ -17,6 +17,8 @@
     "@capacitor/assets": "^3.0.5",
     "@capacitor/cli": "^8.5.3",
     "@capacitor/core": "^8.5.3",
+    "@capacitor/filesystem": "^8.1.5",
+    "@capacitor/share": "^8.0.3",
     "@capgo/capacitor-updater": "^8.52.1",
     "@radix-ui/react-avatar": "^1.1.11",
     "@radix-ui/react-dialog": "^1.1.15",

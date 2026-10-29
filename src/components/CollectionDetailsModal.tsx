@@ -15,6 +15,7 @@ import {
 import { Printer, CheckCircle2 } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import { useUsers } from "@/context/UsersContext";
+import { printElementOrDocument } from "@/lib/export";
 
 export interface CollectionDetailsModalProps {
   open: boolean;
@@ -347,14 +348,13 @@ export function CollectionDetailsModal({
   if (!open || !collection) return null;
 
   function handlePrint() {
-    document.body.classList.add("printing-collection");
-    const cleanup = () => {
-      document.body.classList.remove("printing-collection");
-      window.removeEventListener("afterprint", cleanup);
-    };
-    window.addEventListener("afterprint", cleanup, { once: true });
-    setTimeout(cleanup, 3000);
-    window.print();
+    void printElementOrDocument({
+      elementId: "print-collection-receipt",
+      filename: `Collection_Receipt_${receiptNo}`,
+      bodyPrintClass: "printing-collection",
+      orientation: "portrait",
+      title: `Collection Receipt ${receiptNo}`,
+    });
   }
 
   return (
