@@ -519,14 +519,6 @@ function internalDeleteOrder(id: string, currentItems?: any[]): any[] & { succes
       .update({ order_id: null })
       .eq("order_id", id)
       .then(undefined, (err) => console.warn("Unlink collections notice:", err));
-
-    if (targetOrder?.order_number) {
-      supabase
-        .from("collections")
-        .update({ order_id: null, reference: null })
-        .eq("reference", targetOrder.order_number)
-        .then(undefined, (err) => console.warn("Unlink collections by reference notice:", err));
-    }
   }
 
   const updatedOrders = source.filter((o: any) => String(o.id) !== String(id));
@@ -823,7 +815,7 @@ export function updateArea(
 
       if (customerChanged) {
         setLocalData(STORAGE_KEYS.CUSTOMERS, updatedCustomers);
-        supabase.from("customers").update({ area: trimmedName }).eq("area", oldName).then(undefined, () => {});
+        supabase.from("customers").update({ city: trimmedName }).eq("city", oldName).then(undefined, () => {});
       }
 
       // Cascade update to orders in local storage
@@ -1784,20 +1776,12 @@ export function voidOrderCollections(
     if (c.id) saveDeletedId(STORAGE_KEYS.DELETED_COLLECTIONS, String(c.id));
   });
 
-  // Background remote deletion
+  // Background remote deletion (collections link to orders physically via order_id FK)
   supabase
     .from("collections")
     .delete()
     .eq("order_id", orderId)
     .then(undefined, (err) => console.warn("Notice deleting linked collections remotely:", err));
-
-  if (orderNumber) {
-    supabase
-      .from("collections")
-      .delete()
-      .eq("reference", orderNumber)
-      .then(undefined, (err) => console.warn("Notice deleting linked collections by reference remotely:", err));
-  }
 
   const voidedAmount = r2(linked.reduce((sum, c) => sum + Number(c.amount || 0), 0));
 
@@ -1843,10 +1827,6 @@ export const deleteOrder = (id: string, currentItems?: any[]): any[] & { success
       recalculateCustomerLedger(targetOrder.customer_id, result, undefined, { persist: true });
     }
     dispatchGlobalStateUpdate({ customerId: targetOrder?.customer_id, type: "order_deleted" });
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new Event("sales_erp_storage_update"));
-      window.dispatchEvent(new Event("storage"));
-    }
   }
   return result;
 };

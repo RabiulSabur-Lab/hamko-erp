@@ -99,6 +99,62 @@ async function withTimeout<T>(promise: PromiseLike<T>, ms = 25000, label = "Oper
   return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timer));
 }
 
+async function safeTimedQuery<TRes extends { data: any; error: any }>(
+  promise: PromiseLike<TRes>,
+  ms = 10000,
+  label = "Database operation",
+): Promise<{ data: TRes["data"] | null; error: any }> {
+  try {
+    const res = await withTimeout(promise, ms, label);
+    return { data: res?.data ?? null, error: res?.error ?? null };
+  } catch (err: any) {
+    return { data: null, error: { message: err?.message || `${label} failed` } };
+  }
+}
+
+function normalizeDueStatus(rawStatus: unknown, currentDue: number): "Clear" | "Overdue" | "Partial" {
+  if (rawStatus === "Clear" || rawStatus === "Overdue" || rawStatus === "Partial") {
+    return rawStatus;
+  }
+  return currentDue > 0 ? "Partial" : "Clear";
+}
+
+function normalizeOrderStatus(rawStatus: unknown): "Draft" | "Pending" | "Approved" | "Delivered" | "Cancelled" {
+  if (
+    rawStatus === "Draft" ||
+    rawStatus === "Pending" ||
+    rawStatus === "Approved" ||
+    rawStatus === "Delivered" ||
+    rawStatus === "Cancelled"
+  ) {
+    return rawStatus;
+  }
+  return "Delivered";
+}
+
+function normalizePaymentStatus(rawStatus: unknown, paidAmount: number, totalAmount: number): "Unpaid" | "Partial" | "Paid" {
+  if (rawStatus === "Unpaid" || rawStatus === "Partial" || rawStatus === "Paid") {
+    return rawStatus;
+  }
+  if (totalAmount > 0 && paidAmount >= totalAmount) return "Paid";
+  if (paidAmount > 0) return "Partial";
+  return "Unpaid";
+}
+
+function normalizePaymentMethod(rawMethod: unknown): "Cash" | "Cheque" | "Bank Transfer" | "Mobile Banking" {
+  const clean = String(rawMethod || "").trim();
+  if (clean === "Cash" || clean === "Cheque" || clean === "Bank Transfer" || clean === "Mobile Banking") {
+    return clean;
+  }
+  const lower = clean.toLowerCase();
+  if (lower.includes("cheque") || lower.includes("check")) return "Cheque";
+  if (lower.includes("bank")) return "Bank Transfer";
+  if (lower.includes("mobile") || lower.includes("bkash") || lower.includes("nagad") || lower.includes("rocket")) {
+    return "Mobile Banking";
+  }
+  return "Cash";
+}
+
 /**
  * Performs a 100% comprehensive push of all local ERP data from browser localStorage to Supabase.
  * Respects table foreign-key hierarchies and sanitizes all physical PostgreSQL schema columns.
@@ -182,19 +238,27 @@ export async function pushAllLocalDataToSupabase(
           name: cleanName,
           description: cat.description || null,
         };
-        let { data, error } = await supabase
-          .from("categories")
-          .upsert(catPayload, { onConflict: "name" })
-          .select("id, name")
-          .single();
+        let { data, error } = await safeTimedQuery(
+          supabase
+            .from("categories")
+            .upsert(catPayload, { onConflict: "name" })
+            .select("id, name")
+            .single(),
+          10000,
+          `Category upsert (${cleanName})`,
+        );
 
         if (error) {
           // If upsert fails due to policy or conflict, attempt to select existing by name
-          const { data: existing } = await supabase
-            .from("categories")
-            .select("id, name")
-            .ilike("name", cleanName)
-            .maybeSingle();
+          const { data: existing } = await safeTimedQuery(
+            supabase
+              .from("categories")
+              .select("id, name")
+              .ilike("name", cleanName)
+              .maybeSingle(),
+            10000,
+            `Category lookup (${cleanName})`,
+          );
 
           if (existing) {
             categoryMap.set(lowerName, existing.id);
@@ -260,9 +324,11 @@ export async function pushAllLocalDataToSupabase(
       let syncSuccess = false;
 
       for (let attempt = 0; attempt < 6; attempt++) {
-        const { error } = await supabase
-          .from("products")
-          .upsert(currentPayload, { onConflict: "sku_code" });
+        const { error } = await safeTimedQuery(
+          supabase.from("products").upsert(currentPayload, { onConflict: "sku_code" }),
+          10000,
+          `Product upsert (${p.name})`,
+        );
 
         if (!error) {
           syncSuccess = true;
@@ -357,16 +423,18 @@ export async function pushAllLocalDataToSupabase(
         longitude: c.longitude !== null && !isNaN(Number(c.longitude)) ? Number(c.longitude) : null,
         opening_balance: Number(c.opening_balance) || 0,
         current_due: Number(c.current_due) || 0,
-        due_status: c.due_status || (Number(c.current_due) > 0 ? "Partial" : "Clear"),
+        due_status: normalizeDueStatus(c.due_status, Number(c.current_due) || 0),
         notes: encodeCustomerNotes(c),
         assigned_to: isValidUUID(c.assigned_to) ? c.assigned_to : null,
         is_active: c.is_active !== false,
         updated_at: new Date().toISOString(),
       };
 
-      const { error } = await supabase
-        .from("customers")
-        .upsert(custPayload, { onConflict: "id" });
+      const { error } = await safeTimedQuery(
+        supabase.from("customers").upsert(custPayload, { onConflict: "id" }),
+        10000,
+        `Customer upsert (${c.name})`,
+      );
 
       if (error) {
         summary.errors.push(`Customer "${c.name}": ${error.message}`);
@@ -430,6 +498,8 @@ export async function pushAllLocalDataToSupabase(
 
       const orderId = isValidUUID(o.id) ? o.id : generateUUID();
 
+      const orderTotal = Number(o.total_amount) || 0;
+      const orderPaid = Number(o.paid_amount) || 0;
       const orderPayload = {
         id: orderId,
         order_number: o.order_number.trim(),
@@ -437,20 +507,22 @@ export async function pushAllLocalDataToSupabase(
         sales_rep_id: isValidUUID(o.sales_rep_id) ? o.sales_rep_id : null,
         order_date: o.order_date || new Date().toISOString().slice(0, 10),
         delivery_date: o.delivery_date || null,
-        status: o.status || "Delivered",
-        subtotal: Number(o.subtotal) || Number(o.total_amount) || 0,
+        status: normalizeOrderStatus(o.status),
+        subtotal: Number(o.subtotal) || orderTotal,
         discount: Number(o.discount) || 0,
-        total_amount: Number(o.total_amount) || 0,
-        paid_amount: Number(o.paid_amount) || 0,
+        total_amount: orderTotal,
+        paid_amount: orderPaid,
         due_amount: Number(o.due_amount) || 0,
-        payment_status: o.payment_status || "Pending",
+        payment_status: normalizePaymentStatus(o.payment_status, orderPaid, orderTotal),
         notes: o.notes || null,
         updated_at: new Date().toISOString(),
       };
 
-      const { error: orderError } = await supabase
-        .from("orders")
-        .upsert(orderPayload, { onConflict: "order_number" });
+      const { error: orderError } = await safeTimedQuery(
+        supabase.from("orders").upsert(orderPayload, { onConflict: "order_number" }),
+        10000,
+        `Order upsert (${o.order_number})`,
+      );
 
       if (orderError) {
         summary.errors.push(`Order ${o.order_number}: ${orderError.message}`);
@@ -478,24 +550,27 @@ export async function pushAllLocalDataToSupabase(
                 unit_price: Number(item.unit_price) || 0,
                 discount: Number(item.discount) || 0,
                 subtotal: Number(item.subtotal) || (Number(item.quantity || 1) * Number(item.unit_price || 0)),
-                price_tier: item.price_tier || null,
               };
 
               // Attempt insert first to avoid PostgREST RLS UPDATE policy violations on existing items
-              const { error: itemError } = await supabase
-                .from("order_items")
-                .insert(itemPayload);
+              const { error: itemError } = await safeTimedQuery(
+                supabase.from("order_items").insert(itemPayload),
+                10000,
+                `Order item insert (${itemPayload.id})`,
+              );
 
               if (!itemError) {
                 summary.orderItems++;
-              } else if (itemError.code === "23505" || itemError.message.includes("duplicate") || itemError.message.includes("unique")) {
+              } else if (itemError.code === "23505" || itemError.message?.includes("duplicate") || itemError.message?.includes("unique")) {
                 // Item already exists in cloud database
                 summary.orderItems++;
               } else {
                 // Fallback attempt with upsert
-                const { error: retryError } = await supabase
-                  .from("order_items")
-                  .upsert(itemPayload, { onConflict: "id" });
+                const { error: retryError } = await safeTimedQuery(
+                  supabase.from("order_items").upsert(itemPayload, { onConflict: "id" }),
+                  10000,
+                  `Order item upsert (${itemPayload.id})`,
+                );
                 if (!retryError) {
                   summary.orderItems++;
                 } else {
@@ -534,21 +609,26 @@ export async function pushAllLocalDataToSupabase(
 
       if (!custId) continue;
 
+      const colAmount = Number(col.amount) || 0;
+      if (colAmount <= 0) continue;
+
       const colPayload = {
         id: isValidUUID(col.id) ? col.id : generateUUID(),
         collection_number: col.collection_number.trim(),
         customer_id: custId,
         order_id: isValidUUID(col.order_id) ? col.order_id : null,
-        amount: Number(col.amount) || 0,
-        payment_method: col.payment_method || "Cash",
+        amount: colAmount,
+        payment_method: normalizePaymentMethod(col.payment_method),
         collection_date: col.collection_date || new Date().toISOString().slice(0, 10),
         collected_by: isValidUUID((col as any).collected_by) ? (col as any).collected_by : null,
         notes: col.notes || null,
       };
 
-      const { error: colError } = await supabase
-        .from("collections")
-        .upsert(colPayload, { onConflict: "collection_number" });
+      const { error: colError } = await safeTimedQuery(
+        supabase.from("collections").upsert(colPayload, { onConflict: "collection_number" }),
+        10000,
+        `Collection upsert (${col.collection_number})`,
+      );
 
       if (colError) {
         summary.errors.push(`Collection ${col.collection_number}: ${colError.message}`);
@@ -569,19 +649,24 @@ export async function pushAllLocalDataToSupabase(
       const exp = localExpenses[i];
       if (!exp || !exp.category) continue;
 
+      const expAmount = Number(exp.amount) || 0;
+      if (expAmount <= 0) continue;
+
       const expPayload = {
         id: isValidUUID(exp.id) ? exp.id : generateUUID(),
         category: exp.category,
         description: exp.description || exp.category,
-        amount: Number(exp.amount) || 0,
+        amount: expAmount,
         expense_date: exp.expense_date || exp.date || new Date().toISOString().slice(0, 10),
         recorded_by: isValidUUID(exp.recorded_by) ? exp.recorded_by : null,
         notes: exp.notes || null,
       };
 
-      const { error: expError } = await supabase
-        .from("expenses")
-        .upsert(expPayload, { onConflict: "id" });
+      const { error: expError } = await safeTimedQuery(
+        supabase.from("expenses").upsert(expPayload, { onConflict: "id" }),
+        10000,
+        `Expense upsert (${exp.category})`,
+      );
 
       if (expError) {
         summary.errors.push(`Expense "${exp.category}": ${expError.message}`);
@@ -610,9 +695,11 @@ export async function pushAllLocalDataToSupabase(
           updated_at: new Date().toISOString(),
         };
 
-        const { error: invError } = await supabase
-          .from("inventory")
-          .upsert(invPayload, { onConflict: "product_id,warehouse" });
+        const { error: invError } = await safeTimedQuery(
+          supabase.from("inventory").upsert(invPayload, { onConflict: "product_id,warehouse" }),
+          10000,
+          `Inventory upsert (${inv.product_id})`,
+        );
 
         if (!invError) summary.inventory++;
       }

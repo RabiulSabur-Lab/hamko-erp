@@ -1,16 +1,35 @@
 /**
- * Google Gemini 1.5 Flash Service Layer for Sales ERP
+ * Google Gemini Flash Service Layer for Sales ERP
  * Provides AI Executive Insights, Natural Language Voice Order Parsing, and Automated Payment Reminders.
  */
 
-const FALLBACK_GEMINI_API_KEY = "AIzaSyBZbNg2FijEVHUvr7aYhyTIVXIz1FP8bHo";
+function readEnvVar(name: string): string | undefined {
+  try {
+    const metaEnv = (import.meta as unknown as { env?: Record<string, unknown> })?.env;
+    const fromMeta = metaEnv?.[name];
+    if (typeof fromMeta === "string" && fromMeta.trim().length > 0) {
+      return fromMeta.trim().replace(/^["']|["']$/g, "");
+    }
+  } catch {
+    // Ignore import.meta access errors in non-Vite runtimes
+  }
+
+  const procEnv = (globalThis as unknown as { process?: { env?: Record<string, string | undefined> } }).process?.env;
+  const fromProcess = procEnv?.[name];
+  if (typeof fromProcess === "string" && fromProcess.trim().length > 0) {
+    return fromProcess.trim().replace(/^["']|["']$/g, "");
+  }
+
+  return undefined;
+}
 
 export function getGeminiApiKey(): string {
-  const envKey = import.meta.env.VITE_GEMINI_API_KEY;
-  if (envKey && typeof envKey === "string" && envKey.trim().length > 10) {
-    return envKey.trim();
-  }
-  return FALLBACK_GEMINI_API_KEY;
+  const key = readEnvVar("VITE_GEMINI_API_KEY") ?? readEnvVar("GEMINI_API_KEY") ?? "";
+  return key.length > 10 ? key : "";
+}
+
+export function hasGeminiApiKey(): boolean {
+  return getGeminiApiKey().length > 0;
 }
 
 export interface GeminiContentResponse {
@@ -49,6 +68,14 @@ export async function callGemini15Flash(
   systemInstruction?: string
 ): Promise<string> {
   const apiKey = getGeminiApiKey();
+  if (!apiKey) {
+    throw new Error(
+      "Gemini API key is not configured. Set VITE_GEMINI_API_KEY in your environment variables."
+    );
+  }
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    throw new Error("Device is offline. Skipping Gemini online request.");
+  }
 
   const payload: Record<string, any> = {
     contents: [
@@ -72,7 +99,7 @@ export async function callGemini15Flash(
   let lastError: Error | null = null;
 
   for (const model of FLASH_MODELS) {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), GEMINI_REQUEST_TIMEOUT_MS);
 
@@ -81,6 +108,7 @@ export async function callGemini15Flash(
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "x-goog-api-key": apiKey,
         },
         body: JSON.stringify(payload),
         signal: controller.signal,
@@ -189,11 +217,7 @@ ${JSON.stringify(recentOrdersSnippet, null, 2)}
 
 Provide your executive intelligence report now.`;
 
-  try {
-    return await callGemini15Flash(prompt, systemInstruction);
-  } catch {
-    // Intelligent offline fallback report if API is temporarily unavailable
-    return `### Executive AI Insights (Offline Mode)
+  const buildLocalFallbackReport = () => `### Executive AI Insights (Offline Mode)
 
 **Overview:**
 - **Analyzed Orders:** ${validOrders.length} orders
@@ -207,6 +231,16 @@ ${topProductsSummary || "1. Hamko Pressure Cooker Series\n2. Nonstick Fry Pan Li
 - High demand detected for top cookware items. Ensure minimum 15-20 pcs buffer stock.
 - Follow up on pending customer order deliveries to accelerate collections velocity.
 *(Generated via Local Analytics Engine)*`;
+
+  if (!hasGeminiApiKey() || (typeof navigator !== "undefined" && navigator.onLine === false)) {
+    return buildLocalFallbackReport();
+  }
+
+  try {
+    return await callGemini15Flash(prompt, systemInstruction);
+  } catch {
+    // Intelligent offline fallback report if API is temporarily unavailable
+    return buildLocalFallbackReport();
   }
 }
 
@@ -255,6 +289,9 @@ Voice/Text Order: "${cleanInput}"
 JSON Output:`;
 
   try {
+    if (!hasGeminiApiKey() || (typeof navigator !== "undefined" && navigator.onLine === false)) {
+      throw new Error("Using local voice order parser fallback");
+    }
     const rawResult = await callGemini15Flash(prompt, systemInstruction);
 
     // Sanitize JSON output: strip markdown code fences if present
@@ -404,6 +441,10 @@ Due Amount in Bengali digits: ${bnAmount}
 Last Recorded Payment: ${lastPaymentDate || "N/A"}
 
 Generate the exact payment reminder text now:`;
+
+  if (!hasGeminiApiKey() || (typeof navigator !== "undefined" && navigator.onLine === false)) {
+    return exactTemplate;
+  }
 
   try {
     const aiText = await callGemini15Flash(prompt, systemInstruction);

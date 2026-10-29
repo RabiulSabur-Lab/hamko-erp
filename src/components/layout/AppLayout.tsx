@@ -40,6 +40,14 @@ export function AppLayout({ children }: { children: ReactNode }) {
     let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 
     const fetchUnread = async () => {
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        const list = getLocalData<any>(STORAGE_KEYS.NOTIFICATIONS, []);
+        if (isMounted) {
+          const nextCount = list.filter((n: any) => !n.is_read).length;
+          setUnreadCount((prev) => (prev === nextCount ? prev : nextCount));
+        }
+        return;
+      }
       try {
         if (supabase?.from) {
           const { count, error } = await withQueryTimeout(

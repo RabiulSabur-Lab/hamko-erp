@@ -310,6 +310,25 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
 
       const task = (async () => {
         try {
+          // 0. Fast-path when browser reports offline — fall back in 0ms without opening doomed sockets
+          if (typeof navigator !== "undefined" && navigator.onLine === false) {
+            if (!mountedRef.current) return;
+            applyLocalFallback();
+            const offlineIssue: DashboardConnectionIssue = {
+              kind: "offline",
+              message: "Device is offline. Displaying cached dashboard state.",
+              messageBn: "ইন্টারনেট সংযোগ নেই। সংরক্ষিত ড্যাশবোর্ড ডেটা দেখানো হচ্ছে।",
+              failedResources: ["network"],
+            };
+            setConnectionIssue(offlineIssue);
+            if (isManual) {
+              surfaceFailureNotification(offlineIssue, true, () => {
+                void fetchFromSupabase(true);
+              });
+            }
+            return;
+          }
+
           // 1. Verify active Supabase session token via refs before firing heavy queries
           const currentSess = sessionRef.current;
           const activeSession = hasActiveSessionToken(currentSess)

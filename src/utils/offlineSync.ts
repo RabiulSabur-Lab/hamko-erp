@@ -17,6 +17,47 @@ import {
 
 let isSyncing = false;
 
+function isValidUuid(str?: string | null): boolean {
+  if (!str || typeof str !== "string") return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(str.trim());
+}
+
+function normalizeOfflinePaymentMethod(rawMethod: unknown): "Cash" | "Cheque" | "Bank Transfer" | "Mobile Banking" {
+  const clean = String(rawMethod || "").trim();
+  if (clean === "Cash" || clean === "Cheque" || clean === "Bank Transfer" || clean === "Mobile Banking") {
+    return clean;
+  }
+  const lower = clean.toLowerCase();
+  if (lower.includes("cheque") || lower.includes("check")) return "Cheque";
+  if (lower.includes("bank")) return "Bank Transfer";
+  if (lower.includes("mobile") || lower.includes("bkash") || lower.includes("nagad") || lower.includes("rocket")) {
+    return "Mobile Banking";
+  }
+  return "Cash";
+}
+
+function normalizeOfflineOrderStatus(rawStatus: unknown): "Draft" | "Pending" | "Approved" | "Delivered" | "Cancelled" {
+  if (
+    rawStatus === "Draft" ||
+    rawStatus === "Pending" ||
+    rawStatus === "Approved" ||
+    rawStatus === "Delivered" ||
+    rawStatus === "Cancelled"
+  ) {
+    return rawStatus;
+  }
+  return "Delivered";
+}
+
+function normalizeOfflinePaymentStatus(rawStatus: unknown, paidAmount: number, totalAmount: number): "Unpaid" | "Partial" | "Paid" {
+  if (rawStatus === "Unpaid" || rawStatus === "Partial" || rawStatus === "Paid") {
+    return rawStatus;
+  }
+  if (totalAmount > 0 && paidAmount >= totalAmount) return "Paid";
+  if (paidAmount > 0) return "Partial";
+  return "Unpaid";
+}
+
 /**
  * Auto-syncs all offline queued field records (visits, orders, collections) to Supabase upon network reconnection.
  */
@@ -46,13 +87,14 @@ export async function syncOfflineDataToBackend(): Promise<{ syncedVisits: number
     const localPendingVisits = visits.filter((v) => v.id.startsWith("visit-") || !v.id.includes("-"));
 
     for (const v of localPendingVisits) {
+      if (!isValidUuid(v.customer_id)) continue;
       try {
         const { data, error } = await withQueryTimeout(
           supabase
             .from("visits")
             .insert({
               customer_id: v.customer_id,
-              visited_by: v.visited_by,
+              visited_by: isValidUuid(v.visited_by) ? v.visited_by : null,
               visit_date: v.visit_date,
               check_in: v.check_in,
               check_out: v.check_out,
@@ -84,6 +126,8 @@ export async function syncOfflineDataToBackend(): Promise<{ syncedVisits: number
     const localPendingCols = collections.filter((c) => c.id.startsWith("col-") || (c as any).is_offline);
 
     for (const c of localPendingCols) {
+      const colAmount = Number(c.amount) || 0;
+      if (!isValidUuid(c.customer_id) || colAmount <= 0) continue;
       try {
         const { data, error } = await withQueryTimeout(
           supabase
@@ -91,11 +135,11 @@ export async function syncOfflineDataToBackend(): Promise<{ syncedVisits: number
             .insert({
               collection_number: c.collection_number,
               customer_id: c.customer_id,
-              order_id: c.order_id,
-              amount: c.amount,
-              payment_method: c.payment_method,
+              order_id: isValidUuid(c.order_id) ? c.order_id : null,
+              amount: colAmount,
+              payment_method: normalizeOfflinePaymentMethod(c.payment_method),
               collection_date: c.collection_date,
-              notes: c.notes,
+              notes: c.notes || null,
             })
             .select()
             .single(),
@@ -119,24 +163,27 @@ export async function syncOfflineDataToBackend(): Promise<{ syncedVisits: number
     const localPendingOrders = orders.filter((o) => o.id.startsWith("ord-") || (o as any).is_offline);
 
     for (const o of localPendingOrders) {
+      if (!isValidUuid(o.customer_id)) continue;
       try {
+        const totalAmount = Number(o.total_amount) || 0;
+        const paidAmount = Number(o.paid_amount) || 0;
         const { data, error } = await withQueryTimeout(
           supabase
             .from("orders")
             .insert({
               order_number: o.order_number,
               customer_id: o.customer_id,
-              sales_rep_id: o.sales_rep_id,
+              sales_rep_id: isValidUuid(o.sales_rep_id) ? o.sales_rep_id : null,
               order_date: o.order_date,
-              delivery_date: o.delivery_date,
-              status: o.status,
-              subtotal: o.subtotal,
-              discount: o.discount,
-              total_amount: o.total_amount,
-              due_amount: o.due_amount,
-              paid_amount: o.paid_amount,
-              payment_status: o.payment_status,
-              notes: o.notes,
+              delivery_date: o.delivery_date || null,
+              status: normalizeOfflineOrderStatus(o.status),
+              subtotal: Number(o.subtotal) || totalAmount,
+              discount: Number(o.discount) || 0,
+              total_amount: totalAmount,
+              due_amount: Number(o.due_amount) || 0,
+              paid_amount: paidAmount,
+              payment_status: normalizeOfflinePaymentStatus(o.payment_status, paidAmount, totalAmount),
+              notes: o.notes || null,
             })
             .select()
             .single(),
@@ -146,18 +193,17 @@ export async function syncOfflineDataToBackend(): Promise<{ syncedVisits: number
 
         if (!error && data) {
           syncedOrders++;
-          const items = o.order_items || (o as any).items || [];
+          const items = (o.order_items || (o as any).items || []).filter((it: any) => isValidUuid(it?.product_id));
           if (items.length > 0) {
             await withQueryTimeout(
               supabase.from("order_items").insert(
                 items.map((it: any) => ({
                   order_id: data.id,
                   product_id: it.product_id,
-                  quantity: it.quantity,
-                  unit_price: it.unit_price,
-                  discount: it.discount,
-                  subtotal: it.subtotal,
-                  price_tier: it.price_tier,
+                  quantity: Math.max(1, Math.round(Number(it.quantity) || 1)),
+                  unit_price: Number(it.unit_price) || 0,
+                  discount: Number(it.discount) || 0,
+                  subtotal: Number(it.subtotal) || (Math.max(1, Math.round(Number(it.quantity) || 1)) * (Number(it.unit_price) || 0)),
                 })),
               ),
               9000,

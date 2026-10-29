@@ -890,36 +890,21 @@ export async function updateManagedUser(
     }
   }
 
-  // 2. Update Supabase `profiles` table
+  // 2. Update Supabase `users` table (aligned with schema_full.sql + explicit timeout)
   try {
-    const { error: profileErr } = await supabase.from("profiles").upsert({
-      id: targetId,
-      email: updates.email,
-      full_name: updates.fullName,
-      phone: updates.phone || null,
-      role: updates.role,
-      role_name: roleLabel,
-      is_active: updates.is_active,
-      updated_at: now,
-    });
-    if (profileErr) {
-      console.warn("Supabase profiles update notice (RLS):", profileErr.message);
-    }
-  } catch (err: any) {
-    console.warn("Profiles table update error:", err?.message);
-  }
-
-  // 3. Update Supabase `users` table
-  try {
-    const { error: usersErr } = await supabase.from("users").upsert({
-      id: targetId,
-      email: updates.email,
-      full_name: updates.fullName,
-      phone: updates.phone || null,
-      role_name: roleLabel,
-      is_active: updates.is_active,
-      updated_at: now,
-    });
+    const { error: usersErr } = await withQueryTimeout(
+      supabase.from("users").upsert({
+        id: targetId,
+        email: updates.email,
+        full_name: updates.fullName,
+        phone: updates.phone || null,
+        role_name: roleLabel,
+        is_active: updates.is_active,
+        updated_at: now,
+      }),
+      8500,
+      "Update managed user",
+    );
     if (usersErr) {
       console.warn("Supabase users update notice (RLS):", usersErr.message);
     }
@@ -988,17 +973,13 @@ export async function deleteManagedUser(
   // 2. Remove from auth credentials store
   removeAuthCredential(user.id, user.email);
 
-  // 3. Remove from Supabase `profiles` table
+  // 3. Remove from Supabase `users` table (aligned with schema_full.sql + explicit timeout)
   try {
-    const { error } = await supabase.from("profiles").delete().eq("id", user.id);
-    if (error) console.warn("Supabase profiles delete notice (RLS):", error.message);
-  } catch (err: any) {
-    console.warn("Profiles delete notice:", err?.message);
-  }
-
-  // 4. Remove from Supabase `users` table
-  try {
-    const { error } = await supabase.from("users").delete().eq("id", user.id);
+    const { error } = await withQueryTimeout(
+      supabase.from("users").delete().eq("id", user.id),
+      8500,
+      "Delete managed user",
+    );
     if (error) console.warn("Supabase users delete notice (RLS):", error.message);
   } catch (err: any) {
     console.warn("Users delete notice:", err?.message);
@@ -1099,34 +1080,22 @@ export async function createManagedUser(formData: {
     is_active: formData.is_active,
   });
 
-  // 2. Insert into `profiles` table
+  // 2. Insert into `users` table (aligned with schema_full.sql + explicit timeout)
   try {
-    await supabase.from("profiles").upsert({
-      id: newUserId,
-      email,
-      full_name: name,
-      phone: phone || null,
-      role,
-      role_name: roleLabel,
-      is_active: formData.is_active,
-      created_at: now,
-      updated_at: now,
-    });
-  } catch (err: any) {
-    console.info("Notice inserting into profiles table:", err?.message);
-  }
-
-  // 3. Insert into `users` table
-  try {
-    await supabase.from("users").upsert({
-      id: newUserId,
-      email,
-      full_name: name,
-      phone: phone || null,
-      role_name: roleLabel,
-      is_active: formData.is_active,
-      created_at: now,
-    });
+    await withQueryTimeout(
+      supabase.from("users").upsert({
+        id: newUserId,
+        email,
+        full_name: name,
+        phone: phone || null,
+        role_name: roleLabel,
+        is_active: formData.is_active,
+        created_at: now,
+        updated_at: now,
+      }),
+      8500,
+      "Create managed user",
+    );
   } catch (err: any) {
     console.info("Notice inserting into users table:", err?.message);
   }

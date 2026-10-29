@@ -1,5 +1,7 @@
 import React, { useEffect, useState, useMemo, useCallback } from "react";
-import { supabase } from "@/lib/supabase";
+import { supabase, SUPABASE_TABLE_SELECTS } from "@/lib/supabase";
+import { withQueryTimeout } from "@/lib/supabaseQuery";
+import { hasActiveSessionToken } from "@/lib/auth";
 import { useI18n } from "@/lib/i18n";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -43,6 +45,8 @@ import {
   isSupplierPaymentExpense,
   calculateOfficerCommissions,
   calculateSupplierPayablesUpToDate,
+  mergeAndEnrichCustomers,
+  parseCustomerNotes,
   type Customer,
 } from "@/utils/localStore";
 
@@ -140,39 +144,105 @@ export function ReportsPage() {
 
   // 2. Read-only remote sync function: NEVER mutates LocalStore or emits storage events (prevents infinite loop)
   const syncRemoteData = useCallback(async () => {
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      return;
+    }
+
     try {
-      const [oRes, cRes, custRes, eRes, pRes, officersData] = await Promise.all([
-        supabase
-          .from("orders")
-          .select("*, customer:customers(id, name, city, notes, territory:territories(name)), order_items(*, product:products(*))")
-          .order("order_date", { ascending: false }),
-        supabase
-          .from("collections")
-          .select("*, customer:customers(id, name, city, notes)")
-          .order("collection_date", { ascending: false }),
-        supabase
-          .from("customers")
-          .select("*, territory:territories(name)")
-          .order("name", { ascending: true }),
-        supabase
-          .from("expenses")
-          .select("*")
-          .order("expense_date", { ascending: false }),
-        supabase
-          .from("products")
-          .select("*, category:categories(name)")
-          .order("name"),
+      const { data: sessionData, error: sessionErr } = await withQueryTimeout(
+        supabase.auth.getSession(),
+        6000,
+        "Reports session check",
+      );
+      if (sessionErr || !hasActiveSessionToken(sessionData?.session)) {
+        return;
+      }
+
+      const fetchProductsSafe = async () => {
+        const fullRes = await withQueryTimeout(
+          supabase
+            .from("products")
+            .select(SUPABASE_TABLE_SELECTS.productsFull)
+            .order("name", { ascending: true }),
+          9000,
+          "Reports products query",
+        );
+        if (!fullRes.error) return fullRes;
+        return withQueryTimeout(
+          supabase
+            .from("products")
+            .select(SUPABASE_TABLE_SELECTS.productsCoreFallback)
+            .order("name", { ascending: true }),
+          9000,
+          "Reports products fallback query",
+        );
+      };
+
+      const [oSettled, cSettled, custSettled, eSettled, pSettled, officersSettled] = await Promise.allSettled([
+        withQueryTimeout(
+          supabase
+            .from("orders")
+            .select(
+              "id, order_number, customer_id, sales_rep_id, order_date, delivery_date, status, subtotal, discount, total_amount, paid_amount, due_amount, payment_status, notes, created_at, updated_at, customer:customers(id, name, city, notes, territory:territories(id, name)), order_items(id, order_id, product_id, quantity, unit_price, discount, subtotal, product:products(id, sku_code, name, unit_price, dealer_price, distributor_price, unit, category_id))",
+            )
+            .order("order_date", { ascending: false }),
+          9000,
+          "Reports orders query",
+        ),
+        withQueryTimeout(
+          supabase
+            .from("collections")
+            .select(
+              "id, collection_number, customer_id, order_id, amount, payment_method, collection_date, collected_by, notes, created_at, customer:customers(id, name, city, notes)",
+            )
+            .order("collection_date", { ascending: false }),
+          9000,
+          "Reports collections query",
+        ),
+        withQueryTimeout(
+          supabase
+            .from("customers")
+            .select(`${SUPABASE_TABLE_SELECTS.customers}, territory:territories(id, name)`)
+            .order("name", { ascending: true }),
+          9000,
+          "Reports customers query",
+        ),
+        withQueryTimeout(
+          supabase
+            .from("expenses")
+            .select("id, category, description, amount, expense_date, recorded_by, notes, created_at")
+            .order("expense_date", { ascending: false }),
+          9000,
+          "Reports expenses query",
+        ),
+        fetchProductsSafe(),
         fetchActiveSalesOfficers(),
       ]);
 
-      if (Array.isArray(officersData) && officersData.length > 0) {
-        setSalesOfficers(officersData);
+      if (officersSettled.status === "fulfilled" && Array.isArray(officersSettled.value) && officersSettled.value.length > 0) {
+        setSalesOfficers(officersSettled.value);
       }
 
+      const enrichEmbeddedCustomer = (cust: any) => {
+        if (!cust || typeof cust !== "object") return cust;
+        const parsed = parseCustomerNotes(cust.notes);
+        return {
+          ...cust,
+          outlet_name: cust.outlet_name || cust.name,
+          party_code: cust.party_code || parsed.party_code || null,
+          area: cust.area || parsed.area || cust.city || cust.territory?.name || null,
+        };
+      };
+
       // Merge remote and pending local orders without mutating localStorage
-      if (!oRes.error && Array.isArray(oRes.data)) {
+      if (oSettled.status === "fulfilled" && !oSettled.value.error && Array.isArray(oSettled.value.data)) {
         const deletedIds = getDeletedIds(STORAGE_KEYS.DELETED_ORDERS);
-        const validRemote = oRes.data.filter((o: any) => !deletedIds.has(o.id));
+        const validRemote = oSettled.value.data
+          .filter((o: any) => !deletedIds.has(o.id))
+          .map((o: any) => ({
+            ...o,
+            customer: enrichEmbeddedCustomer(o.customer),
+          }));
         const remoteIdSet = new Set(validRemote.map((o: any) => String(o.id)));
         const currentLocal = getOrders().filter((o: any) => !deletedIds.has(o.id));
         const pendingLocal = currentLocal.filter((lo: any) => !remoteIdSet.has(String(lo.id)));
@@ -180,51 +250,37 @@ export function ReportsPage() {
       }
 
       // Merge remote and pending local collections without mutating localStorage
-      if (!cRes.error && Array.isArray(cRes.data)) {
+      if (cSettled.status === "fulfilled" && !cSettled.value.error && Array.isArray(cSettled.value.data)) {
         const deletedIds = getDeletedIds(STORAGE_KEYS.DELETED_COLLECTIONS);
-        const validRemote = cRes.data.filter((c: any) => !deletedIds.has(c.id));
+        const validRemote = cSettled.value.data
+          .filter((c: any) => !deletedIds.has(c.id))
+          .map((c: any) => ({
+            ...c,
+            customer: enrichEmbeddedCustomer(c.customer),
+          }));
         const remoteIdSet = new Set(validRemote.map((c: any) => String(c.id)));
         const remoteColNumSet = new Set(
-          validRemote.map((c: any) => String(c.collection_number || "").trim().toUpperCase()).filter(Boolean)
+          validRemote.map((c: any) => String(c.collection_number || "").trim().toUpperCase()).filter(Boolean),
         );
         const currentLocal = getCollections().filter((c: any) => !deletedIds.has(c.id));
         const pendingLocal = currentLocal.filter(
           (lc: any) =>
             !remoteIdSet.has(String(lc.id)) &&
-            (!lc.collection_number || !remoteColNumSet.has(String(lc.collection_number).trim().toUpperCase()))
+            (!lc.collection_number || !remoteColNumSet.has(String(lc.collection_number).trim().toUpperCase())),
         );
         setCollections(deduplicateCollections([...pendingLocal, ...validRemote]));
       }
 
       // Merge remote customers in-memory only without saving to localStorage
-      if (!custRes.error && Array.isArray(custRes.data)) {
-        const deletedIds = getDeletedIds(STORAGE_KEYS.DELETED_CUSTOMERS);
-        const validRemote = (custRes.data as Customer[]).filter((c: any) => !deletedIds.has(c.id));
-        const remoteIdSet = new Set(validRemote.map((c) => String(c.id)));
-        const currentLocal = getCustomers();
-        const pendingLocal = currentLocal.filter((lc) => !remoteIdSet.has(String(lc.id)));
-        const localMap = new Map(currentLocal.map((c) => [String(c.id), c]));
-
-        const enrichedRemote: Customer[] = validRemote.map((rc) => {
-          const loc = localMap.get(String(rc.id));
-          return {
-            ...rc,
-            outlet_name: rc.outlet_name || loc?.outlet_name || rc.name,
-            party_code: rc.party_code || loc?.party_code || null,
-            area: rc.area || loc?.area || rc.city || null,
-            alt_phone: rc.alt_phone || loc?.alt_phone || null,
-          };
-        });
-        const mergedCusts = [...pendingLocal, ...enrichedRemote].sort((a, b) =>
-          (a.outlet_name || a.name || "").localeCompare(b.outlet_name || b.name || "")
-        );
+      if (custSettled.status === "fulfilled" && !custSettled.value.error && Array.isArray(custSettled.value.data)) {
+        const mergedCusts = mergeAndEnrichCustomers(custSettled.value.data as unknown as Customer[], { persist: false });
         setCustomers(mergedCusts);
       }
 
       // Merge remote expenses without mutating localStorage
-      if (!eRes.error && Array.isArray(eRes.data)) {
+      if (eSettled.status === "fulfilled" && !eSettled.value.error && Array.isArray(eSettled.value.data)) {
         const deletedIds = getDeletedIds(STORAGE_KEYS.DELETED_EXPENSES);
-        const validRemote = eRes.data.filter((e: any) => !deletedIds.has(e.id));
+        const validRemote = eSettled.value.data.filter((e: any) => !deletedIds.has(e.id));
         const remoteIdSet = new Set(validRemote.map((e: any) => String(e.id)));
         const currentLocal = getExpenses().filter((e: any) => !deletedIds.has(e.id));
         const pendingLocal = currentLocal.filter((le: any) => !remoteIdSet.has(String(le.id)));
@@ -232,9 +288,9 @@ export function ReportsPage() {
       }
 
       // Merge remote products without mutating localStorage
-      if (!pRes.error && Array.isArray(pRes.data)) {
+      if (pSettled.status === "fulfilled" && !pSettled.value.error && Array.isArray(pSettled.value.data)) {
         const deletedIds = getDeletedIds(STORAGE_KEYS.DELETED_PRODUCTS);
-        const validRemote = pRes.data.filter((p: any) => !deletedIds.has(p.id));
+        const validRemote = pSettled.value.data.filter((p: any) => !deletedIds.has(p.id));
         const remoteIdSet = new Set(validRemote.map((p: any) => String(p.id)));
         const currentLocal = getProducts().filter((p: any) => !deletedIds.has(p.id));
         const pendingLocal = currentLocal.filter((lp: any) => !remoteIdSet.has(String(lp.id)));

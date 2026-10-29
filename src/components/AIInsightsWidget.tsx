@@ -25,7 +25,11 @@ export const AIInsightsWidget = memo(function AIInsightsWidget({ orders, product
     try {
       const result = await analyzeSalesData(orders, products);
       setInsights(result);
-      toast.success("Gemini 1.5 Flash analysis generated!");
+      if (result.includes("(Offline Mode)")) {
+        toast.info("Generated via local analytics (Gemini API offline or unconfigured).");
+      } else {
+        toast.success("Gemini AI analysis generated!");
+      }
     } catch (err: any) {
       console.warn("AI Insights widget catch:", err);
       setError(err?.message || "Failed to contact Gemini API. Please check your internet connection.");
