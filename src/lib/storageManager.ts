@@ -36,6 +36,20 @@ export function isStorageEnvelope<T = any>(val: any): val is StorageEnvelope<T> 
 }
 
 /**
+ * Protects Supabase GoTrue session tokens and auth verifiers from ever being purged
+ * or modified during TTL cleanup or emergency quota pruning.
+ */
+export function isProtectedAuthStorageKey(key: string): boolean {
+  if (!key) return false;
+  return (
+    key.startsWith("sb-") ||
+    key.includes("-auth-token") ||
+    key.startsWith("supabase.auth.") ||
+    key.startsWith("hamko_auth_")
+  );
+}
+
+/**
  * Reads an item from localStorage with automatic TTL verification.
  * If expired, automatically purges the item and returns fallback.
  * Transparently parses legacy un-enveloped data for backward compatibility.
@@ -163,6 +177,8 @@ export function cleanupLocalStorage(): StorageCleanupReport {
 
     for (const key of allKeys) {
       try {
+        if (isProtectedAuthStorageKey(key)) continue;
+
         const raw = window.localStorage.getItem(key);
         if (!raw) continue;
         report.estimatedBytes += (key.length + raw.length) * 2; // rough UTF-16 byte estimate
@@ -219,6 +235,8 @@ export function emergencyStoragePrune(): void {
 
     for (const key of allKeys) {
       try {
+        if (isProtectedAuthStorageKey(key)) continue;
+
         const raw = window.localStorage.getItem(key);
         if (!raw) continue;
         const parsed = JSON.parse(raw);
@@ -236,6 +254,25 @@ export function emergencyStoragePrune(): void {
           const list = isStorageEnvelope(parsed) ? parsed.data : parsed;
           if (Array.isArray(list) && list.length > 50) {
             setItemWithTTL(key, list.slice(list.length - 50), TTL.SHORT);
+          }
+          continue;
+        }
+
+        // Trim bulky cached ERP lists on constrained mobile WebViews so auth tokens always fit
+        if (
+          key === "sales_erp_notifications" ||
+          key === "sales_erp_procurement_audit_logs" ||
+          key === "sales_erp_collections" ||
+          key === "sales_erp_orders"
+        ) {
+          const list = isStorageEnvelope(parsed) ? parsed.data : parsed;
+          const cap = key.includes("orders") ? 200 : key.includes("collections") ? 400 : 100;
+          if (Array.isArray(list) && list.length > cap) {
+            const trimmed = list.slice(0, cap);
+            window.localStorage.setItem(
+              key,
+              JSON.stringify({ data: trimmed, timestamp: now, expiresAt: now + TTL.DEFAULT }),
+            );
           }
         }
       } catch {}

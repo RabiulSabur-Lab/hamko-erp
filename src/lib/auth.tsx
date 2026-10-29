@@ -1,8 +1,8 @@
 import { createContext, useContext, useEffect, useState, useRef, useCallback, useMemo, type ReactNode } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { toast } from "sonner";
-import { supabase, SUPABASE_URL, type UserProfile, type Role } from "./supabase";
-import { withQueryTimeout, classifySupabaseError } from "./supabaseQuery";
+import { supabase, SUPABASE_URL, syncCachedAccessToken, type UserProfile, type Role } from "./supabase";
+import { withQueryTimeout, classifySupabaseError, type ClassifiedSupabaseError } from "./supabaseQuery";
 import {
   getStoredUsers,
   saveStoredUsers,
@@ -58,6 +58,114 @@ export function hasActiveSessionToken(sess: Session | null | undefined): sess is
     // Ignore non-JWT or environment without atob
   }
   return true;
+}
+
+export interface EnsureSessionResult {
+  session: Session | null;
+  offline: boolean;
+  error: ClassifiedSupabaseError | null;
+}
+
+let sharedSessionCheckInFlight: Promise<EnsureSessionResult> | null = null;
+
+/**
+ * Standalone, single-flight session verifier & token refresher shared across `cloudSync`,
+ * `offlineSync`, `ReportsPage`, `AppLayout`, and `AuthProvider`.
+ * - If the stored JWT is still valid, returns it immediately and syncs the Authorization header cache.
+ * - If the stored 1-hour JWT expired while the mobile app was backgrounded, automatically calls
+ *   `supabase.auth.refreshSession()` using the persisted `refresh_token` instead of silently failing.
+ * - If the device is offline, preserves the persisted session without wiping local credentials.
+ */
+export async function ensureValidSession(forceRefresh = false): Promise<EnsureSessionResult> {
+  if (!forceRefresh && sharedSessionCheckInFlight) {
+    return sharedSessionCheckInFlight;
+  }
+
+  const run = async (): Promise<EnsureSessionResult> => {
+    const isOffline = typeof navigator !== "undefined" && navigator.onLine === false;
+
+    try {
+      const { data, error } = await withQueryTimeout(
+        supabase.auth.getSession(),
+        6000,
+        "Auth session check",
+      );
+
+      if (error) {
+        const classified = classifySupabaseError(error);
+        return {
+          session: null,
+          offline: isOffline || classified.kind === "offline",
+          error: classified,
+        };
+      }
+
+      const currentSess = data?.session ?? null;
+      if (!currentSess) {
+        syncCachedAccessToken(null);
+        return { session: null, offline: isOffline, error: null };
+      }
+
+      if (!forceRefresh && hasActiveSessionToken(currentSess)) {
+        syncCachedAccessToken(currentSess.access_token, currentSess.expires_at);
+        return { session: currentSess, offline: isOffline, error: null };
+      }
+
+      // If offline, do not attempt network token rotation (preserve refresh_token until online)
+      if (isOffline) {
+        return {
+          session: currentSess,
+          offline: true,
+          error: null,
+        };
+      }
+
+      if (!currentSess.refresh_token) {
+        syncCachedAccessToken(null);
+        return { session: null, offline: false, error: null };
+      }
+
+      const { data: refreshData, error: refreshErr } = await withQueryTimeout(
+        supabase.auth.refreshSession(),
+        9000,
+        "Auth token refresh",
+      );
+
+      if (refreshErr) {
+        const classified = classifySupabaseError(refreshErr);
+        // Only clear cached token if server explicitly rejected the refresh token (not transient mobile timeout)
+        if (classified.kind === "auth") {
+          syncCachedAccessToken(null);
+          return { session: null, offline: false, error: classified };
+        }
+        return {
+          session: hasActiveSessionToken(currentSess) ? currentSess : null,
+          offline: classified.kind === "offline",
+          error: classified,
+        };
+      }
+
+      const nextSess = refreshData?.session ?? currentSess;
+      if (nextSess?.access_token) {
+        syncCachedAccessToken(nextSess.access_token, nextSess.expires_at);
+        return { session: nextSess, offline: false, error: null };
+      }
+
+      return { session: null, offline: false, error: null };
+    } catch (err) {
+      const classified = classifySupabaseError(err);
+      return {
+        session: null,
+        offline: isOffline || classified.kind === "offline",
+        error: classified,
+      };
+    } finally {
+      sharedSessionCheckInFlight = null;
+    }
+  };
+
+  sharedSessionCheckInFlight = run();
+  return sharedSessionCheckInFlight;
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -265,73 +373,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       const task = (async (): Promise<Session | null> => {
         try {
-          const { data, error } = await withQueryTimeout(
-            supabase.auth.getSession(),
-            6000,
-            "Auth session check",
-          );
+          const result = await ensureValidSession(forceRefresh);
 
-          if (error) {
-            const classified = classifySupabaseError(error);
-            if (classified.kind === "auth") {
+          if (result.offline) {
+            const fallbackSess = result.session ?? sessionRef.current;
+            if (fallbackSess) {
+              updateSessionStable(fallbackSess);
+            }
+            setAuthError(null);
+            return fallbackSess;
+          }
+
+          if (result.error) {
+            if (result.error.kind === "auth") {
               updateSessionStable(null);
               updateProfileStable(null);
-              setAuthError(classified.userMessage);
-              toast.error("Session expired. Please sign in again.");
+              setAuthError(result.error.userMessage);
+              toast.error("Your session expired. Please sign in again.");
               return null;
             }
-            setAuthError(classified.userMessage);
-            notifyConnectionIssue(classified.userMessage, () => {
+            setAuthError(result.error.userMessage);
+            notifyConnectionIssue(result.error.userMessage, () => {
               void verifySession(true);
             });
             return hasActiveSessionToken(sessionRef.current) ? sessionRef.current : null;
           }
 
-          const currentSess = data?.session ?? null;
-          if (!currentSess) {
+          if (!result.session) {
             updateSessionStable(null);
             setAuthError(null);
             return null;
           }
 
-          // If token is active and not forced to refresh, accept immediately
-          if (!forceRefresh && hasActiveSessionToken(currentSess)) {
-            updateSessionStable(currentSess);
-            setAuthError(null);
-            return currentSess;
-          }
-
-          // Token is expired or nearing expiry — attempt controlled refresh
-          const { data: refreshData, error: refreshError } = await withQueryTimeout(
-            supabase.auth.refreshSession(),
-            8000,
-            "Auth token refresh",
-          );
-
-          if (refreshError) {
-            const classified = classifySupabaseError(refreshError);
-            if (classified.kind === "auth") {
-              updateSessionStable(null);
-              updateProfileStable(null);
-              setAuthError(classified.userMessage);
-              toast.error("Your session expired. Please sign in again.");
-              return null;
-            }
-            setAuthError(classified.userMessage);
-            notifyConnectionIssue(classified.userMessage, () => {
-              void verifySession(true);
-            });
-            return hasActiveSessionToken(currentSess) ? currentSess : null;
-          }
-
-          const nextSession = refreshData?.session ?? currentSess;
-          if (nextSession?.access_token) {
-            updateSessionStable(nextSession);
-            setAuthError(null);
-            return nextSession;
-          }
-
-          return null;
+          updateSessionStable(result.session);
+          setAuthError(null);
+          return result.session;
         } catch (err) {
           const classified = classifySupabaseError(err);
           setAuthError(classified.userMessage);
@@ -409,9 +485,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }, 0);
     });
 
+    const handleAppResumeOrOnline = () => {
+      if (!mounted) return;
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      if (typeof navigator !== "undefined" && navigator.onLine === false) return;
+      // Re-verify & auto-refresh expired mobile tokens when returning from background or reconnecting
+      if (sessionRef.current && !hasActiveSessionToken(sessionRef.current)) {
+        void verifySession(true);
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleAppResumeOrOnline);
+    window.addEventListener("online", handleAppResumeOrOnline);
+
     return () => {
       mounted = false;
       clearTimeout(safetyTimeout);
+      document.removeEventListener("visibilitychange", handleAppResumeOrOnline);
+      window.removeEventListener("online", handleAppResumeOrOnline);
       sub.subscription.unsubscribe();
     };
   }, [verifySession, loadProfile, updateSessionStable, updateProfileStable]);

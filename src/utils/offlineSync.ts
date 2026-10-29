@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
-import { withQueryTimeout } from "@/lib/supabaseQuery";
-import { hasActiveSessionToken } from "@/lib/auth";
+import { withQueryTimeout, classifySupabaseError } from "@/lib/supabaseQuery";
+import { hasActiveSessionToken, ensureValidSession } from "@/lib/auth";
 import { toast } from "sonner";
 import {
   STORAGE_KEYS,
@@ -63,15 +63,16 @@ export async function syncOfflineDataToBackend(): Promise<{
   let syncedVisits = 0;
   let syncedOrders = 0;
   let syncedCollections = 0;
+  let failedRecords = 0;
+  let firstFailureReason: string | null = null;
 
   try {
-    // Verify active Supabase session before firing offline sync writes
-    const { data: sessionData, error: sessionErr } = await withQueryTimeout(
-      supabase.auth.getSession(),
-      6000,
-      "Offline sync session check",
-    );
-    if (sessionErr || !hasActiveSessionToken(sessionData?.session)) {
+    // Verify or refresh active Supabase session before firing offline sync writes
+    const sessionCheck = await ensureValidSession();
+    if (sessionCheck.offline || !sessionCheck.session || !hasActiveSessionToken(sessionCheck.session)) {
+      if (sessionCheck.error && !sessionCheck.offline) {
+        console.warn("[OfflineSync] Session verification issue:", sessionCheck.error.rawMessage);
+      }
       return { syncedCustomers: 0, syncedVisits: 0, syncedOrders: 0, syncedCollections: 0 };
     }
 
@@ -134,8 +135,13 @@ export async function syncOfflineDataToBackend(): Promise<{
               : item,
           );
           setLocalData(STORAGE_KEYS.CUSTOMERS, reconciledCusts, null, true);
+        } else if (error) {
+          failedRecords++;
+          firstFailureReason = firstFailureReason || classifySupabaseError(error).userMessage;
         }
       } catch (e) {
+        failedRecords++;
+        firstFailureReason = firstFailureReason || classifySupabaseError(e).userMessage;
         console.warn("Offline customer sync note:", e);
       }
     }
@@ -269,8 +275,13 @@ export async function syncOfflineDataToBackend(): Promise<{
               : item,
           );
           setLocalData(STORAGE_KEYS.ORDERS, reconciled, null, true);
+        } else if (error) {
+          failedRecords++;
+          firstFailureReason = firstFailureReason || classifySupabaseError(error).userMessage;
         }
       } catch (e) {
+        failedRecords++;
+        firstFailureReason = firstFailureReason || classifySupabaseError(e).userMessage;
         console.warn("Offline order sync note:", e);
       }
     }
@@ -328,8 +339,13 @@ export async function syncOfflineDataToBackend(): Promise<{
               : item,
           );
           setLocalData(STORAGE_KEYS.COLLECTIONS, reconciled, null, true);
+        } else if (error) {
+          failedRecords++;
+          firstFailureReason = firstFailureReason || classifySupabaseError(error).userMessage;
         }
       } catch (e) {
+        failedRecords++;
+        firstFailureReason = firstFailureReason || classifySupabaseError(e).userMessage;
         console.warn("Offline collection sync note:", e);
       }
     }
@@ -340,9 +356,15 @@ export async function syncOfflineDataToBackend(): Promise<{
       toast.success(
         `Field Mode Auto-Sync: ${syncedCustomers} outlets, ${syncedOrders} orders, ${syncedCollections} collections, and ${syncedVisits} visits synced to cloud.`,
       );
+    } else if (failedRecords > 0 && firstFailureReason) {
+      toast.warning(`Offline sync could not upload ${failedRecords} queued record(s): ${firstFailureReason}`);
     }
   } catch (err: any) {
-    console.warn("Offline synchronization error:", err?.message || err);
+    const classified = classifySupabaseError(err);
+    console.warn("Offline synchronization error:", classified.rawMessage);
+    if (classified.kind !== "offline") {
+      toast.warning(classified.userMessage);
+    }
   } finally {
     isSyncing = false;
   }
@@ -357,14 +379,23 @@ export function useOfflineFieldSync() {
   const [isOnline, setIsOnline] = useState<boolean>(() => {
     return typeof navigator !== "undefined" ? navigator.onLine : true;
   });
+  const [syncingState, setSyncingState] = useState<boolean>(false);
 
   useEffect(() => {
+    const runReconnectSync = async () => {
+      setSyncingState(true);
+      try {
+        await syncOfflineDataToBackend();
+        await pullFreshCloudStateToLocalStore({ force: true, silent: true });
+      } finally {
+        setSyncingState(false);
+      }
+    };
+
     const handleOnline = () => {
       setIsOnline(true);
       toast.info("Network connected: Synchronizing latest cloud data...");
-      void syncOfflineDataToBackend().then(() =>
-        pullFreshCloudStateToLocalStore({ force: true, silent: true }),
-      );
+      void runReconnectSync();
     };
 
     const handleOffline = () => {
@@ -372,20 +403,37 @@ export function useOfflineFieldSync() {
       toast.warning("You are in Offline Field Mode. All entries are safely saved locally.");
     };
 
+    const handleVisibilityResume = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "visible") {
+        const onlineNow = typeof navigator !== "undefined" ? navigator.onLine : true;
+        setIsOnline(onlineNow);
+        if (onlineNow) {
+          void runReconnectSync();
+        }
+      }
+    };
+
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
+    document.addEventListener("visibilitychange", handleVisibilityResume);
 
     return () => {
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
+      document.removeEventListener("visibilitychange", handleVisibilityResume);
     };
   }, []);
 
+  const pendingVisitsCount = getLocalData<Visit[]>(STORAGE_KEYS.VISITS, []).filter(
+    (v) => v && (isPendingOfflineRecord(v) || v.id.startsWith("visit-") || !v.id.includes("-")),
+  ).length;
+  const pendingCollectionsCount = getCollections().filter((c) => c && isPendingOfflineRecord(c)).length;
+
   return {
     isOnline,
-    pendingVisitsCount: 0,
-    pendingCollectionsCount: 0,
-    isSyncing: false,
+    pendingVisitsCount,
+    pendingCollectionsCount,
+    isSyncing: syncingState || isSyncing,
     syncNow: syncOfflineDataToBackend,
     triggerSync: syncOfflineDataToBackend,
   };

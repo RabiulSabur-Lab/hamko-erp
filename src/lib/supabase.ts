@@ -1,4 +1,7 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupportedStorage } from "@supabase/supabase-js";
+import { Capacitor } from "@capacitor/core";
+import { Filesystem, Directory, Encoding } from "@capacitor/filesystem";
+import { emergencyStoragePrune } from "./storageManager";
 
 const DEFAULT_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJramVsb3Jub2plb29xdWZjdXdrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQzMjQ3OTYsImV4cCI6MjA5OTkwMDc5Nn0.gs4GtGqYHbparOAx-h8Ny0GXcMX5opx2_7LSIHfc0sk";
 const DEFAULT_URL = "https://rkjelornojeooqufcuwk.supabase.co";
@@ -77,21 +80,243 @@ function sanitizeUrl(candidate?: string | null, keyCandidate?: string | null): s
 }
 
 const rawEnvKey =
-  (typeof import.meta !== "undefined" && import.meta.env?.VITE_SUPABASE_ANON_KEY) ||
-  (typeof process !== "undefined" && process.env?.VITE_SUPABASE_ANON_KEY);
+  (typeof import.meta !== "undefined" &&
+    (import.meta.env?.VITE_SUPABASE_ANON_KEY ||
+      (import.meta.env as any)?.VITE_SUPABASE_PUBLISHABLE_KEY ||
+      (import.meta.env as any)?.NEXT_PUBLIC_SUPABASE_ANON_KEY)) ||
+  (typeof process !== "undefined" &&
+    (process.env?.VITE_SUPABASE_ANON_KEY ||
+      process.env?.NEXT_PUBLIC_SUPABASE_ANON_KEY));
 
 const rawEnvUrl =
-  (typeof import.meta !== "undefined" && import.meta.env?.VITE_SUPABASE_URL) ||
-  (typeof process !== "undefined" && process.env?.VITE_SUPABASE_URL);
+  (typeof import.meta !== "undefined" &&
+    (import.meta.env?.VITE_SUPABASE_URL ||
+      (import.meta.env as any)?.NEXT_PUBLIC_SUPABASE_URL)) ||
+  (typeof process !== "undefined" &&
+    (process.env?.VITE_SUPABASE_URL ||
+      process.env?.NEXT_PUBLIC_SUPABASE_URL));
 
 export const SUPABASE_ANON_KEY: string = sanitizeKey(rawEnvKey);
 export const SUPABASE_URL: string = sanitizeUrl(rawEnvUrl, SUPABASE_ANON_KEY);
+
+const resolvedProjectRef =
+  extractRefFromKey(SUPABASE_ANON_KEY) ||
+  (() => {
+    try {
+      return new URL(SUPABASE_URL).hostname.split(".")[0] || "hamko";
+    } catch {
+      return "hamko";
+    }
+  })();
+
+export const SUPABASE_AUTH_STORAGE_KEY = `sb-${resolvedProjectRef}-auth-token`;
 
 export const isSupabaseConfigured: boolean = Boolean(
   SUPABASE_URL &&
   SUPABASE_ANON_KEY &&
   SUPABASE_URL.startsWith("https://")
 );
+
+function isNativeCapacitorRuntime(): boolean {
+  try {
+    if (typeof Capacitor?.isNativePlatform === "function" && Capacitor.isNativePlatform()) {
+      return true;
+    }
+    const winCap = typeof window !== "undefined" ? (window as any).Capacitor : undefined;
+    return typeof winCap?.isNativePlatform === "function" && Boolean(winCap.isNativePlatform());
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Tracks the latest non-expired user access token in memory so PostgREST / Storage / Edge Function
+ * requests always carry `Authorization: Bearer <access_token>` even during mobile resume races.
+ */
+let cachedAccessToken: string | null = null;
+let cachedAccessTokenExpiresAtMs = 0;
+
+export function syncCachedAccessToken(accessToken: string | null | undefined, expiresAtSec?: number | null): void {
+  if (!accessToken) {
+    cachedAccessToken = null;
+    cachedAccessTokenExpiresAtMs = 0;
+    return;
+  }
+  cachedAccessToken = accessToken;
+  if (typeof expiresAtSec === "number" && expiresAtSec > 0) {
+    cachedAccessTokenExpiresAtMs = expiresAtSec * 1000;
+    return;
+  }
+  try {
+    const parts = accessToken.split(".");
+    if (parts.length === 3) {
+      let b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+      while (b64.length % 4) b64 += "=";
+      const payload = JSON.parse(atob(b64));
+      if (typeof payload.exp === "number") {
+        cachedAccessTokenExpiresAtMs = payload.exp * 1000;
+        return;
+      }
+    }
+  } catch {
+    // ignore decode issues
+  }
+  cachedAccessTokenExpiresAtMs = Date.now() + 55 * 60 * 1000;
+}
+
+function hydrateCachedTokenFromSessionJson(raw: string | null | undefined): void {
+  if (!raw) return;
+  try {
+    const parsed = JSON.parse(raw);
+    const sessionObj = parsed?.currentSession || parsed?.session || parsed;
+    if (sessionObj?.access_token) {
+      syncCachedAccessToken(sessionObj.access_token, sessionObj.expires_at);
+    }
+  } catch {
+    // ignore non-session storage values
+  }
+}
+
+function getFreshCachedAccessToken(): string | null {
+  if (!cachedAccessToken) return null;
+  if (cachedAccessTokenExpiresAtMs > 0 && cachedAccessTokenExpiresAtMs <= Date.now() + 5_000) {
+    return null;
+  }
+  return cachedAccessToken;
+}
+
+const memoryAuthFallback = new Map<string, string>();
+
+function toSafeAuthFileName(key: string): string {
+  return `supabase_auth/${key.replace(/[^a-zA-Z0-9._-]/g, "_")}.json`;
+}
+
+/**
+ * Multi-tier Capacitor + Browser auth storage adapter:
+ * 1. Reads/writes `window.localStorage` with automatic `emergencyStoragePrune()` recovery on mobile WebView quota limits.
+ * 2. Mirrors auth tokens to `@capacitor/filesystem` (`Directory.Data`) when running in a native Capacitor app,
+ *    preventing Android WebView / iOS WKWebView cache eviction or live-update reloads from logging users out.
+ * 3. Falls back to in-memory storage in restricted / Private Browsing contexts.
+ */
+export const capacitorAuthStorage: SupportedStorage = {
+  async getItem(key: string): Promise<string | null> {
+    if (typeof window !== "undefined") {
+      try {
+        const localVal = window.localStorage?.getItem(key);
+        if (localVal) {
+          memoryAuthFallback.set(key, localVal);
+          if (key === SUPABASE_AUTH_STORAGE_KEY) {
+            hydrateCachedTokenFromSessionJson(localVal);
+          }
+          return localVal;
+        }
+      } catch {
+        // Blocked localStorage in restricted WebView / Private mode
+      }
+    }
+
+    if (isNativeCapacitorRuntime()) {
+      try {
+        const res = await Filesystem.readFile({
+          path: toSafeAuthFileName(key),
+          directory: Directory.Data,
+          encoding: Encoding.UTF8,
+        });
+        const fileData = typeof res.data === "string" ? res.data : null;
+        if (fileData) {
+          memoryAuthFallback.set(key, fileData);
+          if (key === SUPABASE_AUTH_STORAGE_KEY) {
+            hydrateCachedTokenFromSessionJson(fileData);
+          }
+          try {
+            window.localStorage?.setItem(key, fileData);
+          } catch {
+            // ignore quota/security error if WebView localStorage is unavailable
+          }
+          return fileData;
+        }
+      } catch {
+        // File does not exist yet on first launch
+      }
+    }
+
+    const memVal = memoryAuthFallback.get(key) ?? null;
+    if (memVal && key === SUPABASE_AUTH_STORAGE_KEY) {
+      hydrateCachedTokenFromSessionJson(memVal);
+    }
+    return memVal;
+  },
+
+  async setItem(key: string, value: string): Promise<void> {
+    memoryAuthFallback.set(key, value);
+    if (key === SUPABASE_AUTH_STORAGE_KEY) {
+      hydrateCachedTokenFromSessionJson(value);
+    }
+
+    if (typeof window !== "undefined" && window.localStorage) {
+      try {
+        window.localStorage.setItem(key, value);
+      } catch {
+        // Mobile WebView localStorage full — prune non-auth cache and retry immediately so rotated refresh tokens persist
+        try {
+          emergencyStoragePrune();
+          window.localStorage.setItem(key, value);
+        } catch (retryErr) {
+          console.warn("[SupabaseAuthStorage] localStorage write fallback to memory/native:", retryErr);
+        }
+      }
+    }
+
+    if (isNativeCapacitorRuntime()) {
+      try {
+        await Filesystem.writeFile({
+          path: toSafeAuthFileName(key),
+          data: value,
+          directory: Directory.Data,
+          encoding: Encoding.UTF8,
+          recursive: true,
+        });
+      } catch (fsErr) {
+        console.warn("[SupabaseAuthStorage] Native Filesystem mirror notice:", fsErr);
+      }
+    }
+  },
+
+  async removeItem(key: string): Promise<void> {
+    memoryAuthFallback.delete(key);
+    if (key === SUPABASE_AUTH_STORAGE_KEY) {
+      syncCachedAccessToken(null);
+    }
+
+    if (typeof window !== "undefined" && window.localStorage) {
+      try {
+        window.localStorage.removeItem(key);
+      } catch {
+        // ignore
+      }
+    }
+
+    if (isNativeCapacitorRuntime()) {
+      try {
+        await Filesystem.deleteFile({
+          path: toSafeAuthFileName(key),
+          directory: Directory.Data,
+        });
+      } catch {
+        // Ignore if file already absent
+      }
+    }
+  },
+};
+
+// Synchronously seed cachedAccessToken on module load if localStorage already holds an active session
+if (typeof window !== "undefined") {
+  try {
+    hydrateCachedTokenFromSessionJson(window.localStorage?.getItem(SUPABASE_AUTH_STORAGE_KEY));
+  } catch {
+    // ignore
+  }
+}
 
 /**
  * Mobile-safe lock coordinator for Supabase GoTrue auth.
@@ -141,9 +366,33 @@ async function safeAuthLock<R>(
  */
 function createResilientFetch(defaultTimeoutMs = 12000): typeof fetch {
   return async (input: RequestInfo | URL, init: RequestInit = {}) => {
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      throw new TypeError("Failed to fetch: device is currently offline");
+    }
+
     const urlStr = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
     const isAuthRequest = urlStr.includes("/auth/v1/");
     const timeoutMs = isAuthRequest ? 14000 : defaultTimeoutMs;
+
+    // Ensure `apikey` and active user `Authorization` headers are always preserved across Web & Capacitor WebView
+    const headers = new Headers(
+      input instanceof Request && !init.headers ? input.headers : init.headers,
+    );
+    if (!headers.has("apikey") && SUPABASE_ANON_KEY) {
+      headers.set("apikey", SUPABASE_ANON_KEY);
+    }
+    if (!isAuthRequest) {
+      const freshUserJwt = getFreshCachedAccessToken();
+      const existingAuth = headers.get("Authorization") || "";
+      if (
+        freshUserJwt &&
+        (!existingAuth || existingAuth === `Bearer ${SUPABASE_ANON_KEY}`)
+      ) {
+        headers.set("Authorization", `Bearer ${freshUserJwt}`);
+      } else if (!existingAuth && SUPABASE_ANON_KEY) {
+        headers.set("Authorization", `Bearer ${SUPABASE_ANON_KEY}`);
+      }
+    }
 
     const controller = new AbortController();
     const callerSignal = init.signal;
@@ -165,6 +414,7 @@ function createResilientFetch(defaultTimeoutMs = 12000): typeof fetch {
     try {
       return await fetch(input, {
         ...init,
+        headers,
         cache: "no-store",
         signal: controller.signal,
       });
@@ -184,6 +434,8 @@ function initSupabase() {
         persistSession: true,
         autoRefreshToken: true,
         detectSessionInUrl: true,
+        storageKey: SUPABASE_AUTH_STORAGE_KEY,
+        storage: capacitorAuthStorage,
         lock: safeAuthLock,
       },
       global: {
@@ -196,18 +448,46 @@ function initSupabase() {
       },
     });
   } catch (err) {
-    console.error("Failed to initialize Supabase client safely:", err);
+    console.error("Failed to initialize Supabase client with custom lock, falling back with persistent storage:", err);
     return createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       auth: {
-        persistSession: false,
-        autoRefreshToken: false,
-        detectSessionInUrl: false,
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+        storageKey: SUPABASE_AUTH_STORAGE_KEY,
+        storage: capacitorAuthStorage,
       },
     });
   }
 }
 
 export const supabase = initSupabase();
+
+// Keep in-memory Authorization token & Realtime socket auth synchronized, and manage mobile WebView auto-refresh
+if (typeof window !== "undefined") {
+  supabase.auth.onAuthStateChange((_event, session) => {
+    syncCachedAccessToken(session?.access_token ?? null, session?.expires_at ?? null);
+    if (session?.access_token && supabase?.realtime?.setAuth) {
+      try {
+        supabase.realtime.setAuth(session.access_token);
+      } catch {
+        // ignore if socket not yet connected
+      }
+    }
+  });
+
+  const resumeSupabaseAutoRefresh = () => {
+    if (typeof navigator !== "undefined" && navigator.onLine === false) return;
+    if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+      supabase.auth.stopAutoRefresh().catch(() => {});
+      return;
+    }
+    supabase.auth.startAutoRefresh().catch(() => {});
+  };
+
+  document.addEventListener("visibilitychange", resumeSupabaseAutoRefresh);
+  window.addEventListener("online", resumeSupabaseAutoRefresh);
+}
 
 /**
  * Creates an isolated client for secondary auth actions (e.g., admin registering a new user)

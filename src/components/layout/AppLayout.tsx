@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { withQueryTimeout } from "@/lib/supabaseQuery";
-import { useAuth, hasActiveSessionToken } from "@/lib/auth";
+import { useAuth, hasActiveSessionToken, ensureValidSession } from "@/lib/auth";
 import { useTheme } from "@/lib/theme";
 import { useI18n } from "@/lib/i18n";
 import { useRouter } from "@/router";
@@ -37,7 +37,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
   });
 
   useEffect(() => {
-    if (!sessionVerified || !userId || !hasActiveSessionToken(sessionRef.current)) return;
+    if (!sessionVerified || !userId) return;
     let isMounted = true;
     let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -51,6 +51,10 @@ export function AppLayout({ children }: { children: ReactNode }) {
         return;
       }
       try {
+        if (!hasActiveSessionToken(sessionRef.current)) {
+          const refreshed = await ensureValidSession();
+          if (!refreshed.session || refreshed.offline) return;
+        }
         if (supabase?.from) {
           const { count, error } = await withQueryTimeout(
             supabase
@@ -135,7 +139,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
   // 2. Pulls fresh authoritative Supabase state on app initialization, foreground resume, and reconnect.
   // 3. Subscribes a single multiplexed Realtime channel so changes on Web appear live on Mobile (and vice versa).
   useEffect(() => {
-    if (!sessionVerified || !userId || !hasActiveSessionToken(sessionRef.current)) return;
+    if (!sessionVerified || !userId) return;
     let isMounted = true;
     let realtimeDebounce: ReturnType<typeof setTimeout> | undefined;
     let lastResumeSyncAt = 0;
@@ -144,6 +148,8 @@ export function AppLayout({ children }: { children: ReactNode }) {
 
     const runFullBidirectionalSync = async (force = true) => {
       if (!isMounted || (typeof navigator !== "undefined" && navigator.onLine === false)) return;
+      const sessionCheck = await ensureValidSession();
+      if (!isMounted || sessionCheck.offline || !sessionCheck.session) return;
       await syncOfflineDataToBackend();
       if (isMounted) {
         await pullFreshCloudStateToLocalStore({ force, silent: false });

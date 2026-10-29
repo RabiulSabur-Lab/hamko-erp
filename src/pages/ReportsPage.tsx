@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo, useCallback } from "react";
 import { supabase, SUPABASE_TABLE_SELECTS } from "@/lib/supabase";
 import { withQueryTimeout } from "@/lib/supabaseQuery";
-import { hasActiveSessionToken } from "@/lib/auth";
+import { hasActiveSessionToken, ensureValidSession } from "@/lib/auth";
 import { useI18n } from "@/lib/i18n";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -150,12 +150,8 @@ export function ReportsPage() {
     }
 
     try {
-      const { data: sessionData, error: sessionErr } = await withQueryTimeout(
-        supabase.auth.getSession(),
-        6000,
-        "Reports session check",
-      );
-      if (sessionErr || !hasActiveSessionToken(sessionData?.session)) {
+      const sessionCheck = await ensureValidSession();
+      if (sessionCheck.offline || !sessionCheck.session || !hasActiveSessionToken(sessionCheck.session)) {
         return;
       }
 

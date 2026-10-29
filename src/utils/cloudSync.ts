@@ -1,5 +1,6 @@
 import { supabase, SUPABASE_TABLE_SELECTS } from "@/lib/supabase";
-import { hasActiveSessionToken } from "@/lib/auth";
+import { hasActiveSessionToken, ensureValidSession } from "@/lib/auth";
+import { classifySupabaseError } from "@/lib/supabaseQuery";
 import {
   STORAGE_KEYS,
   getLocalData,
@@ -18,7 +19,7 @@ import {
   getAreas,
 } from "./localStore";
 import { toast } from "sonner";
-import { exportJsonBackup } from "@/lib/export";
+import { exportJsonBackup } from "./export";
 
 export interface SyncProgress {
   phase: string;
@@ -101,8 +102,16 @@ export function encodeCustomerNotes(cust: any): string {
  * Concurrency execution guard to prevent overlapping or infinite recursive synchronization calls.
  */
 let isCloudSyncing = false;
-let inFlightCloudPull: Promise<{ synced: boolean; updatedTables: string[] }> | null = null;
+let inFlightCloudPull: Promise<CloudPullResult> | null = null;
 let lastCloudPullAt = 0;
+let lastCloudErrorToastAt = 0;
+
+export interface CloudPullResult {
+  synced: boolean;
+  updatedTables: string[];
+  offline?: boolean;
+  error?: string | null;
+}
 
 export function getIsCloudSyncing(): boolean {
   return isCloudSyncing;
@@ -247,17 +256,35 @@ export async function pushAllLocalDataToSupabase(
     return summary;
   }
 
-  // Authentication guard: Remove background sync execution on unauthenticated sessions
+  // Offline guard: surface explicit offline state immediately instead of timing out sockets
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    const offlineMsg = "Device is currently offline. Connect to the internet to synchronize with cloud.";
+    toast.warning(offlineMsg);
+    summary.errors.push(offlineMsg);
+    return summary;
+  }
+
+  // Authentication & auto-refresh guard: verify or refresh mobile JWT before pushing data
   try {
-    const { data: sessionData } = await withTimeout(supabase.auth.getSession(), 6000, "Auth session verification");
-    if (!sessionData?.session) {
-      console.warn("[CloudSync] Cloud sync skipped: User is unauthenticated.");
-      summary.errors.push("User is not authenticated");
+    const sessionCheck = await ensureValidSession();
+    if (sessionCheck.offline) {
+      const offlineMsg = "Network disconnected before cloud sync could start.";
+      toast.warning(offlineMsg);
+      summary.errors.push(offlineMsg);
       return summary;
     }
-  } catch (authErr) {
+    if (!sessionCheck.session || !hasActiveSessionToken(sessionCheck.session)) {
+      const errMsg = sessionCheck.error?.userMessage || "User session is missing or expired. Please sign in again.";
+      console.warn("[CloudSync] Cloud sync skipped:", errMsg);
+      toast.error(errMsg);
+      summary.errors.push(errMsg);
+      return summary;
+    }
+  } catch (authErr: any) {
+    const classified = classifySupabaseError(authErr);
     console.warn("[CloudSync] Cloud sync aborted: Unable to verify auth session:", authErr);
-    summary.errors.push("Authentication verification failed");
+    toast.error(classified.userMessage);
+    summary.errors.push(classified.userMessage);
     return summary;
   }
 
@@ -645,6 +672,7 @@ export async function pushAllLocalDataToSupabase(
                   summary.orderItems++;
                 } else {
                   console.warn(`Order item sync notice (${itemPayload.id}):`, retryError.message);
+                  summary.errors.push(`Order item (${o.order_number}): ${retryError.message}`);
                 }
               }
             }
@@ -775,7 +803,11 @@ export async function pushAllLocalDataToSupabase(
           `Inventory upsert (${inv.product_id})`,
         );
 
-        if (!invError) summary.inventory++;
+        if (!invError) {
+          summary.inventory++;
+        } else {
+          summary.errors.push(`Inventory (${inv.product_id}): ${invError.message}`);
+        }
       }
       if (i % 5 === 0) await yieldToUI();
       report("Synchronizing Inventory", i + 1, localInventory.length);
@@ -791,11 +823,18 @@ export async function pushAllLocalDataToSupabase(
       broadcastCrossTabSync({ detail });
     }
 
-    toast.success(
-      `Cloud Migration Complete: ${summary.products} products, ${summary.customers} customers, ${summary.orders} orders synchronized to Supabase!`
-    );
+    if (summary.errors.length > 0) {
+      toast.warning(
+        `Cloud sync completed with ${summary.errors.length} issue(s): ${summary.errors[0]}`,
+      );
+    } else {
+      toast.success(
+        `Cloud Migration Complete: ${summary.products} products, ${summary.customers} customers, ${summary.orders} orders synchronized to Supabase!`
+      );
+    }
   } catch (err: any) {
-    const errorMsg = err?.message || String(err);
+    const classified = classifySupabaseError(err);
+    const errorMsg = classified.userMessage || err?.message || String(err);
     summary.errors.push(errorMsg);
     toast.error(`Sync error: ${errorMsg}`);
   } finally {
@@ -812,32 +851,35 @@ export async function pushAllLocalDataToSupabase(
 export async function pullFreshCloudStateToLocalStore(options?: {
   force?: boolean;
   silent?: boolean;
-}): Promise<{ synced: boolean; updatedTables: string[] }> {
+  notifyOnError?: boolean;
+}): Promise<CloudPullResult> {
   if (typeof window === "undefined") {
-    return { synced: false, updatedTables: [] };
+    return { synced: false, updatedTables: [], error: null };
   }
   if (typeof navigator !== "undefined" && navigator.onLine === false) {
-    return { synced: false, updatedTables: [] };
+    return { synced: false, updatedTables: [], offline: true, error: null };
   }
 
   const now = Date.now();
   if (!options?.force && now - lastCloudPullAt < 4000) {
-    return inFlightCloudPull ?? { synced: false, updatedTables: [] };
+    return inFlightCloudPull ?? { synced: false, updatedTables: [], error: null };
   }
   if (inFlightCloudPull) {
     return inFlightCloudPull;
   }
 
-  const task = (async (): Promise<{ synced: boolean; updatedTables: string[] }> => {
+  const task = (async (): Promise<CloudPullResult> => {
     try {
-      const { data: sessionData, error: sessionErr } = await safeTimedQuery(
-        () => supabase.auth.getSession(),
-        6000,
-        "Cloud pull session check",
-        0,
-      );
-      if (sessionErr || !hasActiveSessionToken(sessionData?.session)) {
-        return { synced: false, updatedTables: [] };
+      const sessionCheck = await ensureValidSession();
+      if (sessionCheck.offline) {
+        return { synced: false, updatedTables: [], offline: true, error: null };
+      }
+      if (!sessionCheck.session || !hasActiveSessionToken(sessionCheck.session)) {
+        const authMsg = sessionCheck.error?.userMessage || null;
+        if (authMsg && options?.notifyOnError) {
+          toast.error(authMsg);
+        }
+        return { synced: false, updatedTables: [], error: authMsg };
       }
 
       lastCloudPullAt = Date.now();
@@ -933,25 +975,34 @@ export async function pullFreshCloudStateToLocalStore(options?: {
 
       await yieldToUI();
       const updatedTables: string[] = [];
+      const tableErrors: Array<{ table: string; error: any }> = [];
 
       if (!ordersRes.error && Array.isArray(ordersRes.data)) {
         reconcileOrdersWithRemote(ordersRes.data as any, { persist: true, maxCache: 500 });
         updatedTables.push("orders");
+      } else if (ordersRes.error) {
+        tableErrors.push({ table: "orders", error: ordersRes.error });
       }
 
       if (!colsRes.error && Array.isArray(colsRes.data)) {
         reconcileCollectionsWithRemote(colsRes.data as any, { persist: true, maxCache: 1000 });
         updatedTables.push("collections");
+      } else if (colsRes.error) {
+        tableErrors.push({ table: "collections", error: colsRes.error });
       }
 
       if (!custRes.error && Array.isArray(custRes.data)) {
         mergeAndEnrichCustomers(custRes.data as any, { persist: true });
         updatedTables.push("customers");
+      } else if (custRes.error) {
+        tableErrors.push({ table: "customers", error: custRes.error });
       }
 
       if (!prodRes.error && Array.isArray(prodRes.data)) {
         reconcileProductsWithRemote(prodRes.data as any, { persist: true });
         updatedTables.push("products");
+      } else if (prodRes.error) {
+        tableErrors.push({ table: "products", error: prodRes.error });
       }
 
       if (!catRes.error && Array.isArray(catRes.data)) {
@@ -962,6 +1013,8 @@ export async function pullFreshCloudStateToLocalStore(options?: {
         );
         setLocalData(STORAGE_KEYS.CATEGORIES, [...pendingCats, ...catRes.data], null, true);
         updatedTables.push("categories");
+      } else if (catRes.error) {
+        tableErrors.push({ table: "categories", error: catRes.error });
       }
 
       if (!expRes.error && Array.isArray(expRes.data)) {
@@ -980,6 +1033,8 @@ export async function pullFreshCloudStateToLocalStore(options?: {
         );
         setLocalData(STORAGE_KEYS.EXPENSES, [...pendingExp, ...validRemoteExp], null, true);
         updatedTables.push("expenses");
+      } else if (expRes.error) {
+        tableErrors.push({ table: "expenses", error: expRes.error });
       }
 
       if (updatedTables.length > 0 && !options?.silent) {
@@ -995,10 +1050,73 @@ export async function pullFreshCloudStateToLocalStore(options?: {
         );
       }
 
-      return { synced: updatedTables.length > 0, updatedTables };
+      if (tableErrors.length > 0) {
+        const classified = classifySupabaseError(tableErrors[0].error);
+        // Reset throttle timestamp when all tables fail so the next resume/retry isn't blocked
+        if (updatedTables.length === 0) {
+          lastCloudPullAt = 0;
+        }
+        // If token expired mid-flight, trigger immediate background token refresh
+        if (classified.kind === "auth") {
+          void ensureValidSession(true);
+        }
+        console.warn(
+          `[CloudSync] Cloud pull issues (${tableErrors.map((t) => t.table).join(", ")}):`,
+          classified.rawMessage,
+        );
+        if (
+          updatedTables.length === 0 &&
+          classified.kind !== "offline" &&
+          (!options?.silent || options?.notifyOnError)
+        ) {
+          const nowToast = Date.now();
+          if (nowToast - lastCloudErrorToastAt > 20_000) {
+            lastCloudErrorToastAt = nowToast;
+            toast.warning(classified.userMessage, {
+              duration: 6000,
+              action: {
+                label: "Retry",
+                onClick: () => {
+                  void pullFreshCloudStateToLocalStore({ force: true, silent: false, notifyOnError: true });
+                },
+              },
+            });
+          }
+        }
+        return {
+          synced: updatedTables.length > 0,
+          updatedTables,
+          offline: classified.kind === "offline",
+          error: updatedTables.length === 0 ? classified.userMessage : null,
+        };
+      }
+
+      return { synced: updatedTables.length > 0, updatedTables, error: null };
     } catch (err) {
-      console.warn("[CloudSync] Background cloud pull notice:", err);
-      return { synced: false, updatedTables: [] };
+      lastCloudPullAt = 0;
+      const classified = classifySupabaseError(err);
+      console.warn("[CloudSync] Cloud pull exception:", classified.rawMessage);
+      if (classified.kind !== "offline" && (!options?.silent || options?.notifyOnError)) {
+        const nowToast = Date.now();
+        if (nowToast - lastCloudErrorToastAt > 20_000) {
+          lastCloudErrorToastAt = nowToast;
+          toast.warning(classified.userMessage, {
+            duration: 6000,
+            action: {
+              label: "Retry",
+              onClick: () => {
+                void pullFreshCloudStateToLocalStore({ force: true, silent: false, notifyOnError: true });
+              },
+            },
+          });
+        }
+      }
+      return {
+        synced: false,
+        updatedTables: [],
+        offline: classified.kind === "offline",
+        error: classified.userMessage,
+      };
     } finally {
       inFlightCloudPull = null;
     }

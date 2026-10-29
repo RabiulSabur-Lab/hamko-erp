@@ -690,7 +690,7 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
 
   // Single multiplexed Realtime channel (keyed on primitive userId — never tears down on token object churn)
   useEffect(() => {
-    if (loading || !sessionVerified || !userId || !hasActiveSessionToken(sessionRef.current)) return;
+    if (loading || !sessionVerified || !userId) return;
 
     let debounceTimer: ReturnType<typeof setTimeout> | undefined;
     const scheduleSync = () => {
@@ -744,13 +744,20 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
             setCollections(snap.collections);
             setCustomers(snap.customers);
             setProducts(snap.products);
+            if ((eTypeRef.current || "").includes("cloud_")) {
+              setIsFallbackData(false);
+              setConnectionIssue(null);
+              setLastSynced(new Date());
+            }
           });
         }
       }, 200);
     };
 
+    const eTypeRef = { current: "" };
     const handleLocalUpdate = (e: Event) => {
       const detail = (e as CustomEvent)?.detail;
+      eTypeRef.current = String(detail?.type || "");
       const detailKey = detail?.key;
       if (detailKey && !DASHBOARD_RELEVANT_KEYS.has(detailKey)) {
         return;
