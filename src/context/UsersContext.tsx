@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, useCallback, useMemo, useRef, type ReactNode } from "react";
 import { useAuth, hasActiveSessionToken } from "@/lib/auth";
 import { withQueryTimeout } from "@/lib/supabaseQuery";
+import { STORAGE_KEYS } from "@/utils/localStore";
 import {
   getStoredUsers,
   getLocalSalesOfficers,
@@ -25,6 +26,14 @@ const UsersContext = createContext<UsersContextValue | undefined>(undefined);
 
 export function UsersProvider({ children }: { children: ReactNode }) {
   const { profile, session, sessionVerified, verifySession } = useAuth();
+  const userId = session?.user?.id ?? null;
+
+  const sessionRef = useRef(session);
+  sessionRef.current = session;
+  const profileRef = useRef(profile);
+  profileRef.current = profile;
+  const verifySessionRef = useRef(verifySession);
+  verifySessionRef.current = verifySession;
 
   // 1. Initial State: Synchronous resolution for zero-lag UI render across page reloads
   const [usersMap, setUsersMap] = useState<Record<string, UserLookupInfo>>(() => buildUserLookupMap(profile));
@@ -32,12 +41,18 @@ export function UsersProvider({ children }: { children: ReactNode }) {
   const [salesOfficers, setSalesOfficers] = useState<ManagedUser[]>(() => getLocalSalesOfficers());
   const [loading, setLoading] = useState(false);
   const isRefreshingRef = useRef(false);
+  const lastSyncedUserIdRef = useRef<string | null>(null);
 
   // Sync usersMap with profile when authentication state becomes available
   useEffect(() => {
     if (profile?.id) {
       setUsersMap((prev) => {
-        if (prev[profile.id]?.full_name === profile.full_name) return prev;
+        if (
+          prev[profile.id]?.full_name === profile.full_name &&
+          prev[profile.id]?.role_name === profile.role_name
+        ) {
+          return prev;
+        }
         return {
           ...prev,
           [profile.id]: {
@@ -49,16 +64,18 @@ export function UsersProvider({ children }: { children: ReactNode }) {
         };
       });
     }
-  }, [profile]);
+  }, [profile?.id, profile?.full_name, profile?.email, profile?.role_name]);
 
-  // Master fetch function to query users table and populate active system roster
+  // Master fetch function with stable identity (uses refs to avoid effect re-trigger loops)
   const refreshUsers = useCallback(async () => {
-    // Execution guard: Verify active Supabase session token before heavy background queries
-    if (!session || !sessionVerified || isRefreshingRef.current) return;
+    const currentSess = sessionRef.current;
+    if (!currentSess || isRefreshingRef.current) return;
     isRefreshingRef.current = true;
 
     try {
-      const verified = hasActiveSessionToken(session) ? session : await verifySession(false);
+      const verified = hasActiveSessionToken(currentSess)
+        ? currentSess
+        : await verifySessionRef.current(false);
       if (!verified) {
         setUsers(getStoredUsers());
         setSalesOfficers(getLocalSalesOfficers());
@@ -68,7 +85,7 @@ export function UsersProvider({ children }: { children: ReactNode }) {
       setLoading(true);
       const reconciledUsers = await withQueryTimeout(fetchManagedUsers(), 8500, "Users directory sync");
 
-      const nextMap: Record<string, UserLookupInfo> = { ...buildUserLookupMap(profile) };
+      const nextMap: Record<string, UserLookupInfo> = { ...buildUserLookupMap(profileRef.current) };
 
       if (Array.isArray(reconciledUsers) && reconciledUsers.length > 0) {
         reconciledUsers.forEach((u) => {
@@ -109,32 +126,57 @@ export function UsersProvider({ children }: { children: ReactNode }) {
       setLoading(false);
       isRefreshingRef.current = false;
     }
-  }, [session, sessionVerified, verifySession, profile]);
+  }, []);
 
-  // Initial fetch on mount: ONLY when authenticated session token is verified
+  // Initial fetch on mount: strictly once per verified authenticated userId
   useEffect(() => {
-    if (session && sessionVerified) {
-      refreshUsers();
+    if (!userId) {
+      lastSyncedUserIdRef.current = null;
+      return;
     }
-  }, [session, sessionVerified, refreshUsers]);
+    if (!sessionVerified || lastSyncedUserIdRef.current === userId) return;
+    lastSyncedUserIdRef.current = userId;
+    void refreshUsers();
+  }, [userId, sessionVerified, refreshUsers]);
 
-  // Real-time synchronization on local storage updates or cross-tab events
+  // Debounced synchronization strictly for user-store updates (ignores unrelated order/product cache writes)
   useEffect(() => {
-    const handleStorageChange = () => {
-      const refreshedMap = buildUserLookupMap(profile);
-      setUsersMap((prev) => ({ ...prev, ...refreshedMap }));
-      setUsers(getStoredUsers());
-      setSalesOfficers(getLocalSalesOfficers());
+    let debounceTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const scheduleRefresh = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        const refreshedMap = buildUserLookupMap(profileRef.current);
+        setUsersMap((prev) => ({ ...prev, ...refreshedMap }));
+        setUsers(getStoredUsers());
+        setSalesOfficers(getLocalSalesOfficers());
+      }, 250);
     };
 
-    window.addEventListener("storage", handleStorageChange);
-    window.addEventListener("sales_erp_storage_update", handleStorageChange);
+    const handleCustomUpdate = (e: Event) => {
+      const detailKey = (e as CustomEvent)?.detail?.key;
+      if (detailKey && detailKey !== STORAGE_KEYS.USERS && detailKey !== STORAGE_KEYS.DELETED_USERS) {
+        return;
+      }
+      scheduleRefresh();
+    };
+
+    const handleCrossTabStorage = (e: StorageEvent) => {
+      if (e.key && e.key !== STORAGE_KEYS.USERS && e.key !== STORAGE_KEYS.DELETED_USERS) {
+        return;
+      }
+      scheduleRefresh();
+    };
+
+    window.addEventListener("storage", handleCrossTabStorage);
+    window.addEventListener("sales_erp_storage_update", handleCustomUpdate);
 
     return () => {
-      window.removeEventListener("storage", handleStorageChange);
-      window.removeEventListener("sales_erp_storage_update", handleStorageChange);
+      if (debounceTimer) clearTimeout(debounceTimer);
+      window.removeEventListener("storage", handleCrossTabStorage);
+      window.removeEventListener("sales_erp_storage_update", handleCustomUpdate);
     };
-  }, [profile]);
+  }, []);
 
   // Dynamic Sales Officer lookup by ID
   const getSalesOfficerById = useCallback(

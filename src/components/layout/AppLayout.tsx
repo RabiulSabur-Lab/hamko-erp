@@ -20,6 +20,8 @@ export type { NavItem };
 
 export function AppLayout({ children }: { children: ReactNode }) {
   const { profile, user, session, sessionVerified, signOut } = useAuth();
+  const userId = session?.user?.id ?? null;
+  const sessionRef = { current: session };
   const { theme, toggleTheme } = useTheme();
   const { lang, setLang, t } = useI18n();
   const { path, navigate } = useRouter();
@@ -32,8 +34,10 @@ export function AppLayout({ children }: { children: ReactNode }) {
   });
 
   useEffect(() => {
-    if (!sessionVerified || !hasActiveSessionToken(session)) return;
+    if (!sessionVerified || !userId || !hasActiveSessionToken(sessionRef.current)) return;
     let isMounted = true;
+    let debounceTimer: ReturnType<typeof setTimeout> | undefined;
+
     const fetchUnread = async () => {
       try {
         if (supabase?.from) {
@@ -46,7 +50,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
             "Notifications unread count",
           );
           if (!error && count !== null && isMounted) {
-            setUnreadCount(count);
+            setUnreadCount((prev) => (prev === count ? prev : count));
             return;
           }
         }
@@ -54,10 +58,20 @@ export function AppLayout({ children }: { children: ReactNode }) {
         // Fallback to local storage if network dropped or supabase unavailable
       }
       const list = getLocalData<any>(STORAGE_KEYS.NOTIFICATIONS, []);
-      if (isMounted) setUnreadCount(list.filter((n: any) => !n.is_read).length);
+      if (isMounted) {
+        const nextCount = list.filter((n: any) => !n.is_read).length;
+        setUnreadCount((prev) => (prev === nextCount ? prev : nextCount));
+      }
     };
 
-    fetchUnread();
+    const scheduleUnreadFetch = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        if (isMounted) void fetchUnread();
+      }, 300);
+    };
+
+    void fetchUnread();
 
     let notifChannel: any = null;
     try {
@@ -65,7 +79,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
         notifChannel = supabase
           .channel("app-layout-notifications")
           .on("postgres_changes", { event: "*", schema: "public", table: "notifications" }, () => {
-            fetchUnread();
+            scheduleUnreadFetch();
           })
           .subscribe();
       }
@@ -73,13 +87,26 @@ export function AppLayout({ children }: { children: ReactNode }) {
       console.warn("Notifications realtime subscription notice:", err);
     }
 
-    const updateUnread = () => {
-      fetchUnread();
+    const handleCustomUpdate = (e: Event) => {
+      const detailKey = (e as CustomEvent)?.detail?.key;
+      if (detailKey && detailKey !== STORAGE_KEYS.NOTIFICATIONS && detailKey !== STORAGE_KEYS.DELETED_NOTIFICATIONS) {
+        return;
+      }
+      scheduleUnreadFetch();
     };
-    window.addEventListener("storage", updateUnread);
-    window.addEventListener("sales_erp_storage_update", updateUnread);
+
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key && e.key !== STORAGE_KEYS.NOTIFICATIONS && e.key !== STORAGE_KEYS.DELETED_NOTIFICATIONS) {
+        return;
+      }
+      scheduleUnreadFetch();
+    };
+
+    window.addEventListener("storage", handleStorage);
+    window.addEventListener("sales_erp_storage_update", handleCustomUpdate);
     return () => {
       isMounted = false;
+      if (debounceTimer) clearTimeout(debounceTimer);
       try {
         if (notifChannel && supabase?.removeChannel) {
           supabase.removeChannel(notifChannel);
@@ -87,10 +114,10 @@ export function AppLayout({ children }: { children: ReactNode }) {
       } catch {
         // Safe fallback
       }
-      window.removeEventListener("storage", updateUnread);
-      window.removeEventListener("sales_erp_storage_update", updateUnread);
+      window.removeEventListener("storage", handleStorage);
+      window.removeEventListener("sales_erp_storage_update", handleCustomUpdate);
     };
-  }, [session, sessionVerified]);
+  }, [userId, sessionVerified]);
 
   const activeRoute = path === "/" ? "dashboard" : path.replace(/^\//, "").split("/")[0];
 

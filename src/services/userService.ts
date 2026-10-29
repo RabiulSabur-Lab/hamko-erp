@@ -461,17 +461,20 @@ export function getStoredUsers(): ManagedUser[] {
 
     if (valid.length > 0) {
       if (hasReplacements) {
-        setLocalData(STORAGE_KEYS.USERS, valid, TTL.PERMANENT);
+        // Silent write during read-only getter migration to prevent synchronous event recursion
+        setLocalData(STORAGE_KEYS.USERS, valid, TTL.PERMANENT, true);
       }
       return valid;
     }
   }
 
-  // Fallback to default users (excluding any deleted ones)
+  // Fallback to default users (excluding any deleted ones) without dispatching events from a getter
   const defaults = DEFAULT_SYSTEM_USERS.filter(
     (du) => !deleted.has(du.id) && !deleted.has(du.email.toLowerCase())
   ).map((du) => sanitizeManagedUser(du) as ManagedUser);
-  saveStoredUsers(defaults);
+  if (defaults.length > 0) {
+    setLocalData(STORAGE_KEYS.USERS, defaults, TTL.PERMANENT, true);
+  }
   return defaults;
 }
 
@@ -483,9 +486,6 @@ export function getStoredUsers(): ManagedUser[] {
 export function saveStoredUsers(users: ManagedUser[], silent = false): void {
   const sanitized = users.map((u) => sanitizeManagedUser(u) as ManagedUser);
   setLocalData(STORAGE_KEYS.USERS, sanitized, TTL.PERMANENT, silent);
-  if (!silent && typeof window !== "undefined") {
-    window.dispatchEvent(new Event("sales_erp_storage_update"));
-  }
 }
 
 /**
@@ -511,12 +511,13 @@ export function getStoredAuthCredentials(): StoredAuthCredential[] {
       return updated;
     });
     if (needsSave) {
-      setLocalData(STORAGE_KEYS.AUTH_CREDENTIALS, migrated, TTL.PERMANENT);
+      setLocalData(STORAGE_KEYS.AUTH_CREDENTIALS, migrated, TTL.PERMANENT, true);
     }
     return migrated;
   }
-  // Initialize with baseline demo credentials
-  saveStoredAuthCredentials(DEFAULT_AUTH_CREDENTIALS);
+  if (DEFAULT_AUTH_CREDENTIALS.length > 0) {
+    setLocalData(STORAGE_KEYS.AUTH_CREDENTIALS, DEFAULT_AUTH_CREDENTIALS, TTL.PERMANENT, true);
+  }
   return DEFAULT_AUTH_CREDENTIALS;
 }
 
@@ -525,10 +526,6 @@ export function getStoredAuthCredentials(): StoredAuthCredential[] {
  */
 export function saveStoredAuthCredentials(creds: StoredAuthCredential[]): void {
   setLocalData(STORAGE_KEYS.AUTH_CREDENTIALS, creds, TTL.PERMANENT);
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new Event("sales_erp_storage_update"));
-    window.dispatchEvent(new Event("storage"));
-  }
 }
 
 /**

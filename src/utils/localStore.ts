@@ -172,6 +172,8 @@ export function getLocalData<T = any>(key: string, defaultValue?: T): T {
   }
 }
 
+let isDispatchingStorageEvent = false;
+
 export function setLocalData<T = any>(key: string, value: T, ttlMs?: number | null, silent = false): void {
   if (typeof window === "undefined" || !window.localStorage) return;
   try {
@@ -187,13 +189,14 @@ export function setLocalData<T = any>(key: string, value: T, ttlMs?: number | nu
       }) as unknown as T;
     }
     setItemWithTTL(key, sanitizedValue, ttlMs);
-    if (!silent) {
+    if (!silent && !isDispatchingStorageEvent) {
+      isDispatchingStorageEvent = true;
       try {
         window.dispatchEvent(new CustomEvent('sales_erp_storage_update', { detail: { key } }));
-        window.dispatchEvent(new Event('sales_erp_storage_update'));
-        window.dispatchEvent(new Event('storage'));
       } catch {
         // ignore
+      } finally {
+        isDispatchingStorageEvent = false;
       }
     }
   } catch (e) {

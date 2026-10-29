@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, startTransition } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { useAuth, hasActiveSessionToken } from "@/lib/auth";
@@ -51,33 +51,92 @@ export interface UseDashboardDataResult {
   refresh: (isManual?: boolean) => Promise<void>;
 }
 
-const SKELETON_HARD_CAP_MS = 9500;
+const SKELETON_HARD_CAP_MS = 9000;
+const MIN_AUTO_FETCH_INTERVAL_MS = 5000;
+const MAX_LOCAL_CACHE_ORDERS = 400;
+const MAX_LOCAL_CACHE_COLLECTIONS = 800;
+
+const DASHBOARD_RELEVANT_KEYS = new Set<string>([
+  STORAGE_KEYS.ORDERS,
+  STORAGE_KEYS.DELETED_ORDERS,
+  STORAGE_KEYS.COLLECTIONS,
+  STORAGE_KEYS.DELETED_COLLECTIONS,
+  STORAGE_KEYS.CUSTOMERS,
+  STORAGE_KEYS.DELETED_CUSTOMERS,
+  STORAGE_KEYS.PRODUCTS,
+  STORAGE_KEYS.DELETED_PRODUCTS,
+]);
+
+/**
+ * Yields control back to the browser's main thread so rendering and user input never freeze.
+ */
+const yieldToMain = (): Promise<void> =>
+  new Promise((resolve) => {
+    setTimeout(resolve, 0);
+  });
+
+/**
+ * Schedules non-critical localStorage persistence during browser idle time
+ * so synchronous JSON.stringify never blocks Dashboard paint or interactions.
+ */
+function scheduleIdleTask(cb: () => void): void {
+  if (typeof window === "undefined") return;
+  const ric = (window as any).requestIdleCallback;
+  if (typeof ric === "function") {
+    ric(() => {
+      try {
+        cb();
+      } catch (e) {
+        console.warn("[Dashboard] Idle cache write warning:", e);
+      }
+    }, { timeout: 1500 });
+  } else {
+    setTimeout(() => {
+      try {
+        cb();
+      } catch (e) {
+        console.warn("[Dashboard] Deferred cache write warning:", e);
+      }
+    }, 200);
+  }
+}
 
 function readCachedDashboardSnapshot() {
-  const deletedOrderIds = getDeletedIds(STORAGE_KEYS.DELETED_ORDERS);
-  const rawCachedOrders = getOrders().filter((o: any) => o && !deletedOrderIds.has(o.id));
-  const cachedOrders = rawCachedOrders.length > 0 ? rawCachedOrders : initialOrders;
+  try {
+    const deletedOrderIds = getDeletedIds(STORAGE_KEYS.DELETED_ORDERS);
+    const rawCachedOrders = getOrders().filter((o: any) => o && !deletedOrderIds.has(o.id));
+    const cachedOrders = rawCachedOrders.length > 0 ? rawCachedOrders : initialOrders;
 
-  const deletedColIds = getDeletedIds(STORAGE_KEYS.DELETED_COLLECTIONS);
-  const rawCachedCols = getCollections().filter((c: any) => c && !deletedColIds.has(c.id));
-  const cachedCols = rawCachedCols.length > 0 ? rawCachedCols : initialCollections;
+    const deletedColIds = getDeletedIds(STORAGE_KEYS.DELETED_COLLECTIONS);
+    const rawCachedCols = getCollections().filter((c: any) => c && !deletedColIds.has(c.id));
+    const cachedCols = rawCachedCols.length > 0 ? rawCachedCols : initialCollections;
 
-  const cachedCustomers = getCustomers();
-  const cachedProducts = getLocalData<any[]>(STORAGE_KEYS.PRODUCTS, []);
+    const cachedCustomers = getCustomers();
+    const cachedProducts = getLocalData<any[]>(STORAGE_KEYS.PRODUCTS, []);
 
-  const hasAnyCached =
-    rawCachedOrders.length > 0 ||
-    rawCachedCols.length > 0 ||
-    cachedCustomers.length > 0 ||
-    cachedProducts.length > 0;
+    const hasAnyCached =
+      rawCachedOrders.length > 0 ||
+      rawCachedCols.length > 0 ||
+      cachedCustomers.length > 0 ||
+      (Array.isArray(cachedProducts) && cachedProducts.length > 0);
 
-  return {
-    orders: cachedOrders,
-    collections: cachedCols,
-    customers: cachedCustomers,
-    products: Array.isArray(cachedProducts) ? cachedProducts : [],
-    hasAnyCached,
-  };
+    return {
+      orders: cachedOrders,
+      collections: cachedCols,
+      customers: cachedCustomers,
+      products: Array.isArray(cachedProducts) ? cachedProducts : [],
+      hasAnyCached,
+    };
+  } catch (err) {
+    console.warn("[Dashboard] Failed reading local snapshot, using clean empty defaults:", err);
+    return {
+      orders: initialOrders,
+      collections: initialCollections,
+      customers: [] as Customer[],
+      products: [] as any[],
+      hasAnyCached: false,
+    };
+  }
 }
 
 function computePreviousMetrics(
@@ -114,31 +173,43 @@ function computePreviousMetrics(
 
 export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResult {
   const { session, loading: authLoading, sessionVerified, verifySession } = useAuth();
+  const userId = session?.user?.id ?? null;
 
-  // Synchronously hydrate from localStorage if available to avoid unnecessary skeleton flash
-  const initialSnapshot = useRef(readCachedDashboardSnapshot());
+  // Store changing auth objects in refs so callbacks & effects NEVER re-trigger in loops
+  const sessionRef = useRef(session);
+  sessionRef.current = session;
+  const verifySessionRef = useRef(verifySession);
+  verifySessionRef.current = verifySession;
+  const langRef = useRef(lang);
+  langRef.current = lang;
 
-  const [orders, setOrders] = useState<any[]>(() => initialSnapshot.current.orders);
-  const [collections, setCollections] = useState<any[]>(() => initialSnapshot.current.collections);
-  const [customers, setCustomers] = useState<Customer[]>(() => initialSnapshot.current.customers);
-  const [products, setProducts] = useState<any[]>(() => initialSnapshot.current.products);
+  // Synchronously hydrate once from localStorage if available to avoid skeleton flash
+  const initialSnapshotRef = useRef<ReturnType<typeof readCachedDashboardSnapshot> | null>(null);
+  if (initialSnapshotRef.current === null) {
+    initialSnapshotRef.current = readCachedDashboardSnapshot();
+  }
+
+  const [orders, setOrders] = useState<any[]>(() => initialSnapshotRef.current!.orders);
+  const [collections, setCollections] = useState<any[]>(() => initialSnapshotRef.current!.collections);
+  const [customers, setCustomers] = useState<Customer[]>(() => initialSnapshotRef.current!.customers);
+  const [products, setProducts] = useState<any[]>(() => initialSnapshotRef.current!.products);
   const [prevMetrics, setPrevMetrics] = useState<PrevDashboardMetrics>({
     prevCollection: 0,
     prevDue: 0,
     prevCustCount: 0,
   });
 
-  const [loading, setLoading] = useState<boolean>(() => !initialSnapshot.current.hasAnyCached);
+  const [loading, setLoading] = useState<boolean>(() => !initialSnapshotRef.current!.hasAnyCached);
   const [refreshing, setRefreshing] = useState<boolean>(false);
-  const [isFallbackData, setIsFallbackData] = useState<boolean>(() => initialSnapshot.current.hasAnyCached);
+  const [isFallbackData, setIsFallbackData] = useState<boolean>(() => initialSnapshotRef.current!.hasAnyCached);
   const [lastSynced, setLastSynced] = useState<Date | null>(null);
   const [connectionIssue, setConnectionIssue] = useState<DashboardConnectionIssue | null>(null);
 
   const mountedRef = useRef<boolean>(true);
   const inFlightRef = useRef<Promise<void> | null>(null);
+  const lastAutoFetchAtRef = useRef<number>(0);
+  const initialFetchedForUserRef = useRef<string | null>(null);
   const lastToastTimeRef = useRef<number>(0);
-  const langRef = useRef(lang);
-  langRef.current = lang;
 
   const applyLocalFallback = useCallback(() => {
     const snap = readCachedDashboardSnapshot();
@@ -149,20 +220,21 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
     const prevMonthStart = `${prevMonth.getFullYear()}-${pad(prevMonth.getMonth() + 1)}-01`;
     const prevWeekEnd = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
-    setOrders(snap.orders);
-    setCollections(snap.collections);
-    setCustomers(snap.customers);
-    setProducts(snap.products);
-    setPrevMetrics(
-      computePreviousMetrics(snap.collections, snap.customers, prevMonthStart, monthStart, prevWeekEnd),
-    );
-    setIsFallbackData(true);
+    startTransition(() => {
+      setOrders(snap.orders);
+      setCollections(snap.collections);
+      setCustomers(snap.customers);
+      setProducts(snap.products);
+      setPrevMetrics(
+        computePreviousMetrics(snap.collections, snap.customers, prevMonthStart, monthStart, prevWeekEnd),
+      );
+      setIsFallbackData(true);
+    });
   }, []);
 
   const surfaceFailureNotification = useCallback(
     (issue: DashboardConnectionIssue, isManual: boolean, retryFn: () => void) => {
       const now = Date.now();
-      // Always toast on manual retry; rate-limit automatic background sync toasts to once every 15s
       if (!isManual && now - lastToastTimeRef.current < 15_000) return;
       lastToastTimeRef.current = now;
 
@@ -180,12 +252,18 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
     [],
   );
 
+  // Stable identity (no session object in deps!) prevents infinite useEffect re-execution loops
   const fetchFromSupabase = useCallback(
     async (isManual = false): Promise<void> => {
-      // Share in-flight execution instead of dropping state updates on StrictMode remounts
-      if (inFlightRef.current && !isManual) {
+      if (inFlightRef.current) {
         return inFlightRef.current;
       }
+
+      const nowMs = Date.now();
+      if (!isManual && nowMs - lastAutoFetchAtRef.current < MIN_AUTO_FETCH_INTERVAL_MS) {
+        return;
+      }
+      lastAutoFetchAtRef.current = nowMs;
 
       if (isManual && mountedRef.current) {
         setRefreshing(true);
@@ -193,24 +271,24 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
 
       const task = (async () => {
         try {
-          // 1. Verify active Supabase session token before firing heavy background queries
-          const activeSession = hasActiveSessionToken(session)
-            ? session
-            : await verifySession(isManual);
+          // 1. Verify active Supabase session token via refs before firing queries
+          const currentSess = sessionRef.current;
+          const activeSession = hasActiveSessionToken(currentSess)
+            ? currentSess
+            : await verifySessionRef.current(isManual);
 
           if (!activeSession) {
             if (!mountedRef.current) return;
             applyLocalFallback();
+            const isOffline = typeof navigator !== "undefined" && navigator.onLine === false;
             const authIssue: DashboardConnectionIssue = {
-              kind: typeof navigator !== "undefined" && navigator.onLine === false ? "offline" : "auth",
-              message:
-                typeof navigator !== "undefined" && navigator.onLine === false
-                  ? "Device is offline. Displaying cached dashboard state."
-                  : "Session token could not be verified. Displaying cached/default dashboard state.",
-              messageBn:
-                typeof navigator !== "undefined" && navigator.onLine === false
-                  ? "ইন্টারনেট সংযোগ নেই। সংরক্ষিত ড্যাশবোর্ড ডেটা দেখানো হচ্ছে।"
-                  : "সেশন টোকেন যাচাই করা যায়নি। সংরক্ষিত ড্যাশবোর্ড ডেটা দেখানো হচ্ছে।",
+              kind: isOffline ? "offline" : "auth",
+              message: isOffline
+                ? "Device is offline. Displaying cached dashboard state."
+                : "Session token could not be verified. Displaying cached/default dashboard state.",
+              messageBn: isOffline
+                ? "ইন্টারনেট সংযোগ নেই। সংরক্ষিত ড্যাশবোর্ড ডেটা দেখানো হচ্ছে।"
+                : "সেশন টোকেন যাচাই করা যায়নি। সংরক্ষিত ড্যাশবোর্ড ডেটা দেখানো হচ্ছে।",
               failedResources: ["session"],
             };
             setConnectionIssue(authIssue);
@@ -229,32 +307,39 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
           const prevMonthStart = `${prevMonth.getFullYear()}-${pad(prevMonth.getMonth() + 1)}-01`;
           const prevWeekEnd = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
-          // 2. Execute 4 lean parallel queries, each bounded by an explicit 9s timeout.
-          //    Using Promise.allSettled ensures one slow query never blocks the rest of the Dashboard.
+          // 2. Lean, bounded queries with explicit 9s timeout per query.
+          //    Avoids deep nested product/category joins inside order_items (mapped in O(1) from products instead).
           const [oSettled, colSettled, custSettled, prodSettled] = await Promise.allSettled([
             withQueryTimeout(
               supabase
                 .from("orders")
                 .select(
-                  "id, order_number, total_amount, status, created_at, order_date, customer_id, due_amount, paid_amount, order_items(*, product:products(name, category_id, category:categories(name))), customer:customers(id, name)",
+                  "id, order_number, total_amount, status, created_at, order_date, customer_id, due_amount, paid_amount, order_items(product_id, quantity, unit_price, subtotal), customer:customers(id, name)",
                 )
-                .order("order_date", { ascending: false }),
+                .order("order_date", { ascending: false })
+                .limit(1000),
               DASHBOARD_QUERY_TIMEOUT_MS,
               "Orders query",
             ),
             withQueryTimeout(
               supabase
                 .from("collections")
-                .select("id, collection_number, amount, collection_date, customer_id, created_at")
-                .order("collection_date", { ascending: false }),
+                .select(
+                  "id, collection_number, amount, collection_date, customer_id, order_id, settlement_discount, created_at",
+                )
+                .order("collection_date", { ascending: false })
+                .limit(2000),
               DASHBOARD_QUERY_TIMEOUT_MS,
               "Collections query",
             ),
             withQueryTimeout(
               supabase
                 .from("customers")
-                .select("*, territory:territories(*)")
-                .order("name", { ascending: true }),
+                .select(
+                  "id, name, outlet_name, party_code, area, city, phone, customer_type, opening_balance, current_due, due_status, status, is_active, notes, created_at, updated_at, territory_id",
+                )
+                .order("name", { ascending: true })
+                .limit(2000),
               DASHBOARD_QUERY_TIMEOUT_MS,
               "Customers query",
             ),
@@ -262,12 +347,17 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
               supabase
                 .from("products")
                 .select("id, name, unit_price, stock_quantity, reorder_level, category_id, category:categories(name)")
-                .eq("is_active", true),
+                .eq("is_active", true)
+                .limit(1000),
               DASHBOARD_QUERY_TIMEOUT_MS,
               "Products query",
             ),
           ]);
 
+          if (!mountedRef.current) return;
+
+          // Yield to browser frame before CPU data merging so scrolling/clicks stay responsive
+          await yieldToMain();
           if (!mountedRef.current) return;
 
           const failedResources: string[] = [];
@@ -280,9 +370,10 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
 
           // ── Orders ──────────────────────────────────────────────────────────
           let resolvedOrders: any[] = initialOrders;
+          let shouldCacheOrders = false;
           const deletedOrderIds = getDeletedIds(STORAGE_KEYS.DELETED_ORDERS);
           if (oSettled.status === "fulfilled" && !oSettled.value.error && Array.isArray(oSettled.value.data)) {
-            const remoteOrders = (oSettled.value.data as any[]).filter((o: any) => !deletedOrderIds.has(o.id));
+            const remoteOrders = (oSettled.value.data as any[]).filter((o: any) => o && !deletedOrderIds.has(o.id));
             const remoteIdSet = new Set(remoteOrders.map((o: any) => String(o.id)));
             const pendingLocal = getOrders().filter(
               (lo: any) => lo && !deletedOrderIds.has(lo.id) && !remoteIdSet.has(String(lo.id)),
@@ -291,7 +382,7 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
               excludeDrafts: false,
               excludeCancelled: false,
             });
-            setLocalData(STORAGE_KEYS.ORDERS, resolvedOrders, null, true);
+            shouldCacheOrders = true;
           } else {
             recordFailure(
               "orders",
@@ -300,13 +391,13 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
             const fallbackOrders = getOrders().filter((o: any) => o && !deletedOrderIds.has(o.id));
             resolvedOrders = fallbackOrders.length > 0 ? fallbackOrders : initialOrders;
           }
-          setOrders(resolvedOrders);
 
           // ── Collections ─────────────────────────────────────────────────────
           let resolvedCollections: any[] = initialCollections;
+          let shouldCacheCollections = false;
           const deletedColIds = getDeletedIds(STORAGE_KEYS.DELETED_COLLECTIONS);
           if (colSettled.status === "fulfilled" && !colSettled.value.error && Array.isArray(colSettled.value.data)) {
-            const remoteCols = colSettled.value.data.filter((c: any) => !deletedColIds.has(c.id));
+            const remoteCols = colSettled.value.data.filter((c: any) => c && !deletedColIds.has(c.id));
             const remoteIdSet = new Set(remoteCols.map((c: any) => String(c.id)));
             const remoteColNumSet = new Set(
               remoteCols
@@ -322,7 +413,7 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
                   !remoteColNumSet.has(String(lc.collection_number).trim().toUpperCase())),
             );
             resolvedCollections = deduplicateCollections([...pendingLocal, ...remoteCols]);
-            setLocalData(STORAGE_KEYS.COLLECTIONS, resolvedCollections, null, true);
+            shouldCacheCollections = true;
           } else {
             recordFailure(
               "collections",
@@ -331,7 +422,10 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
             const fallbackCols = getCollections().filter((c: any) => c && !deletedColIds.has(c.id));
             resolvedCollections = fallbackCols.length > 0 ? fallbackCols : initialCollections;
           }
-          setCollections(resolvedCollections);
+
+          // Yield again before customer enrichment & state commit
+          await yieldToMain();
+          if (!mountedRef.current) return;
 
           // ── Customers ───────────────────────────────────────────────────────
           let resolvedCustomers: Customer[] = [];
@@ -344,13 +438,13 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
             );
             resolvedCustomers = getCustomers();
           }
-          setCustomers(resolvedCustomers);
 
           // ── Products ────────────────────────────────────────────────────────
           let resolvedProducts: any[] = [];
+          let shouldCacheProducts = false;
           if (prodSettled.status === "fulfilled" && !prodSettled.value.error && Array.isArray(prodSettled.value.data)) {
             resolvedProducts = prodSettled.value.data;
-            setLocalData(STORAGE_KEYS.PRODUCTS, resolvedProducts, null, true);
+            shouldCacheProducts = true;
           } else {
             recordFailure(
               "products",
@@ -358,18 +452,49 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
             );
             resolvedProducts = getLocalData<any[]>(STORAGE_KEYS.PRODUCTS, []);
           }
-          setProducts(Array.isArray(resolvedProducts) ? resolvedProducts : []);
 
-          // ── Previous-period metrics computed in O(N) without extra DB round-trips ──
-          setPrevMetrics(
-            computePreviousMetrics(
-              resolvedCollections,
-              resolvedCustomers,
-              prevMonthStart,
-              monthStart,
-              prevWeekEnd,
-            ),
+          const computedPrev = computePreviousMetrics(
+            resolvedCollections,
+            resolvedCustomers,
+            prevMonthStart,
+            monthStart,
+            prevWeekEnd,
           );
+
+          // Commit data updates inside startTransition so heavy chart renders never block UI input
+          startTransition(() => {
+            if (!mountedRef.current) return;
+            setOrders(resolvedOrders);
+            setCollections(resolvedCollections);
+            setCustomers(resolvedCustomers);
+            setProducts(Array.isArray(resolvedProducts) ? resolvedProducts : []);
+            setPrevMetrics(computedPrev);
+          });
+
+          // Persist bounded cache snapshots asynchronously during idle time
+          if (shouldCacheOrders || shouldCacheCollections || shouldCacheProducts) {
+            scheduleIdleTask(() => {
+              if (shouldCacheOrders) {
+                setLocalData(
+                  STORAGE_KEYS.ORDERS,
+                  resolvedOrders.slice(0, MAX_LOCAL_CACHE_ORDERS),
+                  null,
+                  true,
+                );
+              }
+              if (shouldCacheCollections) {
+                setLocalData(
+                  STORAGE_KEYS.COLLECTIONS,
+                  resolvedCollections.slice(0, MAX_LOCAL_CACHE_COLLECTIONS),
+                  null,
+                  true,
+                );
+              }
+              if (shouldCacheProducts) {
+                setLocalData(STORAGE_KEYS.PRODUCTS, resolvedProducts, null, true);
+              }
+            });
+          }
 
           // ── Connection diagnostics & user feedback ──────────────────────────
           if (failedResources.length > 0) {
@@ -425,17 +550,17 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
       inFlightRef.current = task;
       return task;
     },
-    [session, verifySession, applyLocalFallback, surfaceFailureNotification],
+    [applyLocalFallback, surfaceFailureNotification],
   );
 
-  // Hard skeleton watchdog: guarantees mobile skeleton states NEVER stay stuck beyond 9.5s
+  // Hard loading timeout: guarantees Dashboard skeleton exits cleanly within 9s on all devices
   useEffect(() => {
     mountedRef.current = true;
     const watchdog = setTimeout(() => {
       if (mountedRef.current) {
         setLoading((prevLoading) => {
           if (prevLoading) {
-            console.warn("[Dashboard] Skeleton hard-cap watchdog triggered (9.5s). Unlocking UI with fallback state.");
+            console.warn("[Dashboard] Loading timeout reached (9s). Unlocking UI with fallback state.");
             applyLocalFallback();
           }
           return false;
@@ -450,15 +575,27 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
     };
   }, [applyLocalFallback]);
 
-  // Trigger initial cloud fetch once AuthProvider finishes initial token check
+  // Initial cloud fetch keyed strictly on primitive auth flags (executes once per authenticated userId)
   useEffect(() => {
     if (authLoading || !sessionVerified) return;
-    void fetchFromSupabase(false);
-  }, [authLoading, sessionVerified, fetchFromSupabase]);
 
-  // Single multiplexed Realtime channel (deferred until initial load finishes & session is verified)
+    const targetKey = userId ?? "__unauthenticated__";
+    if (initialFetchedForUserRef.current === targetKey) return;
+    initialFetchedForUserRef.current = targetKey;
+
+    if (!userId) {
+      applyLocalFallback();
+      setLoading(false);
+      return;
+    }
+
+    lastAutoFetchAtRef.current = 0; // Allow initial fetch immediately for this user
+    void fetchFromSupabase(false);
+  }, [authLoading, sessionVerified, userId, fetchFromSupabase, applyLocalFallback]);
+
+  // Single multiplexed Realtime channel (keyed on primitive userId — never tears down on token object churn)
   useEffect(() => {
-    if (loading || !sessionVerified || !hasActiveSessionToken(session)) return;
+    if (loading || !sessionVerified || !userId || !hasActiveSessionToken(sessionRef.current)) return;
 
     let debounceTimer: ReturnType<typeof setTimeout> | undefined;
     const scheduleSync = () => {
@@ -467,7 +604,7 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
         if (mountedRef.current && !inFlightRef.current) {
           void fetchFromSupabase(false);
         }
-      }, 1500);
+      }, 3000);
     };
 
     let channel: any = null;
@@ -493,37 +630,54 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
         }
       }
     };
-  }, [loading, sessionVerified, session, fetchFromSupabase]);
+  }, [loading, sessionVerified, userId, fetchFromSupabase]);
 
-  // Listen to local mutation events from other ERP modules
+  // Filtered & debounced listener for local mutations from other ERP pages
   useEffect(() => {
-    const handleLocalUpdate = () => {
-      if (!mountedRef.current) return;
-      const snap = readCachedDashboardSnapshot();
-      if (snap.hasAnyCached) {
-        setOrders(snap.orders);
-        setCollections(snap.collections);
-        setCustomers(snap.customers);
-        setProducts(snap.products);
-      }
+    let debounceTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const scheduleLocalSync = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        if (!mountedRef.current || inFlightRef.current) return;
+        const snap = readCachedDashboardSnapshot();
+        if (snap.hasAnyCached) {
+          startTransition(() => {
+            setOrders(snap.orders);
+            setCollections(snap.collections);
+            setCustomers(snap.customers);
+            setProducts(snap.products);
+          });
+        }
+      }, 250);
     };
+
+    const handleLocalUpdate = (e: Event) => {
+      const detailKey = (e as CustomEvent)?.detail?.key;
+      if (detailKey && !DASHBOARD_RELEVANT_KEYS.has(detailKey)) {
+        return;
+      }
+      scheduleLocalSync();
+    };
+
     window.addEventListener("sales_erp_storage_update", handleLocalUpdate);
-    window.addEventListener("customer_ledger_updated", handleLocalUpdate);
+    window.addEventListener("customer_ledger_updated", scheduleLocalSync);
     return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
       window.removeEventListener("sales_erp_storage_update", handleLocalUpdate);
-      window.removeEventListener("customer_ledger_updated", handleLocalUpdate);
+      window.removeEventListener("customer_ledger_updated", scheduleLocalSync);
     };
   }, []);
 
-  // Auto-sync on mobile app resume / focus / online reconnect (debounced to 10s)
+  // Auto-sync on mobile app resume / focus / online reconnect (debounced to 15s)
   useAutoSync(
     () => {
-      if (!loading && !refreshing && !inFlightRef.current && sessionVerified) {
+      if (!loading && !refreshing && !inFlightRef.current && sessionVerified && userId) {
         void fetchFromSupabase(false);
       }
     },
-    !loading && sessionVerified,
-    10000,
+    !loading && sessionVerified && Boolean(userId),
+    15000,
   );
 
   return {
@@ -540,4 +694,3 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
     refresh: fetchFromSupabase,
   };
 }
-

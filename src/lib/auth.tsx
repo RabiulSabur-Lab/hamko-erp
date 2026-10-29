@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, useRef, useCallback, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, useRef, useCallback, useMemo, type ReactNode } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { toast } from "sonner";
 import { supabase, type UserProfile, type Role } from "./supabase";
@@ -52,9 +52,48 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const sessionRef = useRef<Session | null>(null);
   sessionRef.current = session;
+  const profileRef = useRef<UserProfile | null>(null);
+  profileRef.current = profile;
   const activeProfileUidRef = useRef<string | null>(null);
   const verifyInFlightRef = useRef<Promise<Session | null> | null>(null);
   const lastAuthToastAtRef = useRef<number>(0);
+
+  // Bail out of state updates when session token & user ID have not meaningfully changed
+  const updateSessionStable = useCallback((next: Session | null) => {
+    sessionRef.current = next;
+    setSession((prev) => {
+      if (!prev && !next) return prev;
+      if (
+        prev &&
+        next &&
+        prev.access_token === next.access_token &&
+        prev.user?.id === next.user?.id &&
+        prev.expires_at === next.expires_at
+      ) {
+        return prev;
+      }
+      return next;
+    });
+  }, []);
+
+  const updateProfileStable = useCallback((next: UserProfile | null) => {
+    profileRef.current = next;
+    setProfile((prev) => {
+      if (!prev && !next) return prev;
+      if (
+        prev &&
+        next &&
+        prev.id === next.id &&
+        prev.email === next.email &&
+        prev.full_name === next.full_name &&
+        prev.role_name === next.role_name &&
+        prev.is_active === next.is_active
+      ) {
+        return prev;
+      }
+      return next;
+    });
+  }, []);
 
   const notifyConnectionIssue = useCallback((message: string, onRetry?: () => void) => {
     const now = Date.now();
@@ -73,10 +112,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  async function loadProfile(uid: string, authUser?: User | null) {
+  const loadProfile = useCallback(async (uid: string, authUser?: User | null, force = false) => {
     if (!uid) return;
-    // Guard against concurrent duplicate profile requests for same user ID
-    if (activeProfileUidRef.current === uid && profile?.id === uid) return;
+    // Skip duplicate or already-loaded profile fetches unless forced
+    if (!force && (activeProfileUidRef.current === uid || profileRef.current?.id === uid)) return;
     activeProfileUidRef.current = uid;
 
     try {
@@ -90,7 +129,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
 
       if (data) {
-        setProfile(data as UserProfile);
+        updateProfileStable(data as UserProfile);
         try {
           const currentStored = getStoredUsers();
           const exists = currentStored.some((u) => u.id === data.id);
@@ -154,7 +193,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           created_at: activeUser.created_at || new Date().toISOString(),
         };
 
-        setProfile(fallbackProfile);
+        updateProfileStable(fallbackProfile);
 
         try {
           const currentStored = getStoredUsers();
@@ -182,14 +221,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      setProfile(null);
+      updateProfileStable(null);
     } catch (err) {
       console.error("loadProfile exception:", err);
-      setProfile(null);
+      updateProfileStable(null);
     } finally {
       activeProfileUidRef.current = null;
     }
-  }
+  }, [updateProfileStable]);
 
   /**
    * Verifies that an active, non-expired Supabase session token exists before heavy background queries run.
@@ -218,8 +257,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (error) {
             const classified = classifySupabaseError(error);
             if (classified.kind === "auth") {
-              setSession(null);
-              setProfile(null);
+              updateSessionStable(null);
+              updateProfileStable(null);
               setAuthError(classified.userMessage);
               toast.error("Session expired. Please sign in again.");
               return null;
@@ -233,14 +272,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
           const currentSess = data?.session ?? null;
           if (!currentSess) {
-            setSession(null);
+            updateSessionStable(null);
             setAuthError(null);
             return null;
           }
 
           // If token is active and not forced to refresh, accept immediately
           if (!forceRefresh && hasActiveSessionToken(currentSess)) {
-            setSession(currentSess);
+            updateSessionStable(currentSess);
             setAuthError(null);
             return currentSess;
           }
@@ -255,8 +294,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (refreshError) {
             const classified = classifySupabaseError(refreshError);
             if (classified.kind === "auth") {
-              setSession(null);
-              setProfile(null);
+              updateSessionStable(null);
+              updateProfileStable(null);
               setAuthError(classified.userMessage);
               toast.error("Your session expired. Please sign in again.");
               return null;
@@ -270,7 +309,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
           const nextSession = refreshData?.session ?? currentSess;
           if (nextSession?.access_token) {
-            setSession(nextSession);
+            updateSessionStable(nextSession);
             setAuthError(null);
             return nextSession;
           }
@@ -292,7 +331,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       verifyInFlightRef.current = task;
       return task;
     },
-    [notifyConnectionIssue],
+    [notifyConnectionIssue, updateSessionStable, updateProfileStable],
   );
 
   useEffect(() => {
@@ -332,10 +371,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => {
       if (!mounted) return;
-      setSession(sess);
+      updateSessionStable(sess);
       setSessionVerified(true);
       if (!sess) {
-        setProfile(null);
+        updateProfileStable(null);
         setLoading(false);
         return;
       }
@@ -358,9 +397,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       clearTimeout(safetyTimeout);
       sub.subscription.unsubscribe();
     };
-  }, [verifySession]);
+  }, [verifySession, loadProfile, updateSessionStable, updateProfileStable]);
 
-  async function signIn(email: string, password: string) {
+  const signIn = useCallback(async (email: string, password: string) => {
     const cleanEmail = email.trim().toLowerCase();
     const cleanPassword = password.trim();
 
@@ -383,10 +422,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       if (data.session) {
-        setSession(data.session);
+        updateSessionStable(data.session);
         setSessionVerified(true);
         setAuthError(null);
-        loadProfile(data.session.user.id, data.session.user).catch((err) => {
+        loadProfile(data.session.user.id, data.session.user, true).catch((err) => {
           console.warn("Post-login profile load notice:", err);
         });
         return { error: null };
@@ -397,9 +436,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const classified = classifySupabaseError(err);
       return { error: classified.userMessage || err?.message || "Sign in failed. Please check your connection." };
     }
-  }
+  }, [loadProfile, updateSessionStable]);
 
-  async function signUp(email: string, password: string, fullName: string, role: Role) {
+  const signUp = useCallback(async (email: string, password: string, fullName: string, role: Role) => {
     const { data, error } = await supabase.auth.signUp({ email, password });
     if (error) return { error: error.message };
     if (data.user) {
@@ -412,13 +451,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (profileError) return { error: profileError.message };
     }
     return { error: null };
-  }
+  }, []);
 
-  function signInAsDemo(_email: string) {
+  const signInAsDemo = useCallback((_email: string) => {
     // Deprecated: Demo login disabled for production readiness
-  }
+  }, []);
 
-  async function signOut() {
+  const signOut = useCallback(async () => {
     try {
       if (typeof window !== "undefined") {
         sessionStorage.removeItem("sales_erp_demo_session");
@@ -428,37 +467,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (err) {
       console.warn("Sign out notice:", err);
     } finally {
-      setProfile(null);
-      setSession(null);
+      updateProfileStable(null);
+      updateSessionStable(null);
       setAuthError(null);
       setSessionVerified(true);
     }
-  }
+  }, [updateProfileStable, updateSessionStable]);
 
-  async function refreshProfile() {
-    if (session?.user) {
-      await loadProfile(session.user.id);
+  const refreshProfile = useCallback(async () => {
+    if (sessionRef.current?.user) {
+      await loadProfile(sessionRef.current.user.id, sessionRef.current.user, true);
     }
-  }
+  }, [loadProfile]);
+
+  const contextValue = useMemo<AuthContextValue>(
+    () => ({
+      session,
+      user: session?.user ?? null,
+      profile,
+      loading,
+      sessionVerified,
+      authError,
+      isDemo: false,
+      signIn,
+      signUp,
+      signInAsDemo,
+      signOut,
+      refreshProfile,
+      verifySession,
+    }),
+    [session, profile, loading, sessionVerified, authError, signIn, signUp, signInAsDemo, signOut, refreshProfile, verifySession],
+  );
 
   return (
-    <AuthContext.Provider
-      value={{
-        session,
-        user: session?.user ?? null,
-        profile,
-        loading,
-        sessionVerified,
-        authError,
-        isDemo: false,
-        signIn,
-        signUp,
-        signInAsDemo,
-        signOut,
-        refreshProfile,
-        verifySession,
-      }}
-    >
+    <AuthContext.Provider value={contextValue}>
       {children}
     </AuthContext.Provider>
   );
