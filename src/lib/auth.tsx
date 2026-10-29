@@ -1,6 +1,8 @@
-import { createContext, useContext, useEffect, useState, useRef, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, useRef, useCallback, type ReactNode } from "react";
 import type { Session, User } from "@supabase/supabase-js";
+import { toast } from "sonner";
 import { supabase, type UserProfile, type Role } from "./supabase";
+import { withQueryTimeout, classifySupabaseError } from "./supabaseQuery";
 import {
   getStoredUsers,
   saveStoredUsers,
@@ -12,12 +14,15 @@ interface AuthContextValue {
   user: User | null;
   profile: UserProfile | null;
   loading: boolean;
+  sessionVerified: boolean;
+  authError: string | null;
   isDemo: boolean;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signUp: (email: string, password: string, fullName: string, role: Role) => Promise<{ error: string | null }>;
   signInAsDemo?: (email: string) => void;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
+  verifySession: (forceRefresh?: boolean) => Promise<Session | null>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -25,11 +30,48 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 // Valid unique UUIDs synchronized from userService
 export { DEMO_USER_IDS };
 
+const TOKEN_EXPIRY_BUFFER_MS = 30_000;
+
+/**
+ * Checks whether a Supabase session has a non-empty access token that has not expired.
+ */
+export function hasActiveSessionToken(sess: Session | null | undefined): sess is Session {
+  if (!sess || !sess.access_token || !sess.user?.id) return false;
+  if (typeof sess.expires_at === "number") {
+    return sess.expires_at * 1000 > Date.now() + TOKEN_EXPIRY_BUFFER_MS;
+  }
+  return true;
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [sessionVerified, setSessionVerified] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+
+  const sessionRef = useRef<Session | null>(null);
+  sessionRef.current = session;
   const activeProfileUidRef = useRef<string | null>(null);
+  const verifyInFlightRef = useRef<Promise<Session | null> | null>(null);
+  const lastAuthToastAtRef = useRef<number>(0);
+
+  const notifyConnectionIssue = useCallback((message: string, onRetry?: () => void) => {
+    const now = Date.now();
+    if (now - lastAuthToastAtRef.current < 12_000) return;
+    lastAuthToastAtRef.current = now;
+    toast.warning(message, {
+      duration: 6000,
+      ...(onRetry
+        ? {
+            action: {
+              label: "Retry",
+              onClick: onRetry,
+            },
+          }
+        : {}),
+    });
+  }, []);
 
   async function loadProfile(uid: string, authUser?: User | null) {
     if (!uid) return;
@@ -38,18 +80,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     activeProfileUidRef.current = uid;
 
     try {
-      // 5-second timeout protection for profile query
-      const timeoutPromise = new Promise<{ data: any; error: any }>((_, reject) =>
-        setTimeout(() => reject(new Error("Profile query timeout")), 5000)
-      );
-
-      const queryPromise = supabase
-        .from("users")
-        .select("*")
-        .eq("id", uid)
-        .maybeSingle();
-
-      const { data, error } = await Promise.race([queryPromise, timeoutPromise]).catch((err) => {
+      const { data, error } = await withQueryTimeout(
+        supabase.from("users").select("*").eq("id", uid).maybeSingle(),
+        8000,
+        "User profile fetch",
+      ).catch((err) => {
         console.warn("Profile fetch timed out or network error:", err?.message || err);
         return { data: null, error: err };
       });
@@ -97,7 +132,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       // If user profile is not yet in public.users, construct verified profile from authenticated user metadata
-      const activeUser = authUser || session?.user;
+      const activeUser = authUser || sessionRef.current?.user;
       if (activeUser) {
         const meta = activeUser.user_metadata || {};
         const metaRole = String(meta.role || "").trim();
@@ -156,40 +191,139 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  /**
+   * Verifies that an active, non-expired Supabase session token exists before heavy background queries run.
+   * Automatically refreshes near-expiry tokens and surfaces clear diagnostics on network/CORS failures.
+   */
+  const verifySession = useCallback(
+    async (forceRefresh = false): Promise<Session | null> => {
+      if (!forceRefresh && hasActiveSessionToken(sessionRef.current)) {
+        setSessionVerified(true);
+        setAuthError(null);
+        return sessionRef.current;
+      }
+
+      if (verifyInFlightRef.current) {
+        return verifyInFlightRef.current;
+      }
+
+      const task = (async (): Promise<Session | null> => {
+        try {
+          const { data, error } = await withQueryTimeout(
+            supabase.auth.getSession(),
+            6000,
+            "Auth session check",
+          );
+
+          if (error) {
+            const classified = classifySupabaseError(error);
+            if (classified.kind === "auth") {
+              setSession(null);
+              setProfile(null);
+              setAuthError(classified.userMessage);
+              toast.error("Session expired. Please sign in again.");
+              return null;
+            }
+            setAuthError(classified.userMessage);
+            notifyConnectionIssue(classified.userMessage, () => {
+              void verifySession(true);
+            });
+            return hasActiveSessionToken(sessionRef.current) ? sessionRef.current : null;
+          }
+
+          const currentSess = data?.session ?? null;
+          if (!currentSess) {
+            setSession(null);
+            setAuthError(null);
+            return null;
+          }
+
+          // If token is active and not forced to refresh, accept immediately
+          if (!forceRefresh && hasActiveSessionToken(currentSess)) {
+            setSession(currentSess);
+            setAuthError(null);
+            return currentSess;
+          }
+
+          // Token is expired or nearing expiry — attempt controlled refresh
+          const { data: refreshData, error: refreshError } = await withQueryTimeout(
+            supabase.auth.refreshSession(),
+            8000,
+            "Auth token refresh",
+          );
+
+          if (refreshError) {
+            const classified = classifySupabaseError(refreshError);
+            if (classified.kind === "auth") {
+              setSession(null);
+              setProfile(null);
+              setAuthError(classified.userMessage);
+              toast.error("Your session expired. Please sign in again.");
+              return null;
+            }
+            setAuthError(classified.userMessage);
+            notifyConnectionIssue(classified.userMessage, () => {
+              void verifySession(true);
+            });
+            return hasActiveSessionToken(currentSess) ? currentSess : null;
+          }
+
+          const nextSession = refreshData?.session ?? currentSess;
+          if (nextSession?.access_token) {
+            setSession(nextSession);
+            setAuthError(null);
+            return nextSession;
+          }
+
+          return null;
+        } catch (err) {
+          const classified = classifySupabaseError(err);
+          setAuthError(classified.userMessage);
+          notifyConnectionIssue(classified.userMessage, () => {
+            void verifySession(true);
+          });
+          return hasActiveSessionToken(sessionRef.current) ? sessionRef.current : null;
+        } finally {
+          setSessionVerified(true);
+          verifyInFlightRef.current = null;
+        }
+      })();
+
+      verifyInFlightRef.current = task;
+      return task;
+    },
+    [notifyConnectionIssue],
+  );
+
   useEffect(() => {
     let mounted = true;
 
-    // Hard 2.5-second fallback timeout: Guaranteed UI unlock even if network or locks stall
+    // Hard 6-second fallback timeout: Guaranteed UI unlock even if mobile network or locks stall
     const safetyTimeout = setTimeout(() => {
       if (mounted) {
-        console.warn("[Auth] Hard fallback timeout reached (2.5s). Forcing loading to false.");
+        console.warn("[Auth] Hard fallback timeout reached (6s). Forcing loading to false.");
+        setSessionVerified(true);
         setLoading(false);
       }
-    }, 2500);
+    }, 6000);
 
     async function initAuth() {
       try {
-        const sessionPromise = supabase.auth.getSession();
-        const timeoutPromise = new Promise<{ data: { session: any } }>((_, reject) =>
-          setTimeout(() => reject(new Error("getSession timeout")), 2000)
-        );
-
-        const { data } = await Promise.race([sessionPromise, timeoutPromise]).catch(() => ({
-          data: { session: null },
-        }));
-
+        const verified = await verifySession(false);
         if (!mounted) return;
-        if (data?.session?.user) {
-          setSession(data.session);
-          // Load profile in background non-blockingly so UI renders instantly
-          loadProfile(data.session.user.id, data.session.user).catch((err) => {
+        if (verified?.user) {
+          // Load profile non-blockingly so UI renders immediately
+          loadProfile(verified.user.id, verified.user).catch((err) => {
             console.warn("Background profile load notice:", err);
           });
         }
       } catch (err) {
-        console.warn("Supabase getSession notice:", err);
+        console.warn("Supabase initAuth notice:", err);
       } finally {
-        if (mounted) setLoading(false);
+        if (mounted) {
+          setSessionVerified(true);
+          setLoading(false);
+        }
         clearTimeout(safetyTimeout);
       }
     }
@@ -198,20 +332,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => {
       if (!mounted) return;
-      (async () => {
-        try {
-          setSession(sess);
-          if (sess?.user) {
-            await loadProfile(sess.user.id, sess.user);
-          } else {
-            setProfile(null);
-          }
-        } catch (authChangeErr) {
-          console.warn("[Auth] onAuthStateChange loadProfile notice:", authChangeErr);
-        } finally {
-          if (mounted) setLoading(false);
-        }
-      })();
+      setSession(sess);
+      setSessionVerified(true);
+      if (!sess) {
+        setProfile(null);
+        setLoading(false);
+        return;
+      }
+
+      // Defer Supabase table queries outside the synchronous GoTrue lock callback
+      setTimeout(() => {
+        if (!mounted) return;
+        loadProfile(sess.user.id, sess.user)
+          .catch((authChangeErr) => {
+            console.warn("[Auth] onAuthStateChange loadProfile notice:", authChangeErr);
+          })
+          .finally(() => {
+            if (mounted) setLoading(false);
+          });
+      }, 0);
     });
 
     return () => {
@@ -219,31 +358,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       clearTimeout(safetyTimeout);
       sub.subscription.unsubscribe();
     };
-  }, []);
+  }, [verifySession]);
 
   async function signIn(email: string, password: string) {
     const cleanEmail = email.trim().toLowerCase();
     const cleanPassword = password.trim();
 
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: cleanEmail,
-        password: cleanPassword,
-      });
+      const { data, error } = await withQueryTimeout(
+        supabase.auth.signInWithPassword({
+          email: cleanEmail,
+          password: cleanPassword,
+        }),
+        10000,
+        "Sign in",
+      );
 
       if (error) {
+        const classified = classifySupabaseError(error);
+        if (classified.kind === "cors_or_network" || classified.kind === "offline" || classified.kind === "timeout") {
+          return { error: classified.userMessage };
+        }
         return { error: error.message };
       }
 
       if (data.session) {
         setSession(data.session);
-        await loadProfile(data.session.user.id, data.session.user);
+        setSessionVerified(true);
+        setAuthError(null);
+        loadProfile(data.session.user.id, data.session.user).catch((err) => {
+          console.warn("Post-login profile load notice:", err);
+        });
         return { error: null };
       }
 
       return { error: "Authentication failed. No session created." };
     } catch (err: any) {
-      return { error: err?.message || "Sign in failed. Please check your connection." };
+      const classified = classifySupabaseError(err);
+      return { error: classified.userMessage || err?.message || "Sign in failed. Please check your connection." };
     }
   }
 
@@ -272,12 +424,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         sessionStorage.removeItem("sales_erp_demo_session");
         localStorage.removeItem("sales_erp_demo_session");
       }
-      await supabase.auth.signOut();
+      await withQueryTimeout(supabase.auth.signOut(), 5000, "Sign out");
     } catch (err) {
       console.warn("Sign out notice:", err);
     } finally {
       setProfile(null);
       setSession(null);
+      setAuthError(null);
+      setSessionVerified(true);
     }
   }
 
@@ -294,12 +448,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user: session?.user ?? null,
         profile,
         loading,
+        sessionVerified,
+        authError,
         isDemo: false,
         signIn,
         signUp,
         signInAsDemo,
         signOut,
         refreshProfile,
+        verifySession,
       }}
     >
       {children}

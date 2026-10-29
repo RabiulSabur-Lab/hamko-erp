@@ -1,13 +1,12 @@
-import { useEffect, useState, useMemo, useCallback, useRef } from "react";
-import { supabase } from "@/lib/supabase";
+import { useMemo } from "react";
 import { useI18n } from "@/lib/i18n";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { formatBDT, formatDate, toBnDigit } from "@/lib/utils";
+import { formatBDT, toBnDigit } from "@/lib/utils";
 import {
   TrendingUp, TrendingDown, DollarSign, AlertTriangle,
-  Users, ArrowUpRight, RefreshCw,
+  Users, ArrowUpRight, RefreshCw, WifiOff,
 } from "lucide-react";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -15,26 +14,15 @@ import {
 } from "recharts";
 import { useRouter } from "@/router";
 import { AIInsightsWidget } from "@/components/AIInsightsWidget";
-import { useAutoSync } from "@/hooks/useAutoSync";
+import { useDashboardData } from "@/hooks/useDashboardData";
 import {
   r2,
   deduplicateCollections,
   deduplicateOrders,
   calculateCustomerDues,
-  calculateTotalRevenue,
-  calculateMonthlySales,
-  calculateDailySales,
-  // local-storage helpers used ONLY as offline fallback
-  getOrders,
-  getCollections,
-  getCustomers,
-  getLocalData,
   getDeletedIds,
-  mergeAndEnrichCustomers,
   STORAGE_KEYS,
-  type Customer,
 } from "@/utils/localStore";
-import { resolveOrderProduct } from "@/utils/productUtils";
 
 interface KpiData {
   todaySales: number;
@@ -96,261 +84,19 @@ export function DashboardPage() {
   const { t, lang } = useI18n();
   const { navigate } = useRouter();
 
-  // ── State ──────────────────────────────────────────────────────────────────
-  const [orders, setOrders] = useState<any[]>([]);
-  const [collections, setCollections] = useState<any[]>([]);
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [products, setProducts] = useState<any[]>([]);
-  const [prevMetrics, setPrevMetrics] = useState({ prevCollection: 0, prevDue: 0, prevCustCount: 0 });
-
-  const [loading, setLoading] = useState(true);        // true on first load
-  const [refreshing, setRefreshing] = useState(false); // true on manual refresh
-  const [lastSynced, setLastSynced] = useState<Date | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const mountedRef = useRef(true);
-  const isFetchingRef = useRef(false);
-
-  // ── Primary Supabase fetch (source of truth) ───────────────────────────────
-  const fetchFromSupabase = useCallback(async (isManual = false) => {
-    if (isFetchingRef.current) return;
-    isFetchingRef.current = true;
-    if (isManual) setRefreshing(true);
-    setError(null);
-
-    try {
-      const now = new Date();
-      const pad = (n: number) => String(n).padStart(2, "0");
-      const todayStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-      const monthStart = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-01`;
-      const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      const prevMonthStart = `${prevMonth.getFullYear()}-${pad(prevMonth.getMonth() + 1)}-01`;
-      const prevWeekEnd = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
-
-      // Fire all queries in parallel with a 15-second timeout protection
-      const queriesPromise = Promise.all([
-        supabase
-          .from("orders")
-          .select(
-            "id, order_number, total_amount, status, created_at, order_date, customer_id, due_amount, paid_amount, order_items(*, product:products(name, category_id, category:categories(name))), customer:customers(id, name)"
-          )
-          .order("order_date", { ascending: false }),
-        supabase
-          .from("collections")
-          .select("id, collection_number, amount, collection_date, customer_id, created_at")
-          .order("collection_date", { ascending: false }),
-        supabase
-          .from("collections")
-          .select("id, amount, collection_date")
-          .gte("collection_date", prevMonthStart)
-          .lt("collection_date", monthStart),
-        supabase
-          .from("customers")
-          .select("*, territory:territories(*)")
-          .order("name", { ascending: true }),
-        supabase
-          .from("customers")
-          .select("current_due")
-          .eq("is_active", true)
-          .lt("created_at", prevWeekEnd),
-        supabase
-          .from("customers")
-          .select("id")
-          .eq("is_active", true)
-          .lt("created_at", prevWeekEnd),
-        supabase
-          .from("products")
-          .select("id, name, stock_quantity, reorder_level, category_id, category:categories(name)")
-          .eq("is_active", true),
-      ]);
-
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("Dashboard query timeout after 15s")), 15000)
-      );
-
-      const [
-        oRes,
-        colRes,
-        colPrevRes,
-        custRes,
-        custPrevDue,
-        custPrevCount,
-        prodRes,
-      ] = await Promise.race([queriesPromise, timeoutPromise]);
-
-      if (!mountedRef.current) return;
-
-      // ── Orders ──────────────────────────────────────────────────────────
-      if (!oRes.error && Array.isArray(oRes.data)) {
-        // Merge any locally-created orders not yet in Supabase (offline support)
-        const deletedOrderIds = getDeletedIds(STORAGE_KEYS.DELETED_ORDERS);
-        const remoteOrders = (oRes.data as any[]).filter((o: any) => !deletedOrderIds.has(o.id));
-        const remoteIdSet = new Set(remoteOrders.map((o: any) => String(o.id)));
-        const pendingLocal = getOrders()
-          .filter((lo: any) => !deletedOrderIds.has(lo.id) && !remoteIdSet.has(String(lo.id)));
-        setOrders(deduplicateOrders([...pendingLocal, ...remoteOrders], { excludeDrafts: false, excludeCancelled: false }));
-      } else if (oRes.error) {
-        // Supabase unavailable — fall back to local storage
-        const deletedIds = getDeletedIds(STORAGE_KEYS.DELETED_ORDERS);
-        setOrders(getOrders().filter((o: any) => !deletedIds.has(o.id)));
-        if (!isManual) setError(null); // silent offline fallback on auto-fetch
-      }
-
-      // ── Collections ─────────────────────────────────────────────────────
-      const deletedColIds = getDeletedIds(STORAGE_KEYS.DELETED_COLLECTIONS);
-      if (!colRes.error && Array.isArray(colRes.data)) {
-        const remoteCols = colRes.data.filter((c: any) => !deletedColIds.has(c.id));
-        const remoteIdSet = new Set(remoteCols.map((c: any) => String(c.id)));
-        const remoteColNumSet = new Set(
-          remoteCols.map((c: any) => String(c.collection_number || "").trim().toUpperCase()).filter(Boolean)
-        );
-        const pendingLocal = getCollections().filter(
-          (lc: any) =>
-            !deletedColIds.has(lc.id) &&
-            !remoteIdSet.has(String(lc.id)) &&
-            (!lc.collection_number ||
-              !remoteColNumSet.has(String(lc.collection_number).trim().toUpperCase()))
-        );
-        setCollections(deduplicateCollections([...pendingLocal, ...remoteCols]));
-      } else {
-        const deletedIds = getDeletedIds(STORAGE_KEYS.DELETED_COLLECTIONS);
-        setCollections(getCollections().filter((c: any) => !deletedIds.has(c.id)));
-      }
-
-      // ── Customers ────────────────────────────────────────────────────────
-      if (!custRes.error && Array.isArray(custRes.data)) {
-        setCustomers(mergeAndEnrichCustomers(custRes.data as Customer[]));
-      } else {
-        setCustomers(getCustomers());
-      }
-
-      // ── Products ─────────────────────────────────────────────────────────
-      if (!prodRes.error && Array.isArray(prodRes.data)) {
-        setProducts(prodRes.data);
-      } else {
-        setProducts(getLocalData<any>(STORAGE_KEYS.PRODUCTS, []));
-      }
-
-      // ── Previous-period metrics for trend calculation ────────────────────
-      const prevCol =
-        !colPrevRes.error && Array.isArray(colPrevRes.data)
-          ? colPrevRes.data
-              .filter((c: any) => !deletedColIds.has(c.id))
-              .reduce((s: number, c: any) => s + Number(c.amount || 0), 0)
-          : 0;
-      const prevDue = custPrevDue.data?.reduce((s: number, c: any) => s + Number(c.current_due || 0), 0) ?? 0;
-      const prevCust = custPrevCount.data?.length ?? 0;
-      setPrevMetrics({ prevCollection: prevCol, prevDue, prevCustCount: prevCust });
-
-      setLastSynced(new Date());
-    } catch (err: any) {
-      console.warn("Dashboard Supabase fetch error — using local fallback:", err);
-      if (mountedRef.current) {
-        // Graceful offline fallback
-        const deletedOrderIds = getDeletedIds(STORAGE_KEYS.DELETED_ORDERS);
-        setOrders(getOrders().filter((o: any) => !deletedOrderIds.has(o.id)));
-        const deletedColIds = getDeletedIds(STORAGE_KEYS.DELETED_COLLECTIONS);
-        setCollections(getCollections().filter((c: any) => !deletedColIds.has(c.id)));
-        setCustomers(getCustomers());
-        setProducts(getLocalData<any>(STORAGE_KEYS.PRODUCTS, []));
-        if (isManual) setError("Could not reach server. Showing local data.");
-      }
-    } finally {
-      isFetchingRef.current = false;
-      if (mountedRef.current) {
-        setLoading(false);
-        setRefreshing(false);
-      }
-    }
-  }, []);
-
-  // Anti-stale data: auto re-fetch on window focus, visibility change, and mobile app resume (guarded and debounced to 10s)
-  useAutoSync(() => {
-    if (!loading && !refreshing && !isFetchingRef.current) {
-      fetchFromSupabase(false);
-    }
-  }, !loading, 10000);
-
-  // ── Mount: seed loading state from localStorage for instant paint, then fetch Supabase ──
-  useEffect(() => {
-    mountedRef.current = true;
-
-    // Instant paint with cached local data (eliminates blank loading flash)
-    const deletedOrderIds = getDeletedIds(STORAGE_KEYS.DELETED_ORDERS);
-    const cachedOrders = getOrders().filter((o: any) => !deletedOrderIds.has(o.id));
-    const deletedColIds = getDeletedIds(STORAGE_KEYS.DELETED_COLLECTIONS);
-    const cachedCols = getCollections().filter((c: any) => !deletedColIds.has(c.id));
-    const cachedCustomers = getCustomers();
-    const cachedProducts = getLocalData<any>(STORAGE_KEYS.PRODUCTS, []);
-
-    if (cachedOrders.length || cachedCols.length || cachedCustomers.length) {
-      setOrders(cachedOrders);
-      setCollections(cachedCols);
-      setCustomers(cachedCustomers);
-      setProducts(cachedProducts);
-      setLoading(false); // Show cached data immediately
-    }
-
-    // Fetch fresh from Supabase (updates over cached paint)
-    fetchFromSupabase(false);
-
-    // ── Supabase Realtime subscriptions for live updates ──────────────────
-    const ordersSub = supabase
-      .channel("dashboard_orders")
-      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => {
-        if (mountedRef.current) fetchFromSupabase(false);
-      })
-      .subscribe();
-
-    const collectionsSub = supabase
-      .channel("dashboard_collections")
-      .on("postgres_changes", { event: "*", schema: "public", table: "collections" }, () => {
-        if (mountedRef.current) fetchFromSupabase(false);
-      })
-      .subscribe();
-
-    const customersSub = supabase
-      .channel("dashboard_customers")
-      .on("postgres_changes", { event: "*", schema: "public", table: "customers" }, () => {
-        if (mountedRef.current) fetchFromSupabase(false);
-      })
-      .subscribe();
-
-    const productsSub = supabase
-      .channel("dashboard_products")
-      .on("postgres_changes", { event: "*", schema: "public", table: "products" }, () => {
-        if (mountedRef.current) fetchFromSupabase(false);
-      })
-      .subscribe();
-
-    // ── Local mutation events (from other pages) ──────────────────────────
-    const handleLocalUpdate = () => {
-      if (!mountedRef.current) return;
-      const deletedOrderIds = getDeletedIds(STORAGE_KEYS.DELETED_ORDERS);
-      const cachedOrders = getOrders().filter((o: any) => !deletedOrderIds.has(o.id));
-      const deletedColIds = getDeletedIds(STORAGE_KEYS.DELETED_COLLECTIONS);
-      const cachedCols = getCollections().filter((c: any) => !deletedColIds.has(c.id));
-      const cachedCustomers = getCustomers();
-      const cachedProducts = getLocalData<any>(STORAGE_KEYS.PRODUCTS, []);
-      if (cachedOrders.length || cachedCols.length || cachedCustomers.length) {
-        setOrders(cachedOrders);
-        setCollections(cachedCols);
-        setCustomers(cachedCustomers);
-        setProducts(cachedProducts);
-      }
-    };
-    window.addEventListener("sales_erp_storage_update", handleLocalUpdate);
-    window.addEventListener("customer_ledger_updated", handleLocalUpdate);
-
-    return () => {
-      mountedRef.current = false;
-      supabase.removeChannel(ordersSub);
-      supabase.removeChannel(collectionsSub);
-      supabase.removeChannel(customersSub);
-      supabase.removeChannel(productsSub);
-      window.removeEventListener("sales_erp_storage_update", handleLocalUpdate);
-      window.removeEventListener("customer_ledger_updated", handleLocalUpdate);
-    };
-  }, []);
+  const {
+    orders,
+    collections,
+    customers,
+    products,
+    prevMetrics,
+    loading,
+    refreshing,
+    isFallbackData,
+    lastSynced,
+    connectionIssue,
+    refresh,
+  } = useDashboardData(lang === "bn" ? "bn" : "en");
 
   // ── High-Performance KPI & Growth calculations (Single-Pass) ─────────────────
   const { kpi, trends } = useMemo(() => {
@@ -615,9 +361,16 @@ export function DashboardPage() {
   return (
     <div className="space-y-6">
       {/* Header row: title + sync indicator + refresh button */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h1 className="text-xl font-bold text-foreground">{t("dashboard") || "Dashboard"}</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-xl font-bold text-foreground">{t("dashboard") || "Dashboard"}</h1>
+            {!loading && isFallbackData && (
+              <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-600 dark:text-amber-400">
+                {lang === "bn" ? "ক্যাশড মোড" : "Cached Fallback"}
+              </Badge>
+            )}
+          </div>
           {lastSynced && (
             <p className="text-xs text-muted-foreground mt-0.5">
               {lang === "bn" ? "সর্বশেষ আপডেট: " : "Last synced: "}
@@ -628,8 +381,8 @@ export function DashboardPage() {
         <Button
           variant="outline"
           size="sm"
-          disabled={refreshing || loading}
-          onClick={() => fetchFromSupabase(true)}
+          disabled={refreshing}
+          onClick={() => void refresh(true)}
           className="gap-2 text-xs h-8"
         >
           <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
@@ -639,11 +392,29 @@ export function DashboardPage() {
         </Button>
       </div>
 
-      {/* Error banner */}
-      {error && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30 px-4 py-2.5 text-sm text-amber-700 dark:text-amber-400 flex items-center gap-2">
-          <AlertTriangle className="h-4 w-4 shrink-0" />
-          {error}
+      {/* Connection / Network / CORS fallback banner with Retry action */}
+      {connectionIssue && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30 px-4 py-3 text-sm text-amber-800 dark:text-amber-300 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="flex items-start sm:items-center gap-2.5 min-w-0">
+            {connectionIssue.kind === "offline" || connectionIssue.kind === "cors_or_network" ? (
+              <WifiOff className="h-4 w-4 shrink-0 mt-0.5 sm:mt-0 text-amber-600 dark:text-amber-400" />
+            ) : (
+              <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 sm:mt-0 text-amber-600 dark:text-amber-400" />
+            )}
+            <span className="text-xs sm:text-sm leading-snug">
+              {lang === "bn" ? connectionIssue.messageBn : connectionIssue.message}
+            </span>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={refreshing}
+            onClick={() => void refresh(true)}
+            className="h-7 text-xs gap-1.5 shrink-0 border-amber-300 dark:border-amber-700 bg-background/80 hover:bg-background self-end sm:self-auto"
+          >
+            <RefreshCw className={`h-3 w-3 ${refreshing ? "animate-spin" : ""}`} />
+            {lang === "bn" ? "পুনরায় চেষ্টা করুন" : "Retry Connection"}
+          </Button>
         </div>
       )}
 

@@ -84,11 +84,11 @@ export function App() {
   const { path, navigate } = useRouter();
   const [initTimeout, setInitTimeout] = useState(false);
 
-  // Hard 3-second fallback timeout: Force UI unlock and render login if initialization stalls
+  // Hard 6.5-second fallback timeout: Force UI unlock and render login if initialization stalls on mobile
   useEffect(() => {
     const timer = setTimeout(() => {
       setInitTimeout(true);
-    }, 3000);
+    }, 6500);
     return () => clearTimeout(timer);
   }, []);
 

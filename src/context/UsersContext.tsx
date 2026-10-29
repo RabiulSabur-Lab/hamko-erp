@@ -1,9 +1,9 @@
 import { createContext, useContext, useEffect, useState, useCallback, useMemo, useRef, type ReactNode } from "react";
-import { useAuth } from "@/lib/auth";
+import { useAuth, hasActiveSessionToken } from "@/lib/auth";
+import { withQueryTimeout } from "@/lib/supabaseQuery";
 import {
   getStoredUsers,
   getLocalSalesOfficers,
-  fetchActiveSalesOfficers,
   fetchManagedUsers,
   buildUserLookupMap,
   type ManagedUser,
@@ -24,7 +24,7 @@ export interface UsersContextValue {
 const UsersContext = createContext<UsersContextValue | undefined>(undefined);
 
 export function UsersProvider({ children }: { children: ReactNode }) {
-  const { profile, session } = useAuth();
+  const { profile, session, sessionVerified, verifySession } = useAuth();
 
   // 1. Initial State: Synchronous resolution for zero-lag UI render across page reloads
   const [usersMap, setUsersMap] = useState<Record<string, UserLookupInfo>>(() => buildUserLookupMap(profile));
@@ -53,16 +53,20 @@ export function UsersProvider({ children }: { children: ReactNode }) {
 
   // Master fetch function to query users table and populate active system roster
   const refreshUsers = useCallback(async () => {
-    // Execution guard: Only query Supabase when authenticated, and prevent concurrent overlapping calls
-    if (!session || isRefreshingRef.current) return;
+    // Execution guard: Verify active Supabase session token before heavy background queries
+    if (!session || !sessionVerified || isRefreshingRef.current) return;
     isRefreshingRef.current = true;
 
     try {
+      const verified = hasActiveSessionToken(session) ? session : await verifySession(false);
+      if (!verified) {
+        setUsers(getStoredUsers());
+        setSalesOfficers(getLocalSalesOfficers());
+        return;
+      }
+
       setLoading(true);
-      const [reconciledUsers, officersData] = await Promise.all([
-        fetchManagedUsers(),
-        fetchActiveSalesOfficers(),
-      ]);
+      const reconciledUsers = await withQueryTimeout(fetchManagedUsers(), 8500, "Users directory sync");
 
       const nextMap: Record<string, UserLookupInfo> = { ...buildUserLookupMap(profile) };
 
@@ -78,23 +82,21 @@ export function UsersProvider({ children }: { children: ReactNode }) {
           }
         });
         setUsers(reconciledUsers);
+
+        const derivedOfficers = reconciledUsers.filter((u) => {
+          const rawRole = (u.role_name || u.role || "").toLowerCase().replace(/[\s_-]+/g, "");
+          return (
+            (u.is_active ?? true) &&
+            (rawRole === "salesofficer" ||
+              rawRole === "salesrep" ||
+              rawRole.includes("officer") ||
+              rawRole.includes("rep") ||
+              (!rawRole.includes("admin") && rawRole !== "accountant"))
+          );
+        });
+        setSalesOfficers(derivedOfficers.length > 0 ? derivedOfficers : getLocalSalesOfficers());
       } else {
         setUsers(getStoredUsers());
-      }
-
-      if (Array.isArray(officersData) && officersData.length > 0) {
-        officersData.forEach((so) => {
-          if (so.id) {
-            nextMap[String(so.id)] = {
-              id: String(so.id),
-              full_name: so.full_name || nextMap[String(so.id)]?.full_name || "",
-              email: so.email || nextMap[String(so.id)]?.email,
-              role_name: so.role_name || nextMap[String(so.id)]?.role_name,
-            };
-          }
-        });
-        setSalesOfficers(officersData);
-      } else {
         setSalesOfficers(getLocalSalesOfficers());
       }
 
@@ -107,14 +109,14 @@ export function UsersProvider({ children }: { children: ReactNode }) {
       setLoading(false);
       isRefreshingRef.current = false;
     }
-  }, [session, profile]);
+  }, [session, sessionVerified, verifySession, profile]);
 
-  // Initial fetch on mount: ONLY when authenticated session exists
+  // Initial fetch on mount: ONLY when authenticated session token is verified
   useEffect(() => {
-    if (session) {
+    if (session && sessionVerified) {
       refreshUsers();
     }
-  }, [session, refreshUsers]);
+  }, [session, sessionVerified, refreshUsers]);
 
   // Real-time synchronization on local storage updates or cross-tab events
   useEffect(() => {

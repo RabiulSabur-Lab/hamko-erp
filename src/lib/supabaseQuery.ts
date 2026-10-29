@@ -47,3 +47,131 @@ export function nullIfEmpty(value: string | null | undefined): string | null {
   if (!value || value.trim() === "") return null;
   return value;
 }
+
+/**
+ * Default timeout limit (in ms) for Dashboard and mobile-sensitive Supabase queries (8–10s window).
+ */
+export const DASHBOARD_QUERY_TIMEOUT_MS = 9000;
+
+export type SupabaseFailureKind = "timeout" | "offline" | "cors_or_network" | "auth" | "server";
+
+export interface ClassifiedSupabaseError {
+  kind: SupabaseFailureKind;
+  userMessage: string;
+  userMessageBn: string;
+  canRetry: boolean;
+  rawMessage: string;
+}
+
+/**
+ * Wraps any Supabase PostgREST builder or async promise with an explicit timeout limit.
+ * Guarantees the promise rejects promptly instead of hanging skeleton loaders on mobile networks.
+ */
+export async function withQueryTimeout<T>(
+  operation: PromiseLike<T>,
+  timeoutMs: number = DASHBOARD_QUERY_TIMEOUT_MS,
+  label = "Supabase query",
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      const err = new Error(`${label} timed out after ${Math.round(timeoutMs / 1000)}s`);
+      err.name = "TimeoutError";
+      reject(err);
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([Promise.resolve(operation), timeoutPromise]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+/**
+ * Inspects an error thrown or returned by Supabase / `fetch` and classifies whether it was caused
+ * by offline state, request timeout, cross-origin (CORS) / mobile network constraints, or session expiry.
+ */
+export function classifySupabaseError(err: unknown): ClassifiedSupabaseError {
+  const anyErr = err as Record<string, any> | null | undefined;
+  const rawMessage = String(
+    anyErr?.message || anyErr?.error_description || anyErr?.details || err || "Unknown network error",
+  );
+  const lower = rawMessage.toLowerCase();
+  const errName = String(anyErr?.name || "").toLowerCase();
+  const status = Number(anyErr?.status || anyErr?.code || 0);
+
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    return {
+      kind: "offline",
+      userMessage: "You appear to be offline. Showing cached data until connection is restored.",
+      userMessageBn: "ইন্টারনেট সংযোগ বিচ্ছিন্ন। সংরক্ষিত ডেটা দেখানো হচ্ছে।",
+      canRetry: true,
+      rawMessage,
+    };
+  }
+
+  if (
+    errName.includes("timeout") ||
+    errName.includes("abort") ||
+    lower.includes("timed out") ||
+    lower.includes("timeout") ||
+    lower.includes("aborterror")
+  ) {
+    return {
+      kind: "timeout",
+      userMessage: "Connection timed out on slow network. Showing cached fallback data.",
+      userMessageBn: "ধীরগতির নেটওয়ার্কের কারণে সংযোগের সময়সীমা শেষ হয়েছে। ক্যাশড ডেটা দেখানো হচ্ছে।",
+      canRetry: true,
+      rawMessage,
+    };
+  }
+
+  if (
+    status === 401 ||
+    lower.includes("jwt expired") ||
+    lower.includes("invalid jwt") ||
+    lower.includes("invalid refresh token") ||
+    lower.includes("refresh_token_not_found") ||
+    lower.includes("auth session missing") ||
+    String(anyErr?.code || "") === "PGRST301"
+  ) {
+    return {
+      kind: "auth",
+      userMessage: "Your session token expired or could not be verified. Please refresh or sign in again.",
+      userMessageBn: "আপনার সেশনের মেয়াদ শেষ হয়েছে। অনুগ্রহ করে রিফ্রেশ করুন বা পুনরায় লগইন করুন।",
+      canRetry: true,
+      rawMessage,
+    };
+  }
+
+  // Browser `fetch` throws TypeError ("Failed to fetch" on Chrome/Android, "Load failed" on iOS Safari,
+  // "NetworkError when attempting to fetch resource" on Firefox) for CORS blocks or dropped sockets
+  if (
+    anyErr instanceof TypeError ||
+    lower.includes("failed to fetch") ||
+    lower.includes("load failed") ||
+    lower.includes("networkerror") ||
+    lower.includes("network request failed") ||
+    lower.includes("cors") ||
+    lower.includes("cross-origin")
+  ) {
+    return {
+      kind: "cors_or_network",
+      userMessage:
+        "Unable to reach cloud server due to network or cross-origin constraints. Showing local fallback data.",
+      userMessageBn:
+        "নেটওয়ার্ক বা ক্রস-অরিজিন সমস্যার কারণে ক্লাউড সার্ভারে সংযোগ করা যায়নি। লোকাল ডেটা দেখানো হচ্ছে।",
+      canRetry: true,
+      rawMessage,
+    };
+  }
+
+  return {
+    kind: "server",
+    userMessage: "Cloud data sync encountered an issue. Displaying available fallback data.",
+    userMessageBn: "ক্লাউড সিঙ্কে সমস্যা হয়েছে। উপলব্ধ ডেটা দেখানো হচ্ছে।",
+    canRetry: true,
+    rawMessage,
+  };
+}

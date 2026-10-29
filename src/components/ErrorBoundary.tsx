@@ -1,10 +1,12 @@
 import React, { Component, type ErrorInfo, type ReactNode } from "react";
-import { AlertTriangle, RefreshCw, Home, RotateCcw, ChevronDown, ChevronUp } from "lucide-react";
+import { AlertTriangle, RefreshCw, Home, RotateCcw, ChevronDown, ChevronUp, WifiOff } from "lucide-react";
+import { classifySupabaseError } from "@/lib/supabaseQuery";
 
 interface Props {
   children: ReactNode;
   fallback?: ReactNode;
   name?: string;
+  onRetry?: () => void;
 }
 
 interface State {
@@ -43,6 +45,7 @@ export class ErrorBoundary extends Component<Props, State> {
       errorInfo: null,
       showDetails: false,
     });
+    this.props.onRetry?.();
   };
 
   private handleReload = () => {
@@ -50,8 +53,8 @@ export class ErrorBoundary extends Component<Props, State> {
   };
 
   private handleGoHome = () => {
-    this.setState({ hasError: false, error: null, errorInfo: null });
-    window.location.href = "/";
+    this.setState({ hasError: false, error: null, errorInfo: null, showDetails: false });
+    window.location.hash = "/dashboard";
   };
 
   private handleClearAndRestart = () => {
@@ -71,22 +74,39 @@ export class ErrorBoundary extends Component<Props, State> {
       }
 
       const errorMessage = this.state.error?.message || "An unexpected error occurred";
+      const classified = classifySupabaseError(this.state.error);
+      const isNetworkIssue =
+        classified.kind === "offline" ||
+        classified.kind === "timeout" ||
+        classified.kind === "cors_or_network" ||
+        /loading chunk|dynamically imported module/i.test(errorMessage);
+      const isScopedPage = Boolean(this.props.name?.startsWith("Page:"));
 
       return (
-        <div className="min-h-screen w-full flex items-center justify-center p-4 bg-background text-foreground">
+        <div
+          className={`${
+            isScopedPage ? "min-h-[60vh]" : "min-h-screen"
+          } w-full flex items-center justify-center p-4 bg-background text-foreground`}
+        >
           <div className="w-full max-w-lg bg-card border border-border/80 rounded-2xl shadow-xl p-6 md:p-8 space-y-6 text-center">
             {/* Header Icon */}
             <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 shadow-inner">
-              <AlertTriangle className="h-8 w-8 animate-pulse" />
+              {isNetworkIssue ? (
+                <WifiOff className="h-8 w-8 animate-pulse" />
+              ) : (
+                <AlertTriangle className="h-8 w-8 animate-pulse" />
+              )}
             </div>
 
             {/* Title & Description */}
             <div className="space-y-2">
               <h2 className="text-xl md:text-2xl font-bold tracking-tight text-foreground">
-                Something went wrong
+                {isNetworkIssue ? "Connection Issue Detected" : "Something went wrong"}
               </h2>
               <p className="text-sm text-muted-foreground">
-                একটি অপ্রত্যাশিত সমস্যা দেখা দিয়েছে। অ্যাপলিকেশনটি নিরাপদে রিলোড বা হোম পেজে ফিরে যেতে পারেন।
+                {isNetworkIssue
+                  ? `${classified.userMessage} (${classified.userMessageBn})`
+                  : "একটি অপ্রত্যাশিত সমস্যা দেখা দিয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন বা অ্যাপলিকেশনটি রিলোড করুন।"}
               </p>
             </div>
 
@@ -118,14 +138,22 @@ export class ErrorBoundary extends Component<Props, State> {
             )}
 
             {/* Action Buttons */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-2">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-2">
               <button
                 type="button"
-                onClick={this.handleReload}
+                onClick={this.handleReset}
                 className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90 transition-colors"
               >
                 <RefreshCw className="h-4 w-4" />
-                Reload Application
+                Retry Now
+              </button>
+              <button
+                type="button"
+                onClick={this.handleReload}
+                className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-input bg-background px-4 py-2.5 text-sm font-medium hover:bg-accent hover:text-accent-foreground transition-colors"
+              >
+                <RotateCcw className="h-4 w-4" />
+                Reload App
               </button>
               <button
                 type="button"
@@ -133,7 +161,7 @@ export class ErrorBoundary extends Component<Props, State> {
                 className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-input bg-background px-4 py-2.5 text-sm font-medium hover:bg-accent hover:text-accent-foreground transition-colors"
               >
                 <Home className="h-4 w-4" />
-                Go to Dashboard
+                Dashboard
               </button>
             </div>
 

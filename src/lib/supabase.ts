@@ -74,6 +74,85 @@ export const isSupabaseConfigured: boolean = Boolean(
   SUPABASE_URL.startsWith("https://")
 );
 
+/**
+ * Mobile-safe lock coordinator for Supabase GoTrue auth.
+ * Prevents indefinite `navigator.locks` deadlocks on iOS Safari, Android WebViews,
+ * and backgrounded mobile tabs by bounding lock acquisition with an AbortController.
+ */
+async function safeAuthLock<R>(
+  name: string,
+  acquireTimeout: number,
+  fn: () => Promise<R>
+): Promise<R> {
+  if (typeof navigator === "undefined" || !navigator.locks?.request) {
+    return await fn();
+  }
+
+  const boundedTimeoutMs = Math.min(Math.max(acquireTimeout || 2500, 1500), 3000);
+  const lockController = new AbortController();
+  const timer = setTimeout(() => lockController.abort(), boundedTimeoutMs);
+
+  try {
+    return await navigator.locks.request(
+      name,
+      { mode: "exclusive", signal: lockController.signal },
+      async () => {
+        clearTimeout(timer);
+        return await fn();
+      }
+    );
+  } catch (err: any) {
+    clearTimeout(timer);
+    // If lock acquisition timed out or Web Locks is restricted in WebView, run directly
+    if (err?.name === "AbortError" || err?.name === "SecurityError" || err?.name === "NotSupportedError") {
+      return await fn();
+    }
+    throw err;
+  }
+}
+
+/**
+ * Wraps browser `fetch` with bounded AbortController timeout and `cache: "no-store"`
+ * without injecting non-CORS-safelisted request headers (`Pragma`, `Cache-Control`)
+ * that can trigger extra preflight round-trips or mobile carrier/proxy blocks.
+ */
+function createResilientFetch(defaultTimeoutMs = 10000): typeof fetch {
+  return async (input: RequestInfo | URL, init: RequestInit = {}) => {
+    const urlStr = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    const isAuthRequest = urlStr.includes("/auth/v1/");
+    const timeoutMs = isAuthRequest ? 12000 : defaultTimeoutMs;
+
+    const controller = new AbortController();
+    const callerSignal = init.signal;
+
+    const onCallerAbort = () => controller.abort(callerSignal?.reason);
+    if (callerSignal) {
+      if (callerSignal.aborted) {
+        controller.abort(callerSignal.reason);
+      } else {
+        callerSignal.addEventListener("abort", onCallerAbort, { once: true });
+      }
+    }
+
+    const timer = setTimeout(() => {
+      controller.abort(new DOMException(`Supabase request timed out after ${timeoutMs}ms`, "TimeoutError"));
+    }, timeoutMs);
+
+    try {
+      return await fetch(input, {
+        ...init,
+        cache: "no-store",
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+      if (callerSignal) {
+        callerSignal.removeEventListener("abort", onCallerAbort);
+      }
+    }
+  };
+}
+
 function initSupabase() {
   try {
     return createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -81,23 +160,14 @@ function initSupabase() {
         persistSession: true,
         autoRefreshToken: true,
         detectSessionInUrl: true,
+        lock: safeAuthLock,
       },
-      // Bypass aggressive Android WebView / HTTP caching to guarantee live cloud data
       global: {
-        fetch: (url, options = {}) => {
-          const headers = new Headers(options.headers || {});
-          headers.set("Cache-Control", "no-cache, no-store, must-revalidate");
-          headers.set("Pragma", "no-cache");
-          return fetch(url, {
-            ...options,
-            headers,
-            cache: "no-store",
-          });
-        },
+        fetch: createResilientFetch(10000),
       },
       realtime: {
         params: {
-          eventsPerSecond: 20,
+          eventsPerSecond: 10,
         },
       },
     });

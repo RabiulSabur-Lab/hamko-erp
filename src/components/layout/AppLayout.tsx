@@ -5,7 +5,8 @@ import {
   Wallet, MapPin, BarChart3, UserCog,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import { useAuth } from "@/lib/auth";
+import { withQueryTimeout } from "@/lib/supabaseQuery";
+import { useAuth, hasActiveSessionToken } from "@/lib/auth";
 import { useTheme } from "@/lib/theme";
 import { useI18n } from "@/lib/i18n";
 import { useRouter } from "@/router";
@@ -18,7 +19,7 @@ import { Sidebar, navItems, type NavItem } from "@/components/Sidebar";
 export type { NavItem };
 
 export function AppLayout({ children }: { children: ReactNode }) {
-  const { profile, user, signOut } = useAuth();
+  const { profile, user, session, sessionVerified, signOut } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const { lang, setLang, t } = useI18n();
   const { path, navigate } = useRouter();
@@ -31,20 +32,25 @@ export function AppLayout({ children }: { children: ReactNode }) {
   });
 
   useEffect(() => {
+    if (!sessionVerified || !hasActiveSessionToken(session)) return;
     let isMounted = true;
     const fetchUnread = async () => {
       try {
         if (supabase?.from) {
-          const { count, error } = await supabase
-            .from("notifications")
-            .select("id", { count: "exact", head: true })
-            .eq("is_read", false);
+          const { count, error } = await withQueryTimeout(
+            supabase
+              .from("notifications")
+              .select("id", { count: "exact", head: true })
+              .eq("is_read", false),
+            8500,
+            "Notifications unread count",
+          );
           if (!error && count !== null && isMounted) {
             setUnreadCount(count);
             return;
           }
         }
-      } catch (e) {
+      } catch {
         // Fallback to local storage if network dropped or supabase unavailable
       }
       const list = getLocalData<any>(STORAGE_KEYS.NOTIFICATIONS, []);
@@ -78,13 +84,13 @@ export function AppLayout({ children }: { children: ReactNode }) {
         if (notifChannel && supabase?.removeChannel) {
           supabase.removeChannel(notifChannel);
         }
-      } catch (e) {
+      } catch {
         // Safe fallback
       }
       window.removeEventListener("storage", updateUnread);
       window.removeEventListener("sales_erp_storage_update", updateUnread);
     };
-  }, []);
+  }, [session, sessionVerified]);
 
   const activeRoute = path === "/" ? "dashboard" : path.replace(/^\//, "").split("/")[0];
 
