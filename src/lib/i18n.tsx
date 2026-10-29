@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, useCallback, useMemo, type ReactNode } from "react";
 import { toBnDigit } from "./utils";
 
 export type Lang = "en" | "bn";
@@ -575,34 +575,48 @@ const I18nContext = createContext<I18nContextValue | undefined>(undefined);
 
 export function I18nProvider({ children }: { children: ReactNode }) {
   const [lang, setLangState] = useState<Lang>(() => {
-    const saved = localStorage.getItem("lang");
-    return (saved as Lang) || "en";
+    try {
+      const saved = typeof window !== "undefined" ? localStorage.getItem("lang") : null;
+      return saved === "bn" || saved === "en" ? saved : "en";
+    } catch {
+      return "en";
+    }
   });
 
   useEffect(() => {
     document.documentElement.lang = lang;
-    localStorage.setItem("lang", lang);
+    try {
+      localStorage.setItem("lang", lang);
+    } catch {
+      // ignore storage restrictions
+    }
   }, [lang]);
 
-  const setLang = (l: Lang) => setLangState(l);
-  const t = (key: string, params?: Record<string, any>): string => {
-    if (!key) return "";
-    let text = dictionaries[lang]?.[key] ?? dictionaries.en?.[key] ?? key;
-    if (params && typeof text === "string") {
-      Object.entries(params).forEach(([paramKey, val]) => {
-        let formattedVal = val !== null && val !== undefined ? String(val) : "";
-        if (lang === "bn") {
-          if (paramKey === "count" || paramKey === "amount" || typeof val === "number") {
-            formattedVal = toBnDigit(formattedVal);
-          }
-        }
-        text = text.replace(new RegExp(`\\{${paramKey}\\}`, "g"), formattedVal);
-      });
-    }
-    return text;
-  };
+  const setLang = useCallback((l: Lang) => setLangState(l), []);
 
-  return <I18nContext.Provider value={{ lang, setLang, t }}>{children}</I18nContext.Provider>;
+  const t = useCallback(
+    (key: string, params?: Record<string, any>): string => {
+      if (!key) return "";
+      let text = dictionaries[lang]?.[key] ?? dictionaries.en?.[key] ?? key;
+      if (params && typeof text === "string") {
+        Object.entries(params).forEach(([paramKey, val]) => {
+          let formattedVal = val !== null && val !== undefined ? String(val) : "";
+          if (lang === "bn") {
+            if (paramKey === "count" || paramKey === "amount" || typeof val === "number") {
+              formattedVal = toBnDigit(formattedVal);
+            }
+          }
+          text = text.replace(new RegExp(`\\{${paramKey}\\}`, "g"), formattedVal);
+        });
+      }
+      return text;
+    },
+    [lang],
+  );
+
+  const contextValue = useMemo<I18nContextValue>(() => ({ lang, setLang, t }), [lang, setLang, t]);
+
+  return <I18nContext.Provider value={contextValue}>{children}</I18nContext.Provider>;
 }
 
 export function useI18n() {

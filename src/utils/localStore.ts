@@ -408,11 +408,6 @@ export function adjustProductStock(
       .then(undefined, (err) => console.warn("Supabase inventory sync notice:", err));
   } catch (e) {
     console.warn("Stock sync notice:", e);
-  } finally {
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new Event("sales_erp_storage_update"));
-      window.dispatchEvent(new Event("storage"));
-    }
   }
 }
 
@@ -1355,7 +1350,10 @@ export function parseCustomerNotes(rawNotes?: string | null): {
  * Merges remote customers from Supabase with pending local customers from LocalStorage.
  * Ensures newly added outlets never disappear upon page reload, and decodes party_code/area/alt_phone tags.
  */
-export function mergeAndEnrichCustomers(remoteCustomers: Customer[]): Customer[] {
+export function mergeAndEnrichCustomers(
+  remoteCustomers: Customer[],
+  options?: { persist?: boolean },
+): Customer[] {
   const deletedCustomerIds = getDeletedIds(STORAGE_KEYS.DELETED_CUSTOMERS);
   const validRemote: Customer[] = (Array.isArray(remoteCustomers) ? remoteCustomers : []).filter(
     (c: Customer) => !deletedCustomerIds.has(c.id)
@@ -1470,7 +1468,9 @@ export function mergeAndEnrichCustomers(remoteCustomers: Customer[]): Customer[]
     (a.outlet_name || a.name || "").localeCompare(b.outlet_name || b.name || "")
   );
 
-  setLocalData(STORAGE_KEYS.CUSTOMERS, merged, null, true);
+  if (options?.persist !== false) {
+    setLocalData(STORAGE_KEYS.CUSTOMERS, merged, null, true);
+  }
   return merged;
 }
 
@@ -1525,11 +1525,6 @@ export function saveCustomer(customer: Customer | (Partial<Customer> & { id: str
     updated = [customerToSave, ...current];
   }
   setLocalData(STORAGE_KEYS.CUSTOMERS, updated);
-  try {
-    window.dispatchEvent(new CustomEvent('sales_erp_storage_update', { detail: { key: STORAGE_KEYS.CUSTOMERS, customer: customerToSave } }));
-    window.dispatchEvent(new CustomEvent('sales_erp_storage_update'));
-    window.dispatchEvent(new Event('storage'));
-  } catch {}
   return updated;
 }
 
@@ -1542,11 +1537,6 @@ export const updateCustomer = (customerOrPartial: Customer | (Partial<Customer> 
  */
 export function updateCustomersList(customers: Customer[]): void {
   setLocalData(STORAGE_KEYS.CUSTOMERS, Array.isArray(customers) ? customers : []);
-  try {
-    window.dispatchEvent(new CustomEvent('sales_erp_storage_update', { detail: { key: STORAGE_KEYS.CUSTOMERS } }));
-    window.dispatchEvent(new CustomEvent('sales_erp_storage_update'));
-    window.dispatchEvent(new Event('storage'));
-  } catch {}
 }
 
 export const saveCustomers = updateCustomersList;
@@ -1581,11 +1571,6 @@ export function saveProduct(product: Product | (Partial<Product> & { id: string 
     updated = [productToSave, ...current];
   }
   setLocalData(STORAGE_KEYS.PRODUCTS, updated);
-  try {
-    window.dispatchEvent(new CustomEvent('sales_erp_storage_update', { detail: { key: STORAGE_KEYS.PRODUCTS, product: productToSave } }));
-    window.dispatchEvent(new CustomEvent('sales_erp_storage_update'));
-    window.dispatchEvent(new Event('storage'));
-  } catch {}
   return updated;
 }
 
@@ -1605,10 +1590,6 @@ export const getOrders = (): Order[] => {
  */
 export const saveOrders = (orders: Order[]): void => {
   setLocalData(STORAGE_KEYS.ORDERS, orders);
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new Event("sales_erp_storage_update"));
-    window.dispatchEvent(new Event("storage"));
-  }
 };
 
 export const getNotifications = (): Notification[] => {
@@ -1648,10 +1629,6 @@ export const getCollections = (): Collection[] => {
 export const saveCollections = (collections: Collection[]): void => {
   const deduped = deduplicateCollections(collections);
   setLocalData(STORAGE_KEYS.COLLECTIONS, deduped);
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new Event("sales_erp_storage_update"));
-    window.dispatchEvent(new Event("storage"));
-  }
 };
 
 export const getVisits = (): Visit[] => {
@@ -1665,10 +1642,6 @@ export const getVisits = (): Visit[] => {
 
 export const saveVisits = (visits: Visit[]): void => {
   setLocalData(STORAGE_KEYS.VISITS, visits);
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new Event("sales_erp_storage_update"));
-    window.dispatchEvent(new Event("storage"));
-  }
 };
 
 export const getRoutePlan = (): any[] => {
@@ -1757,10 +1730,6 @@ export const saveCollection = (
   setLocalData(STORAGE_KEYS.COLLECTIONS, updatedList);
   if (customerId) {
     recalculateCustomerLedger(customerId, undefined, updatedList, { persist: true });
-  }
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new Event("sales_erp_storage_update"));
-    window.dispatchEvent(new Event("storage"));
   }
   return record;
 };
@@ -2396,8 +2365,6 @@ export const dispatchGlobalStateUpdate = (detail?: TransactionLedgerDetail) => {
   if (typeof window === "undefined") return;
   setTimeout(() => {
     window.dispatchEvent(new CustomEvent("sales_erp_storage_update", { detail }));
-    window.dispatchEvent(new Event("sales_erp_storage_update"));
-    window.dispatchEvent(new Event("storage"));
     if (detail?.customerId) {
       window.dispatchEvent(new CustomEvent("customer_ledger_updated", { detail }));
     }

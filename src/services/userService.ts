@@ -1,4 +1,5 @@
 import { supabase, createSecondaryAuthClient } from "@/lib/supabase";
+import { withQueryTimeout } from "@/lib/supabaseQuery";
 import {
   STORAGE_KEYS,
   getLocalData,
@@ -741,67 +742,42 @@ export function mergeAndEnrichUsers(
 }
 
 /**
- * Fetches user accounts from Supabase (`profiles` and `users` tables) with graceful RLS error handling.
+ * Fetches user accounts from Supabase (`public.users` table) with explicit timeout and RLS error handling.
  */
 export async function fetchManagedUsers(): Promise<ManagedUser[]> {
   const remoteList: ManagedUser[] = [];
 
-  // 1. Try querying `profiles` table
   try {
-    const { data: profilesData, error: profilesError } = await supabase
-      .from("profiles")
-      .select("*")
-      .order("created_at", { ascending: false });
-
-    if (profilesError) {
-      console.warn("Supabase profiles query notice (RLS or missing table):", profilesError.message);
-    } else if (Array.isArray(profilesData)) {
-      profilesData.forEach((p: any) => {
-        const rawRole = (p.role || p.role_name || "").toLowerCase().replace(/[\s_-]+/g, "");
-        const normalizedRole: SystemRole = rawRole.includes("admin") ? "super_admin" : "sales_officer";
-        const resolvedId = normalizeUserId(p.id, p.email);
-        remoteList.push({
-          id: resolvedId,
-          email: p.email,
-          full_name: p.full_name || p.name || "User",
-          phone: p.phone || p.phone_number || p.contact_no || null,
-          role: normalizedRole,
-          role_name: normalizedRole === "super_admin" ? "Super Admin" : "Sales Officer",
-          is_active: p.is_active ?? true,
-          created_at: p.created_at || new Date().toISOString(),
-          updated_at: p.updated_at,
-        });
-      });
-    }
-  } catch (err) {
-    console.warn("Could not query profiles table:", err);
-  }
-
-  // 2. Try querying `users` table
-  try {
-    const { data: usersData, error: usersError } = await supabase
-      .from("users")
-      .select("*")
-      .order("created_at", { ascending: false });
+    const { data: usersData, error: usersError } = await withQueryTimeout(
+      supabase
+        .from("users")
+        .select("id, email, full_name, phone, role_name, territory_id, is_active, created_at, updated_at")
+        .order("created_at", { ascending: false }),
+      8500,
+      "Users directory fetch",
+    );
 
     if (usersError) {
-      console.warn("Supabase users query notice (RLS or missing table):", usersError.message);
+      console.warn("Supabase users query notice (RLS or network):", usersError.message);
     } else if (Array.isArray(usersData)) {
-      const existingIds = new Set(remoteList.map((u) => u.id));
-      const existingEmails = new Set(remoteList.map((u) => u.email.toLowerCase()));
+      const existingIds = new Set<string>();
+      const existingEmails = new Set<string>();
 
       usersData.forEach((u: any) => {
         const resolvedId = normalizeUserId(u.id, u.email);
-        if (!existingIds.has(resolvedId) && !existingEmails.has((u.email || "").toLowerCase())) {
+        const lowerEmail = String(u.email || "").toLowerCase();
+        if (!existingIds.has(resolvedId) && (!lowerEmail || !existingEmails.has(lowerEmail))) {
+          existingIds.add(resolvedId);
+          if (lowerEmail) existingEmails.add(lowerEmail);
           const rawRole = (u.role_name || u.role || "").toLowerCase().replace(/[\s_-]+/g, "");
           const normalizedRole: SystemRole = rawRole.includes("admin") ? "super_admin" : "sales_officer";
           remoteList.push({
             id: resolvedId,
             email: u.email,
             full_name: u.full_name || u.name || "User",
-            phone: u.phone || u.phone_number || u.contact_no || null,
+            phone: u.phone || null,
             role: normalizedRole,
-            role_name: normalizedRole === "super_admin" ? "Super Admin" : "Sales Officer",
+            role_name: u.role_name || (normalizedRole === "super_admin" ? "Super Admin" : "Sales Officer"),
             is_active: u.is_active ?? true,
             created_at: u.created_at || new Date().toISOString(),
             updated_at: u.updated_at,
@@ -810,7 +786,7 @@ export async function fetchManagedUsers(): Promise<ManagedUser[]> {
       });
     }
   } catch (err) {
-    console.warn("Could not query users table:", err);
+    console.warn("Could not query users table within timeout:", err);
   }
 
   // Reconcile and enrich with local storage
@@ -1223,10 +1199,14 @@ export function updatePasswordByEmail(email: string, newPassword: string): boole
  */
 export async function fetchActiveSalesOfficers(): Promise<ManagedUser[]> {
   try {
-    const { data, error } = await supabase
-      .from("users")
-      .select("id, email, full_name, phone, role_name, is_active")
-      .eq("is_active", true);
+    const { data, error } = await withQueryTimeout(
+      supabase
+        .from("users")
+        .select("id, email, full_name, phone, role_name, is_active, created_at")
+        .eq("is_active", true),
+      8500,
+      "Active sales officers fetch",
+    );
 
     if (!error && Array.isArray(data) && data.length > 0) {
       const officers: ManagedUser[] = [];
@@ -1413,10 +1393,14 @@ export async function fetchAllUsersMap(
 ): Promise<Record<string, UserLookupInfo>> {
   const nextMap: Record<string, UserLookupInfo> = { ...existingMap };
   try {
-    const { data: usersData, error: usersErr } = await supabase
-      .from("users")
-      .select("id, full_name, email, role_name")
-      .order("full_name");
+    const { data: usersData, error: usersErr } = await withQueryTimeout(
+      supabase
+        .from("users")
+        .select("id, full_name, email, phone, role_name, is_active, created_at")
+        .order("full_name"),
+      8500,
+      "Users map fetch",
+    );
 
     if (!usersErr && Array.isArray(usersData) && usersData.length > 0) {
       usersData.forEach((u: any) => {
@@ -1447,7 +1431,7 @@ export async function fetchAllUsersMap(
           });
         }
       });
-      saveStoredUsers(Array.from(storedMap.values()));
+      saveStoredUsers(Array.from(storedMap.values()), true);
     } else {
       // Fallback: fetchManagedUsers
       const managed = await fetchManagedUsers();

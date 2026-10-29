@@ -206,7 +206,17 @@ export function createSecondaryAuthClient() {
 
 export type Role = "Super Admin" | "Sales Manager" | "Sales Officer" | "Distributor" | "Accountant";
 
-export interface UserProfile {
+export interface RoleRecord {
+  id: string;
+  name: Role | string;
+  description: string | null;
+  created_at: string;
+}
+
+/**
+ * Physical PostgreSQL row types matching `supabase/schema_full.sql`
+ */
+export interface DbUserRow {
   id: string;
   email: string;
   full_name: string;
@@ -215,11 +225,118 @@ export interface UserProfile {
   territory_id: string | null;
   is_active: boolean;
   created_at: string;
+  updated_at?: string;
 }
 
-export interface Customer {
+export interface DbCustomerRow {
   id: string;
   name: string;
+  customer_type: "Dealer" | "Retailer" | "Wholesale" | string;
+  contact_person?: string | null;
+  phone: string | null;
+  email?: string | null;
+  address?: string | null;
+  city?: string | null;
+  territory_id?: string | null;
+  trade_license_number?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  opening_balance?: number;
+  current_due?: number;
+  due_status?: "Clear" | "Overdue" | "Partial" | string;
+  notes?: string | null;
+  assigned_to?: string | null;
+  is_active?: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface DbProductRow {
+  id: string;
+  sku_code: string;
+  name: string;
+  brand?: string | null;
+  category_id?: string | null;
+  unit_price: number;
+  dealer_price?: number;
+  distributor_price?: number;
+  mrp?: number | null;
+  d10_price?: number | null;
+  b12_price?: number | null;
+  price_tiers?: Record<string, number> | Array<{ name: string; price: number }> | string | null;
+  stock_quantity: number;
+  reorder_level: number;
+  unit: string;
+  image_url?: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DbOrderRow {
+  id: string;
+  order_number: string;
+  customer_id: string;
+  sales_rep_id: string | null;
+  order_date: string;
+  delivery_date: string | null;
+  status: "Draft" | "Pending" | "Approved" | "Delivered" | "Cancelled";
+  subtotal: number;
+  discount: number;
+  total_amount: number;
+  paid_amount: number;
+  due_amount: number;
+  payment_status: "Unpaid" | "Partial" | "Paid";
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DbOrderItemRow {
+  id: string;
+  order_id: string;
+  product_id: string;
+  quantity: number;
+  unit_price: number;
+  discount: number;
+  subtotal: number;
+  price_tier: string | null;
+  created_at: string;
+}
+
+export interface DbCollectionRow {
+  id: string;
+  collection_number: string;
+  customer_id: string;
+  order_id: string | null;
+  amount: number;
+  payment_method: "Cash" | "Cheque" | "Cheque / Check" | "Bank Transfer" | "Mobile Banking";
+  collection_date: string;
+  collected_by: string | null;
+  notes: string | null;
+  created_at: string;
+}
+
+/**
+ * Verified physical PostgREST column projections matching `supabase/schema_full.sql`.
+ * Never include client-only virtual properties (`outlet_name`, `party_code`, `area`, `status`, `settlement_discount`).
+ */
+export const SUPABASE_TABLE_SELECTS = {
+  ordersWithItemsAndCustomer:
+    "id, order_number, customer_id, sales_rep_id, order_date, delivery_date, status, subtotal, discount, total_amount, paid_amount, due_amount, payment_status, notes, created_at, updated_at, order_items(id, order_id, product_id, quantity, unit_price, discount, subtotal), customer:customers(id, name, city)",
+  collections:
+    "id, collection_number, customer_id, order_id, amount, payment_method, collection_date, collected_by, notes, created_at",
+  customers:
+    "id, name, customer_type, contact_person, phone, email, address, city, territory_id, trade_license_number, latitude, longitude, opening_balance, current_due, due_status, notes, assigned_to, is_active, created_at, updated_at",
+  productsFull:
+    "id, sku_code, name, brand, category_id, unit_price, dealer_price, distributor_price, mrp, d10_price, b12_price, price_tiers, stock_quantity, reorder_level, unit, image_url, is_active, created_at, updated_at, category:categories(id, name)",
+  productsCoreFallback:
+    "id, sku_code, name, category_id, unit_price, dealer_price, stock_quantity, reorder_level, unit, image_url, is_active, created_at, updated_at, category:categories(id, name)",
+} as const;
+
+export interface UserProfile extends DbUserRow {}
+
+export interface Customer extends DbCustomerRow {
   outlet_name?: string | null;
   party_code?: string | null;
   partyCode?: string | null;
@@ -229,29 +346,11 @@ export interface Customer {
   outletCode?: string | null;
   area?: string | null;
   alt_phone?: string | null;
-  contact_person?: string | null;
-  phone: string | null;
-  address?: string | null;
-  customer_type: "Dealer" | "Retailer" | "Wholesale" | string;
-  email?: string | null;
-  city?: string | null;
-  territory_id?: string | null;
-  trade_license_number?: string | null;
   postal_code?: string | null;
-  latitude?: number | null;
-  longitude?: number | null;
-  opening_balance?: number;
-  current_due?: number;
   currentDue?: number;
-  due_status?: "Clear" | "Overdue" | "Partial" | string;
-  notes?: string | null;
-  assigned_to?: string | null;
   assigned_to_name?: string | null;
   created_by_name?: string | null;
   status?: "Active" | "Inactive" | string;
-  is_active?: boolean;
-  created_at?: string;
-  updated_at?: string;
   territory?: Territory | null;
   // Security Deposit / Guarantee Cheque Details
   securityChequeNo?: string | null;
@@ -288,52 +387,21 @@ export interface Area {
 export interface Category {
   id: string;
   name: string;
-  description?: string;
+  description?: string | null;
   created_at?: string;
   [key: string]: any;
 }
 
-export interface Product {
-  id: string;
-  name: string;
+export interface Product extends DbProductRow {
   sku?: string;
-  sku_code: string;
-  brand?: string | null;
-  category_id?: string | null;
   category?: any;
   purchase_price?: number | null;
   purchase_cost?: number | null;
   cost_price?: number | null;
-  unit_price: number;
-  dealer_price?: number;
-  distributor_price?: number;
-  d10_price?: number | null;
-  b12_price?: number | null;
-  price_tiers?: Record<string, number> | Array<{ name: string; price: number }> | string | null;
-  stock_quantity: number;
-  reorder_level: number;
-  unit: string;
-  image_url?: string | null;
-  is_active: boolean;
-  created_at: string;
-  updated_at: string;
   [key: string]: any;
 }
 
-export interface Order {
-  id: string;
-  order_number: string;
-  customer_id: string;
-  sales_rep_id: string | null;
-  order_date: string;
-  delivery_date: string | null;
-  status: "Draft" | "Pending" | "Approved" | "Delivered" | "Cancelled";
-  subtotal: number;
-  discount: number;
-  total_amount: number;
-  paid_amount: number;
-  due_amount: number;
-  payment_status: "Unpaid" | "Partial" | "Paid";
+export interface Order extends DbOrderRow {
   paymentStatus?: string;
   payment_method?: string;
   paidAmount?: number;
@@ -341,9 +409,6 @@ export interface Order {
   advance_applied?: number;
   additional_paid?: number;
   items?: any[];
-  notes: string | null;
-  created_at: string;
-  updated_at: string;
   customer?: Customer;
   sales_rep?: UserProfile | null;
   sales_rep_name?: string | null;
@@ -351,16 +416,7 @@ export interface Order {
   order_items?: OrderItem[];
 }
 
-export interface OrderItem {
-  id: string;
-  order_id: string;
-  product_id: string;
-  quantity: number;
-  unit_price: number;
-  discount: number;
-  subtotal: number;
-  price_tier: string | null;
-  created_at: string;
+export interface OrderItem extends DbOrderItemRow {
   product?: Product;
 }
 
@@ -387,20 +443,10 @@ export interface StockTransaction {
   product?: Product;
 }
 
-export interface Collection {
-  id: string;
-  collection_number: string;
-  customer_id: string;
-  order_id: string | null;
-  amount: number;
-  payment_method: "Cash" | "Cheque" | "Cheque / Check" | "Bank Transfer" | "Mobile Banking";
-  collection_date: string;
-  collected_by: string | null;
+export interface Collection extends DbCollectionRow {
   collector_name?: string | null;
   collected_by_name?: string | null;
   collector?: { id?: string; full_name?: string; email?: string } | null;
-  notes: string | null;
-  created_at: string;
   bank_name?: string | null;
   branch_name?: string | null;
   cheque_number?: string | null;

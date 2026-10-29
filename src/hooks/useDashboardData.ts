@@ -1,6 +1,12 @@
 import { useState, useEffect, useCallback, useRef, startTransition } from "react";
 import { toast } from "sonner";
-import { supabase } from "@/lib/supabase";
+import {
+  supabase,
+  SUPABASE_TABLE_SELECTS,
+  type Order,
+  type Collection,
+  type Product,
+} from "@/lib/supabase";
 import { useAuth, hasActiveSessionToken } from "@/lib/auth";
 import {
   withQueryTimeout,
@@ -38,10 +44,10 @@ export interface DashboardConnectionIssue {
 }
 
 export interface UseDashboardDataResult {
-  orders: any[];
-  collections: any[];
+  orders: Order[];
+  collections: Collection[];
   customers: Customer[];
-  products: any[];
+  products: Product[];
   prevMetrics: PrevDashboardMetrics;
   loading: boolean;
   refreshing: boolean;
@@ -49,6 +55,11 @@ export interface UseDashboardDataResult {
   lastSynced: Date | null;
   connectionIssue: DashboardConnectionIssue | null;
   refresh: (isManual?: boolean) => Promise<void>;
+}
+
+interface SafeQueryResult<T> {
+  data: T[] | null;
+  error: unknown;
 }
 
 const SKELETON_HARD_CAP_MS = 9000;
@@ -76,6 +87,27 @@ const yieldToMain = (): Promise<void> =>
   });
 
 /**
+ * Wraps an async Supabase PostgREST call inside an explicit try/catch + timeout boundary (8–10s).
+ * Guarantees that network timeouts, CORS blocks, or schema errors return a clean result object
+ * without throwing unhandled rejections or blocking the main browser thread.
+ */
+async function executeTimedQuery<T>(
+  queryFactory: () => PromiseLike<{ data: T[] | null; error: any }>,
+  label: string,
+  timeoutMs = DASHBOARD_QUERY_TIMEOUT_MS,
+): Promise<SafeQueryResult<T>> {
+  try {
+    const res = await withQueryTimeout(queryFactory(), timeoutMs, label);
+    if (res.error) {
+      return { data: null, error: res.error };
+    }
+    return { data: Array.isArray(res.data) ? res.data : [], error: null };
+  } catch (err) {
+    return { data: null, error: err };
+  }
+}
+
+/**
  * Schedules non-critical localStorage persistence during browser idle time
  * so synchronous JSON.stringify never blocks Dashboard paint or interactions.
  */
@@ -83,13 +115,16 @@ function scheduleIdleTask(cb: () => void): void {
   if (typeof window === "undefined") return;
   const ric = (window as any).requestIdleCallback;
   if (typeof ric === "function") {
-    ric(() => {
-      try {
-        cb();
-      } catch (e) {
-        console.warn("[Dashboard] Idle cache write warning:", e);
-      }
-    }, { timeout: 1500 });
+    ric(
+      () => {
+        try {
+          cb();
+        } catch (e) {
+          console.warn("[Dashboard] Idle cache write warning:", e);
+        }
+      },
+      { timeout: 1500 },
+    );
   } else {
     setTimeout(() => {
       try {
@@ -104,27 +139,31 @@ function scheduleIdleTask(cb: () => void): void {
 function readCachedDashboardSnapshot() {
   try {
     const deletedOrderIds = getDeletedIds(STORAGE_KEYS.DELETED_ORDERS);
-    const rawCachedOrders = getOrders().filter((o: any) => o && !deletedOrderIds.has(o.id));
-    const cachedOrders = rawCachedOrders.length > 0 ? rawCachedOrders : initialOrders;
+    const rawCachedOrders = getOrders().filter((o) => o && !deletedOrderIds.has(o.id));
+    const cachedOrders: Order[] = rawCachedOrders.length > 0 ? rawCachedOrders : initialOrders;
 
     const deletedColIds = getDeletedIds(STORAGE_KEYS.DELETED_COLLECTIONS);
-    const rawCachedCols = getCollections().filter((c: any) => c && !deletedColIds.has(c.id));
-    const cachedCols = rawCachedCols.length > 0 ? rawCachedCols : initialCollections;
+    const rawCachedCols = getCollections().filter((c) => c && !deletedColIds.has(c.id));
+    const cachedCols: Collection[] = rawCachedCols.length > 0 ? rawCachedCols : initialCollections;
 
     const cachedCustomers = getCustomers();
-    const cachedProducts = getLocalData<any[]>(STORAGE_KEYS.PRODUCTS, []);
+    const deletedProdIds = getDeletedIds(STORAGE_KEYS.DELETED_PRODUCTS);
+    const rawCachedProducts = getLocalData<Product[]>(STORAGE_KEYS.PRODUCTS, []);
+    const cachedProducts = Array.isArray(rawCachedProducts)
+      ? rawCachedProducts.filter((p) => p && !deletedProdIds.has(String(p.id)))
+      : [];
 
     const hasAnyCached =
       rawCachedOrders.length > 0 ||
       rawCachedCols.length > 0 ||
       cachedCustomers.length > 0 ||
-      (Array.isArray(cachedProducts) && cachedProducts.length > 0);
+      cachedProducts.length > 0;
 
     return {
       orders: cachedOrders,
       collections: cachedCols,
       customers: cachedCustomers,
-      products: Array.isArray(cachedProducts) ? cachedProducts : [],
+      products: cachedProducts,
       hasAnyCached,
     };
   } catch (err) {
@@ -133,14 +172,14 @@ function readCachedDashboardSnapshot() {
       orders: initialOrders,
       collections: initialCollections,
       customers: [] as Customer[],
-      products: [] as any[],
+      products: [] as Product[],
       hasAnyCached: false,
     };
   }
 }
 
 function computePreviousMetrics(
-  collectionsList: any[],
+  collectionsList: Collection[],
   customersList: Customer[],
   prevMonthStart: string,
   monthStart: string,
@@ -189,10 +228,10 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
     initialSnapshotRef.current = readCachedDashboardSnapshot();
   }
 
-  const [orders, setOrders] = useState<any[]>(() => initialSnapshotRef.current!.orders);
-  const [collections, setCollections] = useState<any[]>(() => initialSnapshotRef.current!.collections);
+  const [orders, setOrders] = useState<Order[]>(() => initialSnapshotRef.current!.orders);
+  const [collections, setCollections] = useState<Collection[]>(() => initialSnapshotRef.current!.collections);
   const [customers, setCustomers] = useState<Customer[]>(() => initialSnapshotRef.current!.customers);
-  const [products, setProducts] = useState<any[]>(() => initialSnapshotRef.current!.products);
+  const [products, setProducts] = useState<Product[]>(() => initialSnapshotRef.current!.products);
   const [prevMetrics, setPrevMetrics] = useState<PrevDashboardMetrics>({
     prevCollection: 0,
     prevDue: 0,
@@ -271,7 +310,7 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
 
       const task = (async () => {
         try {
-          // 1. Verify active Supabase session token via refs before firing queries
+          // 1. Verify active Supabase session token via refs before firing heavy queries
           const currentSess = sessionRef.current;
           const activeSession = hasActiveSessionToken(currentSess)
             ? currentSess
@@ -307,51 +346,63 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
           const prevMonthStart = `${prevMonth.getFullYear()}-${pad(prevMonth.getMonth() + 1)}-01`;
           const prevWeekEnd = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
-          // 2. Lean, bounded queries with explicit 9s timeout per query.
-          //    Avoids deep nested product/category joins inside order_items (mapped in O(1) from products instead).
-          const [oSettled, colSettled, custSettled, prodSettled] = await Promise.allSettled([
-            withQueryTimeout(
-              supabase
-                .from("orders")
-                .select(
-                  "id, order_number, total_amount, status, created_at, order_date, customer_id, due_amount, paid_amount, order_items(product_id, quantity, unit_price, subtotal), customer:customers(id, name)",
-                )
-                .order("order_date", { ascending: false })
-                .limit(1000),
-              DASHBOARD_QUERY_TIMEOUT_MS,
+          // 2. Schema-verified, bounded queries with explicit 9s timeout & try/catch per query.
+          const fetchProductsSafe = async (): Promise<SafeQueryResult<Product>> => {
+            const fullRes = await executeTimedQuery<Product>(
+              () =>
+                supabase
+                  .from("products")
+                  .select(SUPABASE_TABLE_SELECTS.productsFull)
+                  .order("name", { ascending: true })
+                  .limit(1000) as unknown as PromiseLike<{ data: Product[] | null; error: any }>,
+              "Products query",
+            );
+            if (!fullRes.error) return fullRes;
+
+            const errMsg = String((fullRes.error as any)?.message || "");
+            if (errMsg.toLowerCase().includes("column") || (fullRes.error as any)?.code === "42703") {
+              return executeTimedQuery<Product>(
+                () =>
+                  supabase
+                    .from("products")
+                    .select(SUPABASE_TABLE_SELECTS.productsCoreFallback)
+                    .order("name", { ascending: true })
+                    .limit(1000) as unknown as PromiseLike<{ data: Product[] | null; error: any }>,
+                "Products fallback query",
+              );
+            }
+            return fullRes;
+          };
+
+          const [oRes, colRes, custRes, prodRes] = await Promise.all([
+            executeTimedQuery<Order>(
+              () =>
+                supabase
+                  .from("orders")
+                  .select(SUPABASE_TABLE_SELECTS.ordersWithItemsAndCustomer)
+                  .order("order_date", { ascending: false })
+                  .limit(1000) as unknown as PromiseLike<{ data: Order[] | null; error: any }>,
               "Orders query",
             ),
-            withQueryTimeout(
-              supabase
-                .from("collections")
-                .select(
-                  "id, collection_number, amount, collection_date, customer_id, order_id, settlement_discount, created_at",
-                )
-                .order("collection_date", { ascending: false })
-                .limit(2000),
-              DASHBOARD_QUERY_TIMEOUT_MS,
+            executeTimedQuery<Collection>(
+              () =>
+                supabase
+                  .from("collections")
+                  .select(SUPABASE_TABLE_SELECTS.collections)
+                  .order("collection_date", { ascending: false })
+                  .limit(2000) as unknown as PromiseLike<{ data: Collection[] | null; error: any }>,
               "Collections query",
             ),
-            withQueryTimeout(
-              supabase
-                .from("customers")
-                .select(
-                  "id, name, outlet_name, party_code, area, city, phone, customer_type, opening_balance, current_due, due_status, status, is_active, notes, created_at, updated_at, territory_id",
-                )
-                .order("name", { ascending: true })
-                .limit(2000),
-              DASHBOARD_QUERY_TIMEOUT_MS,
+            executeTimedQuery<Customer>(
+              () =>
+                supabase
+                  .from("customers")
+                  .select(SUPABASE_TABLE_SELECTS.customers)
+                  .order("name", { ascending: true })
+                  .limit(2000) as unknown as PromiseLike<{ data: Customer[] | null; error: any }>,
               "Customers query",
             ),
-            withQueryTimeout(
-              supabase
-                .from("products")
-                .select("id, name, unit_price, stock_quantity, reorder_level, category_id, category:categories(name)")
-                .eq("is_active", true)
-                .limit(1000),
-              DASHBOARD_QUERY_TIMEOUT_MS,
-              "Products query",
-            ),
+            fetchProductsSafe(),
           ]);
 
           if (!mountedRef.current) return;
@@ -369,45 +420,66 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
           };
 
           // ── Orders ──────────────────────────────────────────────────────────
-          let resolvedOrders: any[] = initialOrders;
+          let resolvedOrders: Order[] = initialOrders;
           let shouldCacheOrders = false;
           const deletedOrderIds = getDeletedIds(STORAGE_KEYS.DELETED_ORDERS);
-          if (oSettled.status === "fulfilled" && !oSettled.value.error && Array.isArray(oSettled.value.data)) {
-            const remoteOrders = (oSettled.value.data as any[]).filter((o: any) => o && !deletedOrderIds.has(o.id));
-            const remoteIdSet = new Set(remoteOrders.map((o: any) => String(o.id)));
+          if (!oRes.error && oRes.data !== null) {
+            const remoteOrders = oRes.data.filter((o) => o && !deletedOrderIds.has(o.id));
+            const remoteIdSet = new Set(remoteOrders.map((o) => String(o.id)));
             const pendingLocal = getOrders().filter(
-              (lo: any) => lo && !deletedOrderIds.has(lo.id) && !remoteIdSet.has(String(lo.id)),
+              (lo) => lo && !deletedOrderIds.has(lo.id) && !remoteIdSet.has(String(lo.id)),
             );
             resolvedOrders = deduplicateOrders([...pendingLocal, ...remoteOrders], {
               excludeDrafts: false,
               excludeCancelled: false,
-            });
+            }) as Order[];
             shouldCacheOrders = true;
           } else {
-            recordFailure(
-              "orders",
-              oSettled.status === "rejected" ? oSettled.reason : oSettled.value.error,
-            );
-            const fallbackOrders = getOrders().filter((o: any) => o && !deletedOrderIds.has(o.id));
+            recordFailure("orders", oRes.error);
+            const fallbackOrders = getOrders().filter((o) => o && !deletedOrderIds.has(o.id));
             resolvedOrders = fallbackOrders.length > 0 ? fallbackOrders : initialOrders;
           }
 
           // ── Collections ─────────────────────────────────────────────────────
-          let resolvedCollections: any[] = initialCollections;
+          let resolvedCollections: Collection[] = initialCollections;
           let shouldCacheCollections = false;
           const deletedColIds = getDeletedIds(STORAGE_KEYS.DELETED_COLLECTIONS);
-          if (colSettled.status === "fulfilled" && !colSettled.value.error && Array.isArray(colSettled.value.data)) {
-            const remoteCols = colSettled.value.data.filter((c: any) => c && !deletedColIds.has(c.id));
-            const remoteIdSet = new Set(remoteCols.map((c: any) => String(c.id)));
+          if (!colRes.error && colRes.data !== null) {
+            const currentLocalCols = getCollections().filter((c) => c && !deletedColIds.has(c.id));
+            const localById = new Map<string, Collection>();
+            const localByNum = new Map<string, Collection>();
+            for (let i = 0; i < currentLocalCols.length; i++) {
+              const lc = currentLocalCols[i];
+              if (lc.id) localById.set(String(lc.id), lc);
+              if (lc.collection_number) localByNum.set(String(lc.collection_number).trim().toUpperCase(), lc);
+            }
+
+            const remoteCols = colRes.data
+              .filter((c) => c && !deletedColIds.has(c.id))
+              .map((rc) => {
+                const matchLocal =
+                  localById.get(String(rc.id)) ||
+                  (rc.collection_number
+                    ? localByNum.get(String(rc.collection_number).trim().toUpperCase())
+                    : undefined);
+                if (!matchLocal) return rc;
+                return {
+                  ...matchLocal,
+                  ...rc,
+                  settlement_discount: matchLocal.settlement_discount ?? null,
+                  previous_due: matchLocal.previous_due ?? null,
+                  remaining_due: matchLocal.remaining_due ?? null,
+                };
+              });
+
+            const remoteIdSet = new Set(remoteCols.map((c) => String(c.id)));
             const remoteColNumSet = new Set(
               remoteCols
-                .map((c: any) => String(c.collection_number || "").trim().toUpperCase())
+                .map((c) => String(c.collection_number || "").trim().toUpperCase())
                 .filter(Boolean),
             );
-            const pendingLocal = getCollections().filter(
-              (lc: any) =>
-                lc &&
-                !deletedColIds.has(lc.id) &&
+            const pendingLocal = currentLocalCols.filter(
+              (lc) =>
                 !remoteIdSet.has(String(lc.id)) &&
                 (!lc.collection_number ||
                   !remoteColNumSet.has(String(lc.collection_number).trim().toUpperCase())),
@@ -415,11 +487,8 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
             resolvedCollections = deduplicateCollections([...pendingLocal, ...remoteCols]);
             shouldCacheCollections = true;
           } else {
-            recordFailure(
-              "collections",
-              colSettled.status === "rejected" ? colSettled.reason : colSettled.value.error,
-            );
-            const fallbackCols = getCollections().filter((c: any) => c && !deletedColIds.has(c.id));
+            recordFailure("collections", colRes.error);
+            const fallbackCols = getCollections().filter((c) => c && !deletedColIds.has(c.id));
             resolvedCollections = fallbackCols.length > 0 ? fallbackCols : initialCollections;
           }
 
@@ -429,28 +498,49 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
 
           // ── Customers ───────────────────────────────────────────────────────
           let resolvedCustomers: Customer[] = [];
-          if (custSettled.status === "fulfilled" && !custSettled.value.error && Array.isArray(custSettled.value.data)) {
-            resolvedCustomers = mergeAndEnrichCustomers(custSettled.value.data as Customer[]);
+          let shouldCacheCustomers = false;
+          if (!custRes.error && custRes.data !== null) {
+            // Defer localStorage write (`persist: false`) to idle callback so main thread stays silky-smooth
+            resolvedCustomers = mergeAndEnrichCustomers(custRes.data, { persist: false });
+            shouldCacheCustomers = true;
           } else {
-            recordFailure(
-              "customers",
-              custSettled.status === "rejected" ? custSettled.reason : custSettled.value.error,
-            );
+            recordFailure("customers", custRes.error);
             resolvedCustomers = getCustomers();
           }
 
           // ── Products ────────────────────────────────────────────────────────
-          let resolvedProducts: any[] = [];
+          let resolvedProducts: Product[] = [];
           let shouldCacheProducts = false;
-          if (prodSettled.status === "fulfilled" && !prodSettled.value.error && Array.isArray(prodSettled.value.data)) {
-            resolvedProducts = prodSettled.value.data;
+          const deletedProdIds = getDeletedIds(STORAGE_KEYS.DELETED_PRODUCTS);
+          if (!prodRes.error && prodRes.data !== null) {
+            const localProds = getLocalData<Product[]>(STORAGE_KEYS.PRODUCTS, []);
+            const localProdMap = new Map<string, Product>();
+            if (Array.isArray(localProds)) {
+              for (let i = 0; i < localProds.length; i++) {
+                const lp = localProds[i];
+                if (lp?.id) localProdMap.set(String(lp.id), lp);
+              }
+            }
+            resolvedProducts = prodRes.data
+              .filter((p) => p && !deletedProdIds.has(String(p.id)))
+              .map((rp) => {
+                const lp = localProdMap.get(String(rp.id));
+                if (!lp) return rp;
+                return {
+                  ...lp,
+                  ...rp,
+                  purchase_price: rp.purchase_price ?? lp.purchase_price ?? null,
+                  purchase_cost: rp.purchase_cost ?? lp.purchase_cost ?? null,
+                  cost_price: rp.cost_price ?? lp.cost_price ?? null,
+                };
+              });
             shouldCacheProducts = true;
           } else {
-            recordFailure(
-              "products",
-              prodSettled.status === "rejected" ? prodSettled.reason : prodSettled.value.error,
-            );
-            resolvedProducts = getLocalData<any[]>(STORAGE_KEYS.PRODUCTS, []);
+            recordFailure("products", prodRes.error);
+            const fallbackProds = getLocalData<Product[]>(STORAGE_KEYS.PRODUCTS, []);
+            resolvedProducts = Array.isArray(fallbackProds)
+              ? fallbackProds.filter((p) => p && !deletedProdIds.has(String(p.id)))
+              : [];
           }
 
           const computedPrev = computePreviousMetrics(
@@ -467,12 +557,12 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
             setOrders(resolvedOrders);
             setCollections(resolvedCollections);
             setCustomers(resolvedCustomers);
-            setProducts(Array.isArray(resolvedProducts) ? resolvedProducts : []);
+            setProducts(resolvedProducts);
             setPrevMetrics(computedPrev);
           });
 
-          // Persist bounded cache snapshots asynchronously during idle time
-          if (shouldCacheOrders || shouldCacheCollections || shouldCacheProducts) {
+          // Persist bounded cache snapshots asynchronously during browser idle time
+          if (shouldCacheOrders || shouldCacheCollections || shouldCacheCustomers || shouldCacheProducts) {
             scheduleIdleTask(() => {
               if (shouldCacheOrders) {
                 setLocalData(
@@ -489,6 +579,9 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
                   null,
                   true,
                 );
+              }
+              if (shouldCacheCustomers) {
+                setLocalData(STORAGE_KEYS.CUSTOMERS, resolvedCustomers, null, true);
               }
               if (shouldCacheProducts) {
                 setLocalData(STORAGE_KEYS.PRODUCTS, resolvedProducts, null, true);

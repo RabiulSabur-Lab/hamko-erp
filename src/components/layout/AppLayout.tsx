@@ -1,4 +1,4 @@
-import { useState, useEffect, type ReactNode } from "react";
+import { useState, useEffect, useRef, type ReactNode } from "react";
 import {
   Menu, X, Moon, Sun, Globe, Bell, LogOut, ChevronDown,
   LayoutDashboard, Users, Package, ShoppingCart, Truck, Warehouse,
@@ -21,7 +21,8 @@ export type { NavItem };
 export function AppLayout({ children }: { children: ReactNode }) {
   const { profile, user, session, sessionVerified, signOut } = useAuth();
   const userId = session?.user?.id ?? null;
-  const sessionRef = { current: session };
+  const sessionRef = useRef(session);
+  sessionRef.current = session;
   const { theme, toggleTheme } = useTheme();
   const { lang, setLang, t } = useI18n();
   const { path, navigate } = useRouter();

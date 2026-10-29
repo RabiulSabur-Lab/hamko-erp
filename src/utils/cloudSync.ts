@@ -620,10 +620,9 @@ export async function pushAllLocalDataToSupabase(
       report("Synchronizing Inventory", i + 1, localInventory.length);
     }
 
-    // Final Storage update dispatch
+    // Final Storage update dispatch (single CustomEvent to avoid duplicate listener cascades)
     if (typeof window !== "undefined") {
       window.dispatchEvent(new CustomEvent("sales_erp_storage_update", { detail: { type: "cloud_sync_completed" } }));
-      window.dispatchEvent(new Event("storage"));
     }
 
     toast.success(

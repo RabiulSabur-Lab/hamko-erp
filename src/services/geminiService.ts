@@ -34,17 +34,15 @@ export interface GeminiContentResponse {
  * followed by active Google Generative AI flash models.
  */
 const FLASH_MODELS = [
+  "gemini-2.0-flash",
   "gemini-1.5-flash",
-  "gemini-3.5-flash-lite",
-  "gemini-3.6-flash",
-  "gemini-3.7-flash",
   "gemini-flash-latest",
 ];
 
+const GEMINI_REQUEST_TIMEOUT_MS = 9000;
+
 /**
- * Low-level safe wrapper calling Gemini 1.5 Flash API via native fetch.
- * Explicitly connects to https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent
- * and seamlessly iterates compatible Flash models to guarantee continuous online operation.
+ * Low-level safe wrapper calling Gemini Flash API via native fetch with explicit 9s timeout.
  */
 export async function callGemini15Flash(
   prompt: string,
@@ -75,6 +73,8 @@ export async function callGemini15Flash(
 
   for (const model of FLASH_MODELS) {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), GEMINI_REQUEST_TIMEOUT_MS);
 
     try {
       const res = await fetch(url, {
@@ -83,6 +83,7 @@ export async function callGemini15Flash(
           "Content-Type": "application/json",
         },
         body: JSON.stringify(payload),
+        signal: controller.signal,
       });
 
       if (!res.ok) {
@@ -102,6 +103,8 @@ export async function callGemini15Flash(
       return outputText.trim();
     } catch (err: any) {
       lastError = err instanceof Error ? err : new Error(String(err));
+    } finally {
+      clearTimeout(timer);
     }
   }
 
@@ -119,26 +122,35 @@ export async function analyzeSalesData(orders: any[], products: any[]): Promise<
   const validOrders = Array.isArray(orders) ? orders.filter((o) => o && o.status !== "Cancelled") : [];
   const validProducts = Array.isArray(products) ? products : [];
 
-  // Pre-aggregate metrics for accurate AI synthesis
+  // O(1) product lookup map to prevent main-thread O(N * M) loops across large order histories
+  const productById = new Map<string, any>();
+  for (let i = 0; i < validProducts.length; i++) {
+    const p = validProducts[i];
+    if (p?.id) productById.set(String(p.id), p);
+  }
+
   const productSalesMap = new Map<string, { name: string; qty: number; revenue: number }>();
   let totalRevenue = 0;
 
-  validOrders.forEach((ord) => {
+  for (let i = 0; i < validOrders.length; i++) {
+    const ord = validOrders[i];
     totalRevenue += Number(ord.total_amount || 0);
     const items = ord.order_items || ord.items || [];
     if (Array.isArray(items)) {
-      items.forEach((it: any) => {
-        const prod = validProducts.find((p) => p.id === it.product_id) || it.product;
+      for (let j = 0; j < items.length; j++) {
+        const it = items[j];
+        if (!it) continue;
+        const prod = (it.product_id ? productById.get(String(it.product_id)) : undefined) || it.product;
         const name = prod?.name || it.product_name || "Unknown Product";
         const qty = Number(it.quantity || 0);
-        const subtotal = Number(it.subtotal || (it.unit_price * qty) || 0);
+        const subtotal = Number(it.subtotal || Number(it.unit_price || 0) * qty || 0);
         const cur = productSalesMap.get(name) || { name, qty: 0, revenue: 0 };
         cur.qty += qty;
         cur.revenue += subtotal;
         productSalesMap.set(name, cur);
-      });
+      }
     }
-  });
+  }
 
   const sortedProducts = Array.from(productSalesMap.values()).sort((a, b) => b.qty - a.qty);
   const topProductsSummary = sortedProducts

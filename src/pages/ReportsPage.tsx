@@ -144,11 +144,11 @@ export function ReportsPage() {
       const [oRes, cRes, custRes, eRes, pRes, officersData] = await Promise.all([
         supabase
           .from("orders")
-          .select("*, customer:customers(id, name, outlet_name, area, city, territory:territories(name)), order_items(*, product:products(*))")
+          .select("*, customer:customers(id, name, city, notes, territory:territories(name)), order_items(*, product:products(*))")
           .order("order_date", { ascending: false }),
         supabase
           .from("collections")
-          .select("*, customer:customers(id, name, outlet_name, area, city)")
+          .select("*, customer:customers(id, name, city, notes)")
           .order("collection_date", { ascending: false }),
         supabase
           .from("customers")

@@ -2,9 +2,15 @@ import React, { Component, type ErrorInfo, type ReactNode } from "react";
 import { AlertTriangle, RefreshCw, Home, RotateCcw, ChevronDown, ChevronUp, WifiOff } from "lucide-react";
 import { classifySupabaseError } from "@/lib/supabaseQuery";
 
+interface FallbackRenderProps {
+  error: Error | null;
+  resetErrorBoundary: () => void;
+}
+
 interface Props {
   children: ReactNode;
   fallback?: ReactNode;
+  fallbackRender?: (props: FallbackRenderProps) => ReactNode;
   name?: string;
   onRetry?: () => void;
 }
@@ -69,6 +75,12 @@ export class ErrorBoundary extends Component<Props, State> {
 
   public render() {
     if (this.state.hasError) {
+      if (this.props.fallbackRender) {
+        return this.props.fallbackRender({
+          error: this.state.error,
+          resetErrorBoundary: this.handleReset,
+        });
+      }
       if (this.props.fallback) {
         return this.props.fallback;
       }

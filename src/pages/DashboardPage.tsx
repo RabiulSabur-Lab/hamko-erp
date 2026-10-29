@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useCallback } from "react";
 import { useI18n } from "@/lib/i18n";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -68,6 +68,21 @@ const EMPTY_TRENDS: KpiTrends = {
   totalCustomers: null,
   activeCustomers: null,
 };
+
+const STATUS_COLORS: Record<string, string> = {
+  Draft: "#94a3b8",
+  Pending: "#f59e0b",
+  Approved: "#3b82f6",
+  Delivered: "#10b981",
+  Cancelled: "#ef4444",
+};
+
+const CHART_TOOLTIP_STYLE = {
+  background: "hsl(var(--card))",
+  border: "1px solid hsl(var(--border))",
+  borderRadius: 8,
+  fontSize: 12,
+} as const;
 
 function calcGrowth(current: number, previous: number): number | null {
   if (!Number.isFinite(previous) || previous === 0) {
@@ -428,9 +443,28 @@ export function DashboardPage() {
     [kpi, trends, t, lang]
   );
 
-  const statusColors: Record<string, string> = {
-    Draft: "#94a3b8", Pending: "#f59e0b", Approved: "#3b82f6", Delivered: "#10b981", Cancelled: "#ef4444",
-  };
+  const formatXAxisTick = useCallback(
+    (v: unknown) => (lang === "bn" ? toBnDigit(String(v ?? "")) : String(v ?? "")),
+    [lang],
+  );
+
+  const formatYAxisTick = useCallback(
+    (v: unknown) => {
+      const rawK = `${(Number(v || 0) / 1000).toFixed(0)}k`;
+      return lang === "bn" ? toBnDigit(rawK) : rawK;
+    },
+    [lang],
+  );
+
+  const formatAreaTooltip = useCallback(
+    (v: number) => [formatBDT(Number(v || 0), lang), t("totalSales")],
+    [lang, t],
+  );
+
+  const formatPieTooltip = useCallback(
+    (v: number) => formatBDT(Number(v || 0), lang),
+    [lang],
+  );
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
@@ -496,7 +530,16 @@ export function DashboardPage() {
       {/* KPI cards — skeleton while initial load, data thereafter */}
       <ErrorBoundary
         name="Widget:KpiCards"
-        fallback={<WidgetErrorCard title="KPI Summary Unavailable" onRetry={() => void refresh(true)} lang={lang} />}
+        fallbackRender={({ resetErrorBoundary }) => (
+          <WidgetErrorCard
+            title="KPI Summary Unavailable"
+            onRetry={() => {
+              resetErrorBoundary();
+              void refresh(true);
+            }}
+            lang={lang}
+          />
+        )}
       >
         {loading ? (
           <KpiSkeleton />
@@ -554,7 +597,16 @@ export function DashboardPage() {
       {/* AI Executive Insights Widget */}
       <ErrorBoundary
         name="Widget:AIInsights"
-        fallback={<WidgetErrorCard title="AI Insights Unavailable" onRetry={() => void refresh(true)} lang={lang} />}
+        fallbackRender={({ resetErrorBoundary }) => (
+          <WidgetErrorCard
+            title="AI Insights Unavailable"
+            onRetry={() => {
+              resetErrorBoundary();
+              void refresh(true);
+            }}
+            lang={lang}
+          />
+        )}
       >
         <AIInsightsWidget orders={orders} products={products} />
       </ErrorBoundary>
@@ -564,11 +616,18 @@ export function DashboardPage() {
         {/* Sales trend */}
         <ErrorBoundary
           name="Widget:SalesTrendChart"
-          fallback={
+          fallbackRender={({ resetErrorBoundary }) => (
             <div className="lg:col-span-2">
-              <WidgetErrorCard title={t("salesTrend") || "Sales Trend"} onRetry={() => void refresh(true)} lang={lang} />
+              <WidgetErrorCard
+                title={t("salesTrend") || "Sales Trend"}
+                onRetry={() => {
+                  resetErrorBoundary();
+                  void refresh(true);
+                }}
+                lang={lang}
+              />
             </div>
-          }
+          )}
         >
           <Card className="lg:col-span-2 min-w-0 min-h-[320px] overflow-hidden">
             <CardHeader className="pb-2">
@@ -593,19 +652,16 @@ export function DashboardPage() {
                       dataKey="date"
                       tick={{ fontSize: 12 }}
                       stroke="hsl(var(--muted-foreground))"
-                      tickFormatter={(v) => (lang === "bn" ? toBnDigit(String(v)) : String(v))}
+                      tickFormatter={formatXAxisTick}
                     />
                     <YAxis
                       tick={{ fontSize: 11 }}
                       stroke="hsl(var(--muted-foreground))"
-                      tickFormatter={(v) => {
-                        const rawK = `${(Number(v || 0) / 1000).toFixed(0)}k`;
-                        return lang === "bn" ? toBnDigit(rawK) : rawK;
-                      }}
+                      tickFormatter={formatYAxisTick}
                     />
                     <Tooltip
-                      contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 }}
-                      formatter={(v: number) => [formatBDT(Number(v || 0), lang), t("totalSales")]}
+                      contentStyle={CHART_TOOLTIP_STYLE}
+                      formatter={formatAreaTooltip}
                     />
                     <Area type="monotone" dataKey="sales" stroke="#0ea5e9" strokeWidth={2} fill="url(#salesGradient)" isAnimationActive={false} />
                   </AreaChart>
@@ -618,7 +674,16 @@ export function DashboardPage() {
         {/* Sales by status */}
         <ErrorBoundary
           name="Widget:SalesByStatusChart"
-          fallback={<WidgetErrorCard title={t("salesByStatus") || "Sales by Status"} onRetry={() => void refresh(true)} lang={lang} />}
+          fallbackRender={({ resetErrorBoundary }) => (
+            <WidgetErrorCard
+              title={t("salesByStatus") || "Sales by Status"}
+              onRetry={() => {
+                resetErrorBoundary();
+                void refresh(true);
+              }}
+              lang={lang}
+            />
+          )}
         >
           <Card className="min-w-0 min-h-[320px] overflow-hidden">
             <CardHeader className="pb-2">
@@ -636,10 +701,10 @@ export function DashboardPage() {
                   <PieChart>
                     <Pie data={salesByStatus} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={50} outerRadius={80} paddingAngle={2} isAnimationActive={false}>
                       {salesByStatus.map((entry) => (
-                        <Cell key={entry.name} fill={statusColors[entry.name] ?? "#94a3b8"} />
+                        <Cell key={entry.name} fill={STATUS_COLORS[entry.name] ?? "#94a3b8"} />
                       ))}
                     </Pie>
-                    <Tooltip formatter={(v: number) => formatBDT(Number(v || 0), lang)} contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 }} />
+                    <Tooltip formatter={formatPieTooltip} contentStyle={CHART_TOOLTIP_STYLE} />
                     <Legend wrapperStyle={{ fontSize: 11 }} />
                   </PieChart>
                 </ResponsiveContainer>
@@ -654,7 +719,16 @@ export function DashboardPage() {
         {/* Top products */}
         <ErrorBoundary
           name="Widget:TopProducts"
-          fallback={<WidgetErrorCard title={t("topSellingProducts") || "Top Products"} onRetry={() => void refresh(true)} lang={lang} />}
+          fallbackRender={({ resetErrorBoundary }) => (
+            <WidgetErrorCard
+              title={t("topSellingProducts") || "Top Products"}
+              onRetry={() => {
+                resetErrorBoundary();
+                void refresh(true);
+              }}
+              lang={lang}
+            />
+          )}
         >
           <Card className="overflow-hidden">
             <CardHeader className="pb-2 flex flex-row items-center justify-between">
@@ -698,7 +772,16 @@ export function DashboardPage() {
         {/* Recent orders */}
         <ErrorBoundary
           name="Widget:RecentOrders"
-          fallback={<WidgetErrorCard title={t("recentOrders") || "Recent Orders"} onRetry={() => void refresh(true)} lang={lang} />}
+          fallbackRender={({ resetErrorBoundary }) => (
+            <WidgetErrorCard
+              title={t("recentOrders") || "Recent Orders"}
+              onRetry={() => {
+                resetErrorBoundary();
+                void refresh(true);
+              }}
+              lang={lang}
+            />
+          )}
         >
           <Card className="overflow-hidden">
             <CardHeader className="pb-2 flex flex-row items-center justify-between">
