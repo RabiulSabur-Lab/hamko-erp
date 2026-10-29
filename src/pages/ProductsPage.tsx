@@ -26,6 +26,7 @@ import {
   saveDeletedId,
   r2,
   getOrders,
+  isPendingOfflineRecord,
 } from "@/utils/localStore";
 import {
   sanitizeFormulaInput,
@@ -190,18 +191,21 @@ export function ProductsPage() {
         // Merge any locally created pending products not yet present in Supabase
         const storedLocal = getLocalData<Product[]>(STORAGE_KEYS.PRODUCTS, []);
         const currentLocal = (Array.isArray(storedLocal) ? storedLocal : []).filter((p: Product) => !deletedIds.has(p.id));
-        const pendingLocal = currentLocal.filter((lp: Product) => !remoteIdSet.has(String(lp.id)));
+        const pendingLocal = currentLocal.filter(
+          (lp: Product) => !remoteIdSet.has(String(lp.id)) && isPendingOfflineRecord(lp)
+        );
 
         // Preserve local purchase_price and ensure category is always populated from category_id
         const localMap = new Map<string, Product>(currentLocal.map((p: Product) => [String(p.id), p]));
         const enrichedRemote: Product[] = validRemote.map((rp: any) => {
           const loc = localMap.get(String(rp.id));
+          const locIsPending = Boolean(loc && isPendingOfflineRecord(loc));
           const resolvedCat = (rp.category_id && catMap.has(rp.category_id))
             ? catMap.get(rp.category_id)
             : (rp.category || loc?.category || null);
           const localStock = (loc as any)?.stock_quantity ?? (loc as any)?.stock;
-          const remoteStock = rp.stock_quantity ?? (rp as any)?.stock ?? 0;
-          const effectiveStock = localStock !== undefined && localStock > remoteStock ? localStock : remoteStock;
+          const remoteStock = Number(rp.stock_quantity ?? (rp as any)?.stock ?? 0);
+          const effectiveStock = locIsPending && localStock !== undefined ? Number(localStock) : remoteStock;
 
           const resolvedCost = (loc as any)?.purchase_cost ?? rp.purchase_cost ?? rp.distributor_price ?? (loc as any)?.distributor_price ?? (loc as any)?.purchase_price ?? null;
           const resolvedDp = rp.unit_price ?? rp.dealer_price ?? rp.dp_price ?? rp.price ?? (loc as any)?.unit_price ?? (loc as any)?.dp_price ?? 0;

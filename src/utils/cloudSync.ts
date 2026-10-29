@@ -1,7 +1,16 @@
-import { supabase } from "@/lib/supabase";
+import { supabase, SUPABASE_TABLE_SELECTS } from "@/lib/supabase";
+import { hasActiveSessionToken } from "@/lib/auth";
 import {
   STORAGE_KEYS,
   getLocalData,
+  setLocalData,
+  getDeletedIds,
+  isPendingOfflineRecord,
+  mergeAndEnrichCustomers,
+  reconcileOrdersWithRemote,
+  reconcileCollectionsWithRemote,
+  reconcileProductsWithRemote,
+  broadcastCrossTabSync,
   getProducts,
   getCustomers,
   getOrders,
@@ -53,29 +62,46 @@ function generateUUID(): string {
 }
 
 /**
- * Encodes extra customer metadata into the notes string so no custom attributes are lost
+ * Encodes extra customer metadata into the notes string using standardized tags
+ * recognized identically across Web and Mobile (`parseCustomerNotes`).
  */
-function encodeCustomerNotes(cust: any): string {
+export function encodeCustomerNotes(cust: any): string {
   const parts: string[] = [];
-  if (cust.notes && typeof cust.notes === "string") {
-    const clean = cust.notes.replace(/\[(?:party_code|area|alt_phone|security_cheque):[^\]]*\]/g, "").trim();
+  const rawStatus =
+    cust?.status === "Inactive" || cust?.is_active === false ? "Inactive" : "Active";
+  parts.push(`[STATUS:${rawStatus}]`);
+
+  if (cust?.party_code) parts.push(`[PARTY:${String(cust.party_code).trim()}]`);
+  if (cust?.area) parts.push(`[AREA:${String(cust.area).trim()}]`);
+  if (cust?.alt_phone) parts.push(`[ALT:${String(cust.alt_phone).trim()}]`);
+
+  const chk = cust?.securityChequeNo || cust?.security_cheque_no;
+  const bnk = cust?.securityBankName || cust?.security_bank_name;
+  const brn = cust?.securityBranchName || cust?.security_branch_name;
+  const dt = cust?.securityChequeDate || cust?.security_cheque_date;
+  const sNotes = cust?.securityNotes || cust?.security_notes;
+
+  if (chk) parts.push(`[SEC_CHEQUE:${String(chk).trim()}]`);
+  if (bnk) parts.push(`[SEC_BANK:${String(bnk).trim()}]`);
+  if (brn) parts.push(`[SEC_BRANCH:${String(brn).trim()}]`);
+  if (dt) parts.push(`[SEC_DATE:${String(dt).trim()}]`);
+  if (sNotes) parts.push(`[SEC_NOTES:${String(sNotes).trim()}]`);
+
+  if (cust?.notes && typeof cust.notes === "string") {
+    const clean = cust.notes
+      .replace(/\[(?:STATUS|PARTY|party_code|AREA|area|ALT|alt_phone|SEC_CHEQUE|SEC_BANK|SEC_BRANCH|SEC_DATE|SEC_NOTES|security_cheque):[^\]]*\]/gi, "")
+      .trim();
     if (clean) parts.push(clean);
   }
-  if (cust.party_code) parts.push(`[party_code:${cust.party_code}]`);
-  if (cust.area) parts.push(`[area:${cust.area}]`);
-  if (cust.alt_phone) parts.push(`[alt_phone:${cust.alt_phone}]`);
-  if (cust.security_cheque_no || cust.securityChequeNo) {
-    const chk = cust.security_cheque_no || cust.securityChequeNo;
-    const bnk = cust.security_bank_name || cust.securityBankName || "";
-    parts.push(`[security_cheque:${chk}|${bnk}]`);
-  }
-  return parts.join(" ");
+  return parts.join(" ").trim();
 }
 
 /**
  * Concurrency execution guard to prevent overlapping or infinite recursive synchronization calls.
  */
 let isCloudSyncing = false;
+let inFlightCloudPull: Promise<{ synced: boolean; updatedTables: string[] }> | null = null;
+let lastCloudPullAt = 0;
 
 export function getIsCloudSyncing(): boolean {
   return isCloudSyncing;
@@ -99,27 +125,65 @@ async function withTimeout<T>(promise: PromiseLike<T>, ms = 25000, label = "Oper
   return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timer));
 }
 
-async function safeTimedQuery<TRes extends { data: any; error: any }>(
-  promise: PromiseLike<TRes>,
-  ms = 10000,
-  label = "Database operation",
-): Promise<{ data: TRes["data"] | null; error: any }> {
-  try {
-    const res = await withTimeout(promise, ms, label);
-    return { data: res?.data ?? null, error: res?.error ?? null };
-  } catch (err: any) {
-    return { data: null, error: { message: err?.message || `${label} failed` } };
-  }
+function isRetryableNetworkFailure(err: any): boolean {
+  if (!err) return false;
+  const msg = `${err?.message || ""} ${err?.details || ""} ${err?.hint || ""}`.toLowerCase();
+  return (
+    msg.includes("timed out") ||
+    msg.includes("timeout") ||
+    msg.includes("aborted") ||
+    msg.includes("fetch failed") ||
+    msg.includes("failed to fetch") ||
+    msg.includes("networkerror") ||
+    msg.includes("load failed")
+  );
 }
 
-function normalizeDueStatus(rawStatus: unknown, currentDue: number): "Clear" | "Overdue" | "Partial" {
+async function safeTimedQuery<TRes extends { data: any; error: any }>(
+  promiseOrFactory: PromiseLike<TRes> | (() => PromiseLike<TRes>),
+  ms = 10000,
+  label = "Database operation",
+  maxRetries = 1,
+): Promise<{ data: TRes["data"] | null; error: any }> {
+  const isFactory = typeof promiseOrFactory === "function";
+  const attempts = isFactory ? Math.max(1, maxRetries + 1) : 1;
+  let lastError: any = null;
+
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    try {
+      const targetPromise = isFactory
+        ? (promiseOrFactory as () => PromiseLike<TRes>)()
+        : promiseOrFactory;
+      const res = await withTimeout(targetPromise, ms, label);
+      if (!res?.error) {
+        return { data: res?.data ?? null, error: null };
+      }
+      lastError = res.error;
+      if (attempt < attempts - 1 && isRetryableNetworkFailure(lastError)) {
+        await new Promise((r) => setTimeout(r, 350));
+        continue;
+      }
+      return { data: null, error: lastError };
+    } catch (err: any) {
+      lastError = { message: err?.message || `${label} failed` };
+      if (attempt < attempts - 1 && isRetryableNetworkFailure(lastError)) {
+        await new Promise((r) => setTimeout(r, 350));
+        continue;
+      }
+      return { data: null, error: lastError };
+    }
+  }
+  return { data: null, error: lastError };
+}
+
+export function normalizeDueStatus(rawStatus: unknown, currentDue: number): "Clear" | "Overdue" | "Partial" {
   if (rawStatus === "Clear" || rawStatus === "Overdue" || rawStatus === "Partial") {
     return rawStatus;
   }
   return currentDue > 0 ? "Partial" : "Clear";
 }
 
-function normalizeOrderStatus(rawStatus: unknown): "Draft" | "Pending" | "Approved" | "Delivered" | "Cancelled" {
+export function normalizeOrderStatus(rawStatus: unknown): "Draft" | "Pending" | "Approved" | "Delivered" | "Cancelled" {
   if (
     rawStatus === "Draft" ||
     rawStatus === "Pending" ||
@@ -132,7 +196,7 @@ function normalizeOrderStatus(rawStatus: unknown): "Draft" | "Pending" | "Approv
   return "Delivered";
 }
 
-function normalizePaymentStatus(rawStatus: unknown, paidAmount: number, totalAmount: number): "Unpaid" | "Partial" | "Paid" {
+export function normalizePaymentStatus(rawStatus: unknown, paidAmount: number, totalAmount: number): "Unpaid" | "Partial" | "Paid" {
   if (rawStatus === "Unpaid" || rawStatus === "Partial" || rawStatus === "Paid") {
     return rawStatus;
   }
@@ -141,7 +205,7 @@ function normalizePaymentStatus(rawStatus: unknown, paidAmount: number, totalAmo
   return "Unpaid";
 }
 
-function normalizePaymentMethod(rawMethod: unknown): "Cash" | "Cheque" | "Bank Transfer" | "Mobile Banking" {
+export function normalizePaymentMethod(rawMethod: unknown): "Cash" | "Cheque" | "Bank Transfer" | "Mobile Banking" {
   const clean = String(rawMethod || "").trim();
   if (clean === "Cash" || clean === "Cheque" || clean === "Bank Transfer" || clean === "Mobile Banking") {
     return clean;
@@ -217,10 +281,10 @@ export async function pushAllLocalDataToSupabase(
     // ---------------------------------------------------------
     report("Synchronizing Categories", 0, 1);
     const localCategories = getLocalData<any[]>(STORAGE_KEYS.CATEGORIES, []);
-    const { data: remoteCategories } = await withTimeout(
-      supabase.from("categories").select("id, name"),
-      20000,
-      "Categories fetch"
+    const { data: remoteCategories } = await safeTimedQuery(
+      () => supabase.from("categories").select("id, name"),
+      12000,
+      "Categories fetch",
     );
     const categoryMap = new Map<string, string>(); // name.toLowerCase() -> id
 
@@ -279,7 +343,8 @@ export async function pushAllLocalDataToSupabase(
     // ---------------------------------------------------------
     // 2. SYNC PRODUCTS
     // ---------------------------------------------------------
-    const localProducts = getProducts();
+    const deletedProdIds = getDeletedIds(STORAGE_KEYS.DELETED_PRODUCTS);
+    const localProducts = getProducts().filter((p) => p && !deletedProdIds.has(String(p.id)));
     report("Synchronizing Products", 0, localProducts.length);
 
     for (let i = 0; i < localProducts.length; i++) {
@@ -379,13 +444,14 @@ export async function pushAllLocalDataToSupabase(
     // ---------------------------------------------------------
     // 3. SYNC CUSTOMERS
     // ---------------------------------------------------------
-    const localCustomers = getCustomers();
+    const deletedCustIds = getDeletedIds(STORAGE_KEYS.DELETED_CUSTOMERS);
+    const localCustomers = getCustomers().filter((c) => c && !deletedCustIds.has(String(c.id)));
     report("Synchronizing Customers", 0, localCustomers.length);
 
-    const { data: remoteTerritories } = await withTimeout(
-      supabase.from("territories").select("id, name"),
-      20000,
-      "Territories fetch"
+    const { data: remoteTerritories } = await safeTimedQuery(
+      () => supabase.from("territories").select("id, name"),
+      12000,
+      "Territories fetch",
     );
     const territoryMap = new Map<string, string>();
     (remoteTerritories || []).forEach((t: any) => {
@@ -448,30 +514,33 @@ export async function pushAllLocalDataToSupabase(
     // ---------------------------------------------------------
     // 4. SYNC ORDERS & ORDER ITEMS
     // ---------------------------------------------------------
-    const localOrders = getOrders();
+    const deletedOrderIds = getDeletedIds(STORAGE_KEYS.DELETED_ORDERS);
+    const localOrders = getOrders().filter((o) => o && !deletedOrderIds.has(String(o.id)));
     report("Synchronizing Orders", 0, localOrders.length);
 
     // Fetch existing customer IDs to avoid foreign-key violations
-    const { data: dbCustomers } = await withTimeout(
-      supabase.from("customers").select("id, name"),
-      20000,
-      "Customers fetch"
+    const { data: dbCustomers } = await safeTimedQuery(
+      () => supabase.from("customers").select("id, name"),
+      12000,
+      "Customers fetch",
     );
-    const validCustIds = new Set<string>((dbCustomers || []).map((dc) => dc.id));
+    const validCustIds = new Set<string>((dbCustomers || []).map((dc: any) => dc.id));
     const custNameToId = new Map<string, string>();
-    (dbCustomers || []).forEach((dc) => custNameToId.set(dc.name.trim().toLowerCase(), dc.id));
+    (dbCustomers || []).forEach((dc: any) => {
+      if (dc?.name && dc?.id) custNameToId.set(dc.name.trim().toLowerCase(), dc.id);
+    });
 
     // Fetch products to map order product IDs
-    const { data: dbProducts } = await withTimeout(
-      supabase.from("products").select("id, name, sku_code"),
-      20000,
-      "Products fetch"
+    const { data: dbProducts } = await safeTimedQuery(
+      () => supabase.from("products").select("id, name, sku_code"),
+      12000,
+      "Products fetch",
     );
-    const validProdIds = new Set<string>((dbProducts || []).map((dp) => dp.id));
+    const validProdIds = new Set<string>((dbProducts || []).map((dp: any) => dp.id));
     const prodNameToId = new Map<string, string>();
-    (dbProducts || []).forEach((dp) => {
-      prodNameToId.set(dp.name.trim().toLowerCase(), dp.id);
-      prodNameToId.set(dp.sku_code.trim().toLowerCase(), dp.id);
+    (dbProducts || []).forEach((dp: any) => {
+      if (dp?.name && dp?.id) prodNameToId.set(dp.name.trim().toLowerCase(), dp.id);
+      if (dp?.sku_code && dp?.id) prodNameToId.set(dp.sku_code.trim().toLowerCase(), dp.id);
     });
 
     for (let i = 0; i < localOrders.length; i++) {
@@ -588,7 +657,8 @@ export async function pushAllLocalDataToSupabase(
     // ---------------------------------------------------------
     // 5. SYNC COLLECTIONS
     // ---------------------------------------------------------
-    const localCollections = getCollections();
+    const deletedColIds = getDeletedIds(STORAGE_KEYS.DELETED_COLLECTIONS);
+    const localCollections = getCollections().filter((c) => c && !deletedColIds.has(String(c.id)));
     report("Synchronizing Collections", 0, localCollections.length);
 
     for (let i = 0; i < localCollections.length; i++) {
@@ -642,7 +712,10 @@ export async function pushAllLocalDataToSupabase(
     // ---------------------------------------------------------
     // 6. SYNC EXPENSES
     // ---------------------------------------------------------
-    const localExpenses = getLocalData<any[]>(STORAGE_KEYS.EXPENSES, []);
+    const deletedExpIds = getDeletedIds(STORAGE_KEYS.DELETED_EXPENSES);
+    const localExpenses = getLocalData<any[]>(STORAGE_KEYS.EXPENSES, []).filter(
+      (e) => e && !deletedExpIds.has(String(e.id)),
+    );
     report("Synchronizing Expenses", 0, localExpenses.length);
 
     for (let i = 0; i < localExpenses.length; i++) {
@@ -707,9 +780,14 @@ export async function pushAllLocalDataToSupabase(
       report("Synchronizing Inventory", i + 1, localInventory.length);
     }
 
-    // Final Storage update dispatch (single CustomEvent to avoid duplicate listener cascades)
+    // Pull authoritative cloud state back so local IDs/flags converge 100% with Supabase
+    await pullFreshCloudStateToLocalStore({ force: true, silent: true });
+
+    // Final Storage update dispatch (single CustomEvent + BroadcastChannel)
     if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("sales_erp_storage_update", { detail: { type: "cloud_sync_completed" } }));
+      const detail = { type: "cloud_sync_completed" };
+      window.dispatchEvent(new CustomEvent("sales_erp_storage_update", { detail }));
+      broadcastCrossTabSync({ detail });
     }
 
     toast.success(
@@ -724,6 +802,209 @@ export async function pushAllLocalDataToSupabase(
   }
 
   return summary;
+}
+
+/**
+ * Pulls authoritative cloud data from Supabase and reconciles localStorage mirrors
+ * so Web and Mobile platforms always render identical state on startup, reconnect, or Realtime updates.
+ */
+export async function pullFreshCloudStateToLocalStore(options?: {
+  force?: boolean;
+  silent?: boolean;
+}): Promise<{ synced: boolean; updatedTables: string[] }> {
+  if (typeof window === "undefined") {
+    return { synced: false, updatedTables: [] };
+  }
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    return { synced: false, updatedTables: [] };
+  }
+
+  const now = Date.now();
+  if (!options?.force && now - lastCloudPullAt < 4000) {
+    return inFlightCloudPull ?? { synced: false, updatedTables: [] };
+  }
+  if (inFlightCloudPull) {
+    return inFlightCloudPull;
+  }
+
+  const task = (async (): Promise<{ synced: boolean; updatedTables: string[] }> => {
+    try {
+      const { data: sessionData, error: sessionErr } = await safeTimedQuery(
+        () => supabase.auth.getSession(),
+        6000,
+        "Cloud pull session check",
+        0,
+      );
+      if (sessionErr || !hasActiveSessionToken(sessionData?.session)) {
+        return { synced: false, updatedTables: [] };
+      }
+
+      lastCloudPullAt = Date.now();
+
+      const fetchProductsSafe = async () => {
+        const full = await safeTimedQuery(
+          () =>
+            supabase
+              .from("products")
+              .select(SUPABASE_TABLE_SELECTS.productsFull)
+              .order("name", { ascending: true })
+              .limit(1000),
+          10000,
+          "Cloud pull products",
+          1,
+        );
+        if (!full.error) return full;
+        const msg = String(full.error?.message || "").toLowerCase();
+        if (msg.includes("column") || full.error?.code === "42703") {
+          return safeTimedQuery(
+            () =>
+              supabase
+                .from("products")
+                .select(SUPABASE_TABLE_SELECTS.productsCoreFallback)
+                .order("name", { ascending: true })
+                .limit(1000),
+            10000,
+            "Cloud pull products fallback",
+            1,
+          );
+        }
+        return full;
+      };
+
+      const [ordersRes, colsRes, custRes, prodRes, catRes, expRes] = await Promise.all([
+        safeTimedQuery(
+          () =>
+            supabase
+              .from("orders")
+              .select(SUPABASE_TABLE_SELECTS.ordersWithItemsAndCustomer)
+              .order("order_date", { ascending: false })
+              .limit(1000),
+          10000,
+          "Cloud pull orders",
+          1,
+        ),
+        safeTimedQuery(
+          () =>
+            supabase
+              .from("collections")
+              .select(SUPABASE_TABLE_SELECTS.collections)
+              .order("collection_date", { ascending: false })
+              .limit(2000),
+          10000,
+          "Cloud pull collections",
+          1,
+        ),
+        safeTimedQuery(
+          () =>
+            supabase
+              .from("customers")
+              .select(SUPABASE_TABLE_SELECTS.customers)
+              .order("name", { ascending: true })
+              .limit(2000),
+          10000,
+          "Cloud pull customers",
+          1,
+        ),
+        fetchProductsSafe(),
+        safeTimedQuery(
+          () =>
+            supabase
+              .from("categories")
+              .select("id, name, description, created_at")
+              .order("name", { ascending: true })
+              .limit(500),
+          10000,
+          "Cloud pull categories",
+          1,
+        ),
+        safeTimedQuery(
+          () =>
+            supabase
+              .from("expenses")
+              .select("id, category, description, amount, expense_date, recorded_by, notes, created_at")
+              .order("expense_date", { ascending: false })
+              .limit(1000),
+          10000,
+          "Cloud pull expenses",
+          1,
+        ),
+      ]);
+
+      await yieldToUI();
+      const updatedTables: string[] = [];
+
+      if (!ordersRes.error && Array.isArray(ordersRes.data)) {
+        reconcileOrdersWithRemote(ordersRes.data as any, { persist: true, maxCache: 500 });
+        updatedTables.push("orders");
+      }
+
+      if (!colsRes.error && Array.isArray(colsRes.data)) {
+        reconcileCollectionsWithRemote(colsRes.data as any, { persist: true, maxCache: 1000 });
+        updatedTables.push("collections");
+      }
+
+      if (!custRes.error && Array.isArray(custRes.data)) {
+        mergeAndEnrichCustomers(custRes.data as any, { persist: true });
+        updatedTables.push("customers");
+      }
+
+      if (!prodRes.error && Array.isArray(prodRes.data)) {
+        reconcileProductsWithRemote(prodRes.data as any, { persist: true });
+        updatedTables.push("products");
+      }
+
+      if (!catRes.error && Array.isArray(catRes.data)) {
+        const localCats = getLocalData<any[]>(STORAGE_KEYS.CATEGORIES, []);
+        const remoteCatIdSet = new Set(catRes.data.map((c: any) => String(c.id)));
+        const pendingCats = (Array.isArray(localCats) ? localCats : []).filter(
+          (lc) => lc && !remoteCatIdSet.has(String(lc.id)) && isPendingOfflineRecord(lc),
+        );
+        setLocalData(STORAGE_KEYS.CATEGORIES, [...pendingCats, ...catRes.data], null, true);
+        updatedTables.push("categories");
+      }
+
+      if (!expRes.error && Array.isArray(expRes.data)) {
+        const deletedExpIds = getDeletedIds(STORAGE_KEYS.DELETED_EXPENSES);
+        const validRemoteExp = expRes.data.filter(
+          (e: any) => e && !deletedExpIds.has(String(e.id)),
+        );
+        const remoteExpIdSet = new Set(validRemoteExp.map((e: any) => String(e.id)));
+        const localExp = getLocalData<any[]>(STORAGE_KEYS.EXPENSES, []);
+        const pendingExp = (Array.isArray(localExp) ? localExp : []).filter(
+          (le) =>
+            le &&
+            !deletedExpIds.has(String(le.id)) &&
+            !remoteExpIdSet.has(String(le.id)) &&
+            isPendingOfflineRecord(le),
+        );
+        setLocalData(STORAGE_KEYS.EXPENSES, [...pendingExp, ...validRemoteExp], null, true);
+        updatedTables.push("expenses");
+      }
+
+      if (updatedTables.length > 0 && !options?.silent) {
+        const detail = { type: "cloud_pull_completed", updatedTables };
+        window.dispatchEvent(new CustomEvent("sales_erp_storage_update", { detail }));
+        broadcastCrossTabSync({ detail });
+      } else if (updatedTables.length > 0) {
+        // Even in silent mode, notify active in-memory React views once so UI reflects fresh cloud rows
+        window.dispatchEvent(
+          new CustomEvent("sales_erp_storage_update", {
+            detail: { type: "cloud_pull_completed", updatedTables },
+          }),
+        );
+      }
+
+      return { synced: updatedTables.length > 0, updatedTables };
+    } catch (err) {
+      console.warn("[CloudSync] Background cloud pull notice:", err);
+      return { synced: false, updatedTables: [] };
+    } finally {
+      inFlightCloudPull = null;
+    }
+  })();
+
+  inFlightCloudPull = task;
+  return task;
 }
 
 /**

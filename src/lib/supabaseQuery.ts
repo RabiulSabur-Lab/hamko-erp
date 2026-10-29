@@ -97,8 +97,10 @@ export function classifySupabaseError(err: unknown): ClassifiedSupabaseError {
   const rawMessage = String(
     anyErr?.message || anyErr?.error_description || anyErr?.details || err || "Unknown network error",
   );
-  const lower = rawMessage.toLowerCase();
+  const rawHint = String(anyErr?.hint || "");
+  const lower = `${rawMessage} ${rawHint}`.toLowerCase();
   const errName = String(anyErr?.name || "").toLowerCase();
+  const errCode = String(anyErr?.code || "");
   const status = Number(anyErr?.status || anyErr?.code || 0);
 
   if (typeof navigator !== "undefined" && navigator.onLine === false) {
@@ -116,7 +118,8 @@ export function classifySupabaseError(err: unknown): ClassifiedSupabaseError {
     errName.includes("abort") ||
     lower.includes("timed out") ||
     lower.includes("timeout") ||
-    lower.includes("aborterror")
+    lower.includes("aborterror") ||
+    lower.includes("request was aborted")
   ) {
     return {
       kind: "timeout",
@@ -131,10 +134,15 @@ export function classifySupabaseError(err: unknown): ClassifiedSupabaseError {
     status === 401 ||
     lower.includes("jwt expired") ||
     lower.includes("invalid jwt") ||
+    lower.includes("invalid api key") ||
+    lower.includes("no api key found") ||
+    lower.includes("jwserror") ||
+    lower.includes("jws") ||
     lower.includes("invalid refresh token") ||
     lower.includes("refresh_token_not_found") ||
     lower.includes("auth session missing") ||
-    String(anyErr?.code || "") === "PGRST301"
+    errCode === "PGRST301" ||
+    errCode === "PGRST302"
   ) {
     return {
       kind: "auth",
@@ -145,11 +153,13 @@ export function classifySupabaseError(err: unknown): ClassifiedSupabaseError {
     };
   }
 
-  // Browser `fetch` throws TypeError ("Failed to fetch" on Chrome/Android, "Load failed" on iOS Safari,
-  // "NetworkError when attempting to fetch resource" on Firefox) for CORS blocks or dropped sockets
+  // Browser `fetch` & @supabase/postgrest-js wrapped network errors ("Failed to fetch", "TypeError: fetch failed",
+  // "Load failed" on iOS Safari, "NetworkError" on Firefox, "FetchError")
   if (
     anyErr instanceof TypeError ||
     lower.includes("failed to fetch") ||
+    lower.includes("fetch failed") ||
+    lower.includes("fetcherror") ||
     lower.includes("load failed") ||
     lower.includes("networkerror") ||
     lower.includes("network request failed") ||

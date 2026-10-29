@@ -628,23 +628,30 @@ export function AddCustomerModal({
             finalStatus
           );
 
+          const validCustType = ["Dealer", "Retailer", "Wholesale"].includes(String(payload.customer_type || ""))
+            ? String(payload.customer_type)
+            : "Retailer";
+          const validDueStatus = ["Clear", "Overdue", "Partial"].includes(String(payload.due_status))
+            ? payload.due_status
+            : (Number(payload.current_due || 0) > 0 ? "Partial" : "Clear");
+
           // Standard Supabase customers table columns (is_active is boolean; notes holds metadata tag)
           const supabasePayload: Record<string, any> = {
             name: outletName,
-            customer_type: payload.customer_type,
-            contact_person: payload.contact_person,
-            phone: payload.phone,
-            address: payload.address,
+            customer_type: validCustType,
+            contact_person: payload.contact_person || null,
+            phone: payload.phone || null,
+            address: payload.address || null,
             city: finalArea || null,
-            trade_license_number: payload.trade_license_number,
-            opening_balance: payload.opening_balance,
-            current_due: payload.current_due,
-            due_status: payload.due_status,
+            trade_license_number: payload.trade_license_number || null,
+            opening_balance: Number(payload.opening_balance ?? 0),
+            current_due: Number(payload.current_due ?? 0),
+            due_status: validDueStatus,
             notes: combinedNotes,
-            postal_code: payload.postal_code || null,
             latitude: payload.latitude ?? null,
             longitude: payload.longitude ?? null,
             is_active: finalIsActive,
+            updated_at: new Date().toISOString(),
           };
 
           const res = await supabase
@@ -653,10 +660,14 @@ export function AddCustomerModal({
             .eq("id", customer.id);
 
           if (res.error) {
-            console.warn("Supabase customer update error (persisted locally):", res.error.message);
+            console.warn("Supabase customer update error (persisted locally for offline sync):", res.error.message);
+            saveCustomer({ id: customer.id, is_offline: true });
+          } else {
+            saveCustomer({ id: customer.id, is_offline: false, _unsynced: false });
           }
         } catch (err) {
-          console.warn("Supabase customer update exception:", err);
+          console.warn("Supabase customer update exception (queued offline):", err);
+          saveCustomer({ id: customer.id, is_offline: true });
         }
       } else {
         // Create New Customer / Outlet
@@ -676,13 +687,12 @@ export function AddCustomerModal({
           due_status: payload.due_status ?? "Clear",
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
+          _localPendingUntil: Date.now() + 30000,
         } as Customer;
 
         saveCustomer(newRecord);
 
         window.dispatchEvent(new CustomEvent("sales_erp_storage_update", { detail: { customer: newRecord } }));
-        window.dispatchEvent(new CustomEvent("sales_erp_storage_update"));
-        window.dispatchEvent(new Event("sales_erp_storage_update"));
         toast.success(t("created") || "Outlet created successfully");
         onSaved?.(newRecord);
         onClose();
@@ -702,19 +712,26 @@ export function AddCustomerModal({
             finalStatus
           );
 
+          const validCustType = ["Dealer", "Retailer", "Wholesale"].includes(String(payload.customer_type || ""))
+            ? String(payload.customer_type)
+            : "Retailer";
+          const validDueStatus = ["Clear", "Overdue", "Partial"].includes(String(payload.due_status))
+            ? payload.due_status
+            : (Number(payload.current_due || 0) > 0 ? "Partial" : "Clear");
+
           const supabasePayload: Record<string, any> = {
+            id: tempId,
             name: outletName,
-            customer_type: payload.customer_type,
-            contact_person: payload.contact_person,
-            phone: payload.phone,
-            address: payload.address,
+            customer_type: validCustType,
+            contact_person: payload.contact_person || null,
+            phone: payload.phone || null,
+            address: payload.address || null,
             city: finalArea || null,
-            trade_license_number: payload.trade_license_number,
-            opening_balance: payload.opening_balance,
-            current_due: payload.current_due,
-            due_status: payload.due_status,
+            trade_license_number: payload.trade_license_number || null,
+            opening_balance: Number(payload.opening_balance ?? 0),
+            current_due: Number(payload.current_due ?? 0),
+            due_status: validDueStatus,
             notes: combinedNotes,
-            postal_code: payload.postal_code || null,
             latitude: payload.latitude ?? null,
             longitude: payload.longitude ?? null,
             assigned_to: creatorId,
@@ -731,17 +748,19 @@ export function AddCustomerModal({
             const remoteId = res.data.id;
             const refreshed: Customer[] = getCustomers();
             const reconciled: Customer[] = refreshed.map((c: Customer) =>
-              c.id === tempId ? { ...c, id: remoteId } : c
+              c.id === tempId
+                ? { ...c, id: remoteId, is_offline: false, _unsynced: false, _localPendingUntil: undefined }
+                : c
             );
             setLocalData(STORAGE_KEYS.CUSTOMERS, reconciled);
-            window.dispatchEvent(new CustomEvent("sales_erp_storage_update", { detail: { customerId: remoteId } }));
-            window.dispatchEvent(new CustomEvent("sales_erp_storage_update"));
-            window.dispatchEvent(new Event("sales_erp_storage_update"));
+            dispatchGlobalStateUpdate({ customerId: remoteId, type: "customer_created" });
           } else if (res.error) {
-            console.warn("Supabase customer insert notice (saved locally):", res.error.message);
+            console.warn("Supabase customer insert notice (queued for offline sync):", res.error.message);
+            saveCustomer({ id: tempId, is_offline: true, _localPendingUntil: undefined });
           }
         } catch (err) {
-          console.warn("Supabase customer insert exception (saved locally):", err);
+          console.warn("Supabase customer insert exception (queued for offline sync):", err);
+          saveCustomer({ id: tempId, is_offline: true, _localPendingUntil: undefined });
         }
       }
     } catch (e: any) {

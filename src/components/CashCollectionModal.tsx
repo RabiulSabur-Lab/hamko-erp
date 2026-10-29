@@ -30,6 +30,7 @@ import {
   r2,
   generateCollectionNumber,
 } from "@/utils/localStore";
+import { normalizePaymentMethod } from "@/utils/cloudSync";
 
 export const PAYMENT_METHODS = [
   "Cash",
@@ -464,78 +465,55 @@ export function CashCollectionModal({
       onSaved?.(collectionRecord);
       onClose();
 
-      // 4. Remote Supabase persistence
+      // 4. Remote Supabase persistence (strictly aligned with physical collections schema)
       try {
+        const normalizedMethod = normalizePaymentMethod(paymentMethod || "Cash");
         const collectionPayload: Record<string, any> = {
           collection_number: colNum,
           customer_id: customerId,
           order_id: orderId || null,
           amount: amt,
-          previous_due: prevDueCalc,
-          remaining_due: remDueCalc,
-          payment_method: paymentMethod || "Cash",
+          payment_method: normalizedMethod,
           collection_date: collectionDate ? new Date(collectionDate).toISOString() : new Date().toISOString(),
           collected_by: profile?.id || null,
           notes: finalNote || null,
         };
 
-        if (isCheque) {
-          collectionPayload.bank_name = finalBank;
-          collectionPayload.branch_name = finalBranch;
-          collectionPayload.cheque_number = finalChequeNo;
-          collectionPayload.cheque_date = finalChequeDate;
-        }
-
-        const stripExtraCols = (payload: Record<string, any>) => {
-          const basic = { ...payload };
-          delete basic.bank_name;
-          delete basic.branch_name;
-          delete basic.cheque_number;
-          delete basic.cheque_date;
-          delete basic.previous_due;
-          delete basic.remaining_due;
-          delete basic.settlement_discount;
-          delete basic.settlement_reason;
-          return basic;
-        };
-
-        let savedId: string | null = null;
         if (isEditing) {
-          try {
-            const { error: updErr } = await supabase
-              .from("collections")
-              .update(collectionPayload)
-              .eq("id", colId);
-            if (updErr) {
-              await supabase.from("collections").update(stripExtraCols(collectionPayload)).eq("id", colId);
-            }
-          } catch (e) {
-            console.warn("Supabase collection update notice:", e);
+          const { error: updErr } = await supabase
+            .from("collections")
+            .update(collectionPayload)
+            .eq("id", colId);
+          if (updErr) {
+            console.warn("Supabase collection update error (queued offline):", updErr.message);
+            const refreshedCols: Collection[] = getLocalData<Collection[]>(STORAGE_KEYS.COLLECTIONS, []);
+            saveCollections(
+              refreshedCols.map((item: Collection) =>
+                item.id === colId ? ({ ...item, is_offline: true } as Collection) : item
+              )
+            );
           }
         } else {
-          try {
-            const { data: insertData } = await supabase
-              .from("collections")
-              .insert(collectionPayload)
-              .select()
-              .single();
-            if (insertData?.id) savedId = insertData.id;
-          } catch {
-            // Fallback if custom columns aren't on table yet
-            const { data: fallbackData } = await supabase
-              .from("collections")
-              .insert(stripExtraCols(collectionPayload))
-              .select()
-              .single();
-            if (fallbackData?.id) savedId = fallbackData.id;
-          }
+          const { data: insertData, error: insErr } = await supabase
+            .from("collections")
+            .insert(collectionPayload)
+            .select()
+            .single();
 
-          if (savedId) {
-            const refreshedCols: Collection[] = getLocalData<Collection[]>(STORAGE_KEYS.COLLECTIONS, []);
+          const refreshedCols: Collection[] = getLocalData<Collection[]>(STORAGE_KEYS.COLLECTIONS, []);
+          if (!insErr && insertData?.id) {
             const reconciled: Collection[] = refreshedCols.map((item: Collection) =>
-              item.id === colId ? { ...item, id: savedId! } : item
+              item.id === colId ? ({ ...item, id: insertData.id, is_offline: false } as Collection) : item
             );
             saveCollections(reconciled);
+          } else {
+            if (insErr) {
+              console.warn("Supabase collection insert error (queued offline):", insErr.message);
+            }
+            const queued: Collection[] = refreshedCols.map((item: Collection) =>
+              item.id === colId ? ({ ...item, is_offline: true } as Collection) : item
+            );
+            saveCollections(queued);
           }
         }
 
@@ -559,7 +537,13 @@ export function CashCollectionModal({
 
         dispatchGlobalStateUpdate({ customerId: targetCustomer?.id, type: "collection_synced" });
       } catch (syncErr) {
-        console.warn("Supabase collection persistence notice (saved locally):", syncErr);
+        console.warn("Supabase collection persistence notice (queued offline):", syncErr);
+        const refreshedCols: Collection[] = getLocalData<Collection[]>(STORAGE_KEYS.COLLECTIONS, []);
+        saveCollections(
+          refreshedCols.map((item: Collection) =>
+            item.id === colId ? ({ ...item, is_offline: true } as Collection) : item
+          )
+        );
       }
     } catch (e: any) {
       toast.error(e.message || "Failed to record collection");

@@ -47,6 +47,7 @@ import {
   calculateSupplierPayablesUpToDate,
   mergeAndEnrichCustomers,
   parseCustomerNotes,
+  isPendingOfflineRecord,
   type Customer,
 } from "@/utils/localStore";
 
@@ -245,7 +246,9 @@ export function ReportsPage() {
           }));
         const remoteIdSet = new Set(validRemote.map((o: any) => String(o.id)));
         const currentLocal = getOrders().filter((o: any) => !deletedIds.has(o.id));
-        const pendingLocal = currentLocal.filter((lo: any) => !remoteIdSet.has(String(lo.id)));
+        const pendingLocal = currentLocal.filter(
+          (lo: any) => !remoteIdSet.has(String(lo.id)) && isPendingOfflineRecord(lo),
+        );
         setOrders([...pendingLocal, ...validRemote]);
       }
 
@@ -266,7 +269,8 @@ export function ReportsPage() {
         const pendingLocal = currentLocal.filter(
           (lc: any) =>
             !remoteIdSet.has(String(lc.id)) &&
-            (!lc.collection_number || !remoteColNumSet.has(String(lc.collection_number).trim().toUpperCase())),
+            (!lc.collection_number || !remoteColNumSet.has(String(lc.collection_number).trim().toUpperCase())) &&
+            isPendingOfflineRecord(lc),
         );
         setCollections(deduplicateCollections([...pendingLocal, ...validRemote]));
       }
@@ -283,7 +287,9 @@ export function ReportsPage() {
         const validRemote = eSettled.value.data.filter((e: any) => !deletedIds.has(e.id));
         const remoteIdSet = new Set(validRemote.map((e: any) => String(e.id)));
         const currentLocal = getExpenses().filter((e: any) => !deletedIds.has(e.id));
-        const pendingLocal = currentLocal.filter((le: any) => !remoteIdSet.has(String(le.id)));
+        const pendingLocal = currentLocal.filter(
+          (le: any) => !remoteIdSet.has(String(le.id)) && isPendingOfflineRecord(le),
+        );
         setExpenses([...pendingLocal, ...validRemote]);
       }
 
@@ -293,7 +299,9 @@ export function ReportsPage() {
         const validRemote = pSettled.value.data.filter((p: any) => !deletedIds.has(p.id));
         const remoteIdSet = new Set(validRemote.map((p: any) => String(p.id)));
         const currentLocal = getProducts().filter((p: any) => !deletedIds.has(p.id));
-        const pendingLocal = currentLocal.filter((lp: any) => !remoteIdSet.has(String(lp.id)));
+        const pendingLocal = currentLocal.filter(
+          (lp: any) => !remoteIdSet.has(String(lp.id)) && isPendingOfflineRecord(lp),
+        );
         setProducts([...pendingLocal, ...validRemote]);
       }
     } catch (err) {

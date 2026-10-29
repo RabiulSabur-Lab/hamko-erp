@@ -40,6 +40,7 @@ import {
   calculateCustomerDues,
   r2,
   deduplicateCollections,
+  isPendingOfflineRecord,
 } from "@/utils/localStore";
 
 export function CustomersPage() {
@@ -151,7 +152,9 @@ export function CustomersPage() {
         const remoteOrders = (oRes.data as unknown as Order[]).filter((o: any) => !deletedOrderIds.has(o.id));
         const remoteIdSet = new Set(remoteOrders.map((o) => String(o.id)));
         const currentLocal = getOrders().filter((o: any) => !deletedOrderIds.has(o.id));
-        const pendingLocal = currentLocal.filter((lo) => !remoteIdSet.has(String(lo.id)));
+        const pendingLocal = currentLocal.filter(
+          (lo) => !remoteIdSet.has(String(lo.id)) && isPendingOfflineRecord(lo)
+        );
         const merged = [...pendingLocal, ...remoteOrders];
         if (mountedRef.current) setOrders(merged);
         setLocalData(STORAGE_KEYS.ORDERS, merged, null, true);
@@ -167,7 +170,8 @@ export function CustomersPage() {
         const pendingLocal = currentLocal.filter(
           (lc) =>
             !remoteIdSet.has(String(lc.id)) &&
-            (!lc.collection_number || !remoteColNumSet.has(String(lc.collection_number).trim().toUpperCase()))
+            (!lc.collection_number || !remoteColNumSet.has(String(lc.collection_number).trim().toUpperCase())) &&
+            isPendingOfflineRecord(lc)
         );
         const merged = deduplicateCollections([...pendingLocal, ...remoteCols]);
         if (mountedRef.current) setCollections(merged);

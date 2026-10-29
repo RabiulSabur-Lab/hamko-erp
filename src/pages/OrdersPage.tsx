@@ -75,6 +75,7 @@ import {
   generateOrderNumber,
   generateCollectionNumber,
   voidOrderCollections,
+  isPendingOfflineRecord,
 } from "@/utils/localStore";
 import { resolveOrderProduct, sanitizeFormulaInput, formatTierLabel } from "@/utils/productUtils";
 
@@ -500,7 +501,7 @@ export function OrdersPage() {
           const pendingLocalOrders = currentLocal.filter((lo) => {
             const idMatch = remoteIdSet.has(String(lo.id));
             const numMatch = lo.order_number && remoteOrderNumSet.has(String(lo.order_number).trim().toUpperCase());
-            return !idMatch && !numMatch;
+            return !idMatch && !numMatch && isPendingOfflineRecord(lo);
           });
 
           const mergedOrders = [...pendingLocalOrders, ...enrichedRemoteOrders].map((ord) => {

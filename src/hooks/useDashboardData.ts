@@ -17,8 +17,6 @@ import {
 import { useAutoSync } from "@/hooks/useAutoSync";
 import { initialOrders, initialCollections } from "@/lib/mockData";
 import {
-  deduplicateCollections,
-  deduplicateOrders,
   getOrders,
   getCollections,
   getCustomers,
@@ -26,6 +24,9 @@ import {
   setLocalData,
   getDeletedIds,
   mergeAndEnrichCustomers,
+  reconcileOrdersWithRemote,
+  reconcileCollectionsWithRemote,
+  reconcileProductsWithRemote,
   STORAGE_KEYS,
   type Customer,
 } from "@/utils/localStore";
@@ -87,7 +88,8 @@ const yieldToMain = (): Promise<void> =>
   });
 
 /**
- * Wraps an async Supabase PostgREST call inside an explicit try/catch + timeout boundary (8–10s).
+ * Wraps an async Supabase PostgREST call inside an explicit try/catch + timeout boundary (8–10s)
+ * with 1 automatic retry for transient mobile/edge network drops.
  * Guarantees that network timeouts, CORS blocks, or schema errors return a clean result object
  * without throwing unhandled rejections or blocking the main browser thread.
  */
@@ -95,16 +97,47 @@ async function executeTimedQuery<T>(
   queryFactory: () => PromiseLike<{ data: T[] | null; error: any }>,
   label: string,
   timeoutMs = DASHBOARD_QUERY_TIMEOUT_MS,
+  maxRetries = 1,
 ): Promise<SafeQueryResult<T>> {
-  try {
-    const res = await withQueryTimeout(queryFactory(), timeoutMs, label);
-    if (res.error) {
-      return { data: null, error: res.error };
+  let lastError: unknown = null;
+  const totalAttempts = Math.max(1, maxRetries + 1);
+
+  for (let attempt = 0; attempt < totalAttempts; attempt++) {
+    try {
+      const res = await withQueryTimeout(queryFactory(), timeoutMs, label);
+      if (!res.error) {
+        return { data: Array.isArray(res.data) ? res.data : [], error: null };
+      }
+      lastError = res.error;
+      if (attempt < totalAttempts - 1) {
+        const classified = classifySupabaseError(lastError);
+        if (
+          classified.kind === "timeout" ||
+          classified.kind === "cors_or_network" ||
+          classified.kind === "server"
+        ) {
+          await new Promise((r) => setTimeout(r, 350));
+          continue;
+        }
+      }
+      return { data: null, error: lastError };
+    } catch (err) {
+      lastError = err;
+      if (attempt < totalAttempts - 1) {
+        const classified = classifySupabaseError(lastError);
+        if (
+          classified.kind === "timeout" ||
+          classified.kind === "cors_or_network" ||
+          classified.kind === "server"
+        ) {
+          await new Promise((r) => setTimeout(r, 350));
+          continue;
+        }
+      }
+      return { data: null, error: lastError };
     }
-    return { data: Array.isArray(res.data) ? res.data : [], error: null };
-  } catch (err) {
-    return { data: null, error: err };
   }
+  return { data: null, error: lastError };
 }
 
 /**
@@ -240,7 +273,7 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
 
   const [loading, setLoading] = useState<boolean>(() => !initialSnapshotRef.current!.hasAnyCached);
   const [refreshing, setRefreshing] = useState<boolean>(false);
-  const [isFallbackData, setIsFallbackData] = useState<boolean>(() => initialSnapshotRef.current!.hasAnyCached);
+  const [isFallbackData, setIsFallbackData] = useState<boolean>(false);
   const [lastSynced, setLastSynced] = useState<Date | null>(null);
   const [connectionIssue, setConnectionIssue] = useState<DashboardConnectionIssue | null>(null);
 
@@ -438,20 +471,12 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
             if (!firstError) firstError = err;
           };
 
-          // ── Orders ──────────────────────────────────────────────────────────
+          // ── Orders (Cloud-Authoritative) ────────────────────────────────────
           let resolvedOrders: Order[] = initialOrders;
           let shouldCacheOrders = false;
           const deletedOrderIds = getDeletedIds(STORAGE_KEYS.DELETED_ORDERS);
           if (!oRes.error && oRes.data !== null) {
-            const remoteOrders = oRes.data.filter((o) => o && !deletedOrderIds.has(o.id));
-            const remoteIdSet = new Set(remoteOrders.map((o) => String(o.id)));
-            const pendingLocal = getOrders().filter(
-              (lo) => lo && !deletedOrderIds.has(lo.id) && !remoteIdSet.has(String(lo.id)),
-            );
-            resolvedOrders = deduplicateOrders([...pendingLocal, ...remoteOrders], {
-              excludeDrafts: false,
-              excludeCancelled: false,
-            }) as Order[];
+            resolvedOrders = reconcileOrdersWithRemote(oRes.data, { persist: false });
             shouldCacheOrders = true;
           } else {
             recordFailure("orders", oRes.error);
@@ -459,51 +484,12 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
             resolvedOrders = fallbackOrders.length > 0 ? fallbackOrders : initialOrders;
           }
 
-          // ── Collections ─────────────────────────────────────────────────────
+          // ── Collections (Cloud-Authoritative) ───────────────────────────────
           let resolvedCollections: Collection[] = initialCollections;
           let shouldCacheCollections = false;
           const deletedColIds = getDeletedIds(STORAGE_KEYS.DELETED_COLLECTIONS);
           if (!colRes.error && colRes.data !== null) {
-            const currentLocalCols = getCollections().filter((c) => c && !deletedColIds.has(c.id));
-            const localById = new Map<string, Collection>();
-            const localByNum = new Map<string, Collection>();
-            for (let i = 0; i < currentLocalCols.length; i++) {
-              const lc = currentLocalCols[i];
-              if (lc.id) localById.set(String(lc.id), lc);
-              if (lc.collection_number) localByNum.set(String(lc.collection_number).trim().toUpperCase(), lc);
-            }
-
-            const remoteCols = colRes.data
-              .filter((c) => c && !deletedColIds.has(c.id))
-              .map((rc) => {
-                const matchLocal =
-                  localById.get(String(rc.id)) ||
-                  (rc.collection_number
-                    ? localByNum.get(String(rc.collection_number).trim().toUpperCase())
-                    : undefined);
-                if (!matchLocal) return rc;
-                return {
-                  ...matchLocal,
-                  ...rc,
-                  settlement_discount: matchLocal.settlement_discount ?? null,
-                  previous_due: matchLocal.previous_due ?? null,
-                  remaining_due: matchLocal.remaining_due ?? null,
-                };
-              });
-
-            const remoteIdSet = new Set(remoteCols.map((c) => String(c.id)));
-            const remoteColNumSet = new Set(
-              remoteCols
-                .map((c) => String(c.collection_number || "").trim().toUpperCase())
-                .filter(Boolean),
-            );
-            const pendingLocal = currentLocalCols.filter(
-              (lc) =>
-                !remoteIdSet.has(String(lc.id)) &&
-                (!lc.collection_number ||
-                  !remoteColNumSet.has(String(lc.collection_number).trim().toUpperCase())),
-            );
-            resolvedCollections = deduplicateCollections([...pendingLocal, ...remoteCols]);
+            resolvedCollections = reconcileCollectionsWithRemote(colRes.data, { persist: false });
             shouldCacheCollections = true;
           } else {
             recordFailure("collections", colRes.error);
@@ -515,7 +501,7 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
           await yieldToMain();
           if (!mountedRef.current) return;
 
-          // ── Customers ───────────────────────────────────────────────────────
+          // ── Customers (Cloud-Authoritative) ─────────────────────────────────
           let resolvedCustomers: Customer[] = [];
           let shouldCacheCustomers = false;
           if (!custRes.error && custRes.data !== null) {
@@ -527,32 +513,12 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
             resolvedCustomers = getCustomers();
           }
 
-          // ── Products ────────────────────────────────────────────────────────
+          // ── Products (Cloud-Authoritative) ──────────────────────────────────
           let resolvedProducts: Product[] = [];
           let shouldCacheProducts = false;
           const deletedProdIds = getDeletedIds(STORAGE_KEYS.DELETED_PRODUCTS);
           if (!prodRes.error && prodRes.data !== null) {
-            const localProds = getLocalData<Product[]>(STORAGE_KEYS.PRODUCTS, []);
-            const localProdMap = new Map<string, Product>();
-            if (Array.isArray(localProds)) {
-              for (let i = 0; i < localProds.length; i++) {
-                const lp = localProds[i];
-                if (lp?.id) localProdMap.set(String(lp.id), lp);
-              }
-            }
-            resolvedProducts = prodRes.data
-              .filter((p) => p && !deletedProdIds.has(String(p.id)))
-              .map((rp) => {
-                const lp = localProdMap.get(String(rp.id));
-                if (!lp) return rp;
-                return {
-                  ...lp,
-                  ...rp,
-                  purchase_price: rp.purchase_price ?? lp.purchase_price ?? null,
-                  purchase_cost: rp.purchase_cost ?? lp.purchase_cost ?? null,
-                  cost_price: rp.cost_price ?? lp.cost_price ?? null,
-                };
-              });
+            resolvedProducts = reconcileProductsWithRemote(prodRes.data, { persist: false });
             shouldCacheProducts = true;
           } else {
             recordFailure("products", prodRes.error);
@@ -611,17 +577,34 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
           // ── Connection diagnostics & user feedback ──────────────────────────
           if (failedResources.length > 0) {
             const classified = classifySupabaseError(firstError);
-            const issue: DashboardConnectionIssue = {
-              kind: classified.kind,
-              message: classified.userMessage,
-              messageBn: classified.userMessageBn,
-              failedResources,
-            };
-            setConnectionIssue(issue);
-            setIsFallbackData(failedResources.length === 4);
-            surfaceFailureNotification(issue, isManual, () => {
-              void fetchFromSupabase(true);
-            });
+            if (classified.kind === "auth") {
+              void verifySessionRef.current(true);
+            }
+            const allFailed = failedResources.length === 4;
+            const isCriticalAuthError = classified.kind === "auth";
+
+            if (allFailed || isCriticalAuthError || isManual) {
+              const issue: DashboardConnectionIssue = {
+                kind: classified.kind,
+                message: classified.userMessage,
+                messageBn: classified.userMessageBn,
+                failedResources,
+              };
+              setConnectionIssue(issue);
+              setIsFallbackData(allFailed);
+              surfaceFailureNotification(issue, isManual, () => {
+                void fetchFromSupabase(true);
+              });
+            } else {
+              // Majority of cloud tables succeeded cleanly — log transient partial notice without false banner
+              console.warn(
+                `[Dashboard] Partial query notice (${failedResources.join(", ")}):`,
+                classified.rawMessage,
+              );
+              setConnectionIssue(null);
+              setIsFallbackData(false);
+              setLastSynced(new Date());
+            }
           } else {
             setConnectionIssue(null);
             setIsFallbackData(false);
@@ -714,9 +697,10 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => {
         if (mountedRef.current && !inFlightRef.current) {
+          lastAutoFetchAtRef.current = 0;
           void fetchFromSupabase(false);
         }
-      }, 3000);
+      }, 1200);
     };
 
     let channel: any = null;
@@ -724,6 +708,7 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
       channel = supabase
         .channel("dashboard_live_sync")
         .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, scheduleSync)
+        .on("postgres_changes", { event: "*", schema: "public", table: "order_items" }, scheduleSync)
         .on("postgres_changes", { event: "*", schema: "public", table: "collections" }, scheduleSync)
         .on("postgres_changes", { event: "*", schema: "public", table: "customers" }, scheduleSync)
         .on("postgres_changes", { event: "*", schema: "public", table: "products" }, scheduleSync)
@@ -744,7 +729,7 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
     };
   }, [loading, sessionVerified, userId, fetchFromSupabase]);
 
-  // Filtered & debounced listener for local mutations from other ERP pages
+  // Filtered & debounced listener for local/cross-tab/cloud-pull mutations from other ERP pages
   useEffect(() => {
     let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -761,12 +746,20 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
             setProducts(snap.products);
           });
         }
-      }, 250);
+      }, 200);
     };
 
     const handleLocalUpdate = (e: Event) => {
-      const detailKey = (e as CustomEvent)?.detail?.key;
+      const detail = (e as CustomEvent)?.detail;
+      const detailKey = detail?.key;
       if (detailKey && !DASHBOARD_RELEVANT_KEYS.has(detailKey)) {
+        return;
+      }
+      scheduleLocalSync();
+    };
+
+    const handleCrossTabStorage = (e: StorageEvent) => {
+      if (e.key && !DASHBOARD_RELEVANT_KEYS.has(e.key)) {
         return;
       }
       scheduleLocalSync();
@@ -774,10 +767,12 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
 
     window.addEventListener("sales_erp_storage_update", handleLocalUpdate);
     window.addEventListener("customer_ledger_updated", scheduleLocalSync);
+    window.addEventListener("storage", handleCrossTabStorage);
     return () => {
       if (debounceTimer) clearTimeout(debounceTimer);
       window.removeEventListener("sales_erp_storage_update", handleLocalUpdate);
       window.removeEventListener("customer_ledger_updated", scheduleLocalSync);
+      window.removeEventListener("storage", handleCrossTabStorage);
     };
   }, []);
 

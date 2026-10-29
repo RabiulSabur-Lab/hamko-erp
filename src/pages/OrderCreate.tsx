@@ -43,6 +43,7 @@ import {
   generateCollectionNumber,
   getDeletedIds,
 } from "@/utils/localStore";
+import { normalizePaymentMethod } from "@/utils/cloudSync";
 import { sanitizeFormulaInput, formatTierLabel, calculateDefaultPriceTiers, DEFAULT_TIER_NAMES } from "@/utils/productUtils";
 
 export interface OrderItemRow {
@@ -889,9 +890,23 @@ export function OrderCreate() {
         }
       }
 
-      // 5. Try Supabase insert: Order FIRST, then Collection SECOND
+      // 5. Try Supabase insert: Order FIRST, then Collection & Order Items SECOND
+      const markOrderOffline = () => {
+        const curOrders = getOrders();
+        saveOrders(
+          curOrders.map((o) => (o.id === orderId ? ({ ...o, is_offline: true } as Order) : o)),
+        );
+      };
+      const markColOffline = () => {
+        if (additionalCashPaid <= 0) return;
+        const curCols = getCollections();
+        saveCollections(
+          curCols.map((c) => (c.id === colId ? ({ ...c, is_offline: true } as Collection) : c)),
+        );
+      };
+
       try {
-        await supabase.from("orders").insert({
+        const { error: ordErr } = await supabase.from("orders").insert({
           id: orderId,
           order_number: orderNumber,
           customer_id: customerId,
@@ -909,39 +924,68 @@ export function OrderCreate() {
           created_at: nowIso,
         });
 
-        if (additionalCashPaid > 0) {
-          supabase
-            .from("collections")
-            .insert({
+        if (ordErr) {
+          console.warn("Supabase order insert error (queued offline):", ordErr.message);
+          markOrderOffline();
+          markColOffline();
+        } else {
+          if (additionalCashPaid > 0) {
+            const { error: colErr } = await supabase.from("collections").insert({
               id: colId,
               collection_number: colNumber,
               customer_id: customerId,
               order_id: orderId,
               amount: additionalCashPaid,
-              payment_method: paymentMethod as any,
+              payment_method: normalizePaymentMethod(paymentMethod),
               collection_date: newOrderRecord.order_date || nowIso,
               collected_by: currentUserId,
               notes: `Payment for order ${orderNumber} (${paymentStatusType})`,
               created_at: colCreatedIso,
-            })
-            .then(({ error: colErr }) => {
-              if (colErr) console.warn("Supabase collection insert notice:", colErr.message);
             });
-        }
+            if (colErr) {
+              console.warn("Supabase collection insert notice (queued offline):", colErr.message);
+              markColOffline();
+            }
+          }
 
-        await supabase.from("order_items").insert(
-          sanitizedItems.map((it) => ({
-            order_id: orderId,
-            product_id: it.product_id,
-            quantity: it.quantity,
-            unit_price: it.unit_price,
-            discount: it.discount,
-            subtotal: it.subtotal,
-            price_tier: it.price_tier,
-          }))
-        );
+          const { error: itemsErr } = await supabase.from("order_items").insert(
+            sanitizedItems.map((it) => ({
+              order_id: orderId,
+              product_id: it.product_id,
+              quantity: it.quantity,
+              unit_price: it.unit_price,
+              discount: it.discount,
+              subtotal: it.subtotal,
+              price_tier: it.price_tier ?? null,
+            })),
+          );
+          if (itemsErr) {
+            await supabase.from("order_items").insert(
+              sanitizedItems.map((it) => ({
+                order_id: orderId,
+                product_id: it.product_id,
+                quantity: it.quantity,
+                unit_price: it.unit_price,
+                discount: it.discount,
+                subtotal: it.subtotal,
+              })),
+            );
+          }
+
+          // Also sync updated customer due in Supabase so Web & Mobile stay identical immediately
+          const latestCustDetails = getCustomerLedgerDetails(customerId);
+          const nextDue = r2(latestCustDetails.currentDue);
+          const nextDueStatus = nextDue <= 0 ? "Clear" : "Partial";
+          supabase
+            .from("customers")
+            .update({ current_due: nextDue, due_status: nextDueStatus })
+            .eq("id", customerId)
+            .then(undefined, () => {});
+        }
       } catch (err: any) {
-        console.warn("Notice: Order saved locally, Supabase insert notice:", err?.message || err);
+        console.warn("Notice: Order saved locally, queued for offline sync:", err?.message || err);
+        markOrderOffline();
+        markColOffline();
       }
 
       dispatchGlobalStateUpdate({ customerId, type: "order_created" });

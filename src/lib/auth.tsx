@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState, useRef, useCallback, useMemo, type ReactNode } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { toast } from "sonner";
-import { supabase, type UserProfile, type Role } from "./supabase";
+import { supabase, SUPABASE_URL, type UserProfile, type Role } from "./supabase";
 import { withQueryTimeout, classifySupabaseError } from "./supabaseQuery";
 import {
   getStoredUsers,
@@ -33,12 +33,29 @@ export { DEMO_USER_IDS };
 const TOKEN_EXPIRY_BUFFER_MS = 30_000;
 
 /**
- * Checks whether a Supabase session has a non-empty access token that has not expired.
+ * Checks whether a Supabase session has a non-empty access token that has not expired
+ * and belongs to the currently configured Supabase project URL.
  */
 export function hasActiveSessionToken(sess: Session | null | undefined): sess is Session {
   if (!sess || !sess.access_token || !sess.user?.id) return false;
-  if (typeof sess.expires_at === "number") {
-    return sess.expires_at * 1000 > Date.now() + TOKEN_EXPIRY_BUFFER_MS;
+  if (typeof sess.expires_at === "number" && sess.expires_at * 1000 <= Date.now() + TOKEN_EXPIRY_BUFFER_MS) {
+    return false;
+  }
+  try {
+    const parts = sess.access_token.split(".");
+    if (parts.length === 3) {
+      let b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+      while (b64.length % 4) b64 += "=";
+      const payload = JSON.parse(atob(b64));
+      if (typeof payload.iss === "string" && SUPABASE_URL) {
+        const activeHost = new URL(SUPABASE_URL).hostname;
+        if (payload.iss.includes(".supabase.co") && !payload.iss.includes(activeHost)) {
+          return false;
+        }
+      }
+    }
+  } catch {
+    // Ignore non-JWT or environment without atob
   }
   return true;
 }

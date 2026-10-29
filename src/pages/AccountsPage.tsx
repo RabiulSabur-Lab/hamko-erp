@@ -57,7 +57,9 @@ import {
   syncSupplierPaymentsToExpenses,
   generateCollectionNumber,
   isSupplierPaymentExpense,
+  isPendingOfflineRecord,
 } from "@/utils/localStore";
+import { normalizePaymentMethod } from "@/utils/cloudSync";
 import { CustomerLedgerModal } from "@/components/CustomerLedgerModal";
 import { OrderDetailsModal } from "@/components/OrderDetailsModal";
 import { CollectionDetailsModal } from "@/components/CollectionDetailsModal";
@@ -426,7 +428,8 @@ export function AccountsPage() {
           const pendingLocal = localCols.filter(
             (lc) =>
               !remoteIdSet.has(String(lc.id)) &&
-              (!lc.collection_number || !remoteColNumSet.has(String(lc.collection_number).trim().toUpperCase()))
+              (!lc.collection_number || !remoteColNumSet.has(String(lc.collection_number).trim().toUpperCase())) &&
+              isPendingOfflineRecord(lc)
           );
           const merged = deduplicateCollections([...pendingLocal, ...enrichedRemoteCols]).map((c: Collection) => {
             const resolvedCollectorName = getUserName(
@@ -453,7 +456,9 @@ export function AccountsPage() {
           const remoteExps = (expRes.data as Expense[]).filter((e: any) => !deletedExpIds.has(e.id));
           const localExps = getExpenses().filter((e: Expense) => !deletedExpIds.has(e.id));
           const remoteExpIds = new Set(remoteExps.map((e) => String(e.id)));
-          const pendingLocalExps = localExps.filter((le) => !remoteExpIds.has(String(le.id)));
+          const pendingLocalExps = localExps.filter(
+            (le) => !remoteExpIds.has(String(le.id)) && isPendingOfflineRecord(le)
+          );
           finalExps = syncSupplierPaymentsToExpenses([...pendingLocalExps, ...remoteExps]);
         } else {
           const localExps = getExpenses().filter((e: Expense) => !deletedExpIds.has(e.id));
@@ -822,24 +827,19 @@ export function AccountsPage() {
         window.dispatchEvent(new Event("sales_erp_storage_update"));
         dispatchGlobalStateUpdate({ customerId: form.customer_id, type: "collection_created" });
 
-        // 2. Requirement 1: Background Supabase persistence
+        // 2. Requirement 1: Background Supabase persistence (strictly aligned with physical collections schema)
         try {
+          const normalizedMethod = normalizePaymentMethod(form.payment_method || "Cash");
           const collectionPayload: Record<string, any> = {
             collection_number: colNum,
             customer_id: form.customer_id,
             order_id: form.order_id || null,
             amount: amt,
-            payment_method: form.payment_method || "Cash",
+            payment_method: normalizedMethod,
             collection_date: form.collection_date ? new Date(form.collection_date).toISOString() : new Date().toISOString(),
             collected_by: profile?.id || null,
             notes: finalNotes || null,
           };
-          if (isCheque) {
-            collectionPayload.bank_name = bankName;
-            collectionPayload.branch_name = branchName;
-            collectionPayload.cheque_number = chequeNumber;
-            collectionPayload.cheque_date = chequeDate;
-          }
 
           let savedId: string | null = null;
 
@@ -850,10 +850,10 @@ export function AccountsPage() {
               p_customer_id: form.customer_id,
               p_order_id: form.order_id || null,
               p_amount: amt,
-              p_payment_method: form.payment_method || "Cash",
+              p_payment_method: normalizedMethod,
               p_collection_date: form.collection_date || new Date().toISOString(),
               p_collected_by: profile?.id || null,
-              p_notes: form.notes?.trim() || "",
+              p_notes: finalNotes || form.notes?.trim() || "",
             });
             if (!rpcError && rpcData?.id) {
               savedId = rpcData.id;
@@ -873,20 +873,28 @@ export function AccountsPage() {
               .single();
 
             if (insertError) {
-              console.warn("Direct collections insert error (persisted locally):", insertError.message);
+              console.warn("Direct collections insert error (queued offline):", insertError.message);
             } else if (insertData?.id) {
               savedId = insertData.id;
             }
           }
 
-          // C. Reconcile temporary ID with persisted Supabase ID in state and STORAGE_KEYS.COLLECTIONS
+          // C. Reconcile temporary ID with persisted Supabase ID or mark offline for retry
           if (savedId) {
             setCollections((prev) => {
               const reconciled = prev.map((item) =>
-                item.id === tempId ? { ...item, id: savedId! } : item
+                item.id === tempId ? ({ ...item, id: savedId!, is_offline: false } as Collection) : item
               );
               saveCollections(reconciled);
               return reconciled;
+            });
+          } else {
+            setCollections((prev) => {
+              const queued = prev.map((item) =>
+                item.id === tempId ? ({ ...item, is_offline: true } as Collection) : item
+              );
+              saveCollections(queued);
+              return queued;
             });
           }
 

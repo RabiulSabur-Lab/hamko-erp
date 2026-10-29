@@ -3,15 +3,26 @@ import { createClient } from "@supabase/supabase-js";
 const DEFAULT_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJramVsb3Jub2plb29xdWZjdXdrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQzMjQ3OTYsImV4cCI6MjA5OTkwMDc5Nn0.gs4GtGqYHbparOAx-h8Ny0GXcMX5opx2_7LSIHfc0sk";
 const DEFAULT_URL = "https://rkjelornojeooqufcuwk.supabase.co";
 
+function stripEnvQuotes(raw?: string | null): string {
+  if (!raw || typeof raw !== "string") return "";
+  return raw
+    .trim()
+    .replace(/^["'`]+|["'`]+$/g, "")
+    .replace(/^Bearer\s+/i, "")
+    .replace(/\s+/g, "")
+    .trim();
+}
+
 function extractRefFromKey(key: string): string | null {
   try {
-    const parts = key.split(".");
-    if (parts.length >= 2) {
+    const clean = stripEnvQuotes(key);
+    const parts = clean.split(".");
+    if (parts.length === 3) {
       let b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
       while (b64.length % 4) b64 += "=";
       const json = typeof atob === "function" ? atob(b64) : Buffer.from(b64, "base64").toString("utf-8");
       const payload = JSON.parse(json);
-      return payload.ref || null;
+      return typeof payload.ref === "string" && payload.ref ? payload.ref : null;
     }
   } catch {
     // ignore
@@ -20,18 +31,26 @@ function extractRefFromKey(key: string): string | null {
 }
 
 function sanitizeKey(candidate?: string | null): string {
-  if (!candidate || typeof candidate !== "string") return DEFAULT_KEY;
-  const trimmed = candidate.trim();
-  if (!trimmed || trimmed === "undefined" || trimmed === "null" || trimmed.length < 10) return DEFAULT_KEY;
-  return trimmed;
+  const cleaned = stripEnvQuotes(candidate);
+  if (!cleaned || cleaned === "undefined" || cleaned === "null" || cleaned.length < 20) {
+    return DEFAULT_KEY;
+  }
+  if (cleaned.startsWith("sb_publishable_") || cleaned.startsWith("sb_temp_")) {
+    return cleaned;
+  }
+  // Legacy/standard Supabase anon keys are 3-part JWTs with a valid JSON payload
+  if (extractRefFromKey(cleaned)) {
+    return cleaned;
+  }
+  return DEFAULT_KEY;
 }
 
 function sanitizeUrl(candidate?: string | null, keyCandidate?: string | null): string {
   const activeKey = sanitizeKey(keyCandidate);
   const keyRef = extractRefFromKey(activeKey);
 
-  if (candidate && typeof candidate !== "string") candidate = String(candidate);
-  const trimmed = candidate ? candidate.trim() : "";
+  const rawStr = candidate && typeof candidate !== "string" ? String(candidate) : candidate;
+  const trimmed = stripEnvQuotes(rawStr).replace(/\/+$/, "");
 
   if (trimmed && trimmed !== "undefined" && trimmed !== "null") {
     try {
@@ -40,11 +59,11 @@ function sanitizeUrl(candidate?: string | null, keyCandidate?: string | null): s
         const hostRef = parsed.hostname.split(".")[0];
         // If the key specifically has a ref (e.g. rkjelornojeooqufcuwk) and the candidate URL has
         // a different ref that causes 401 Invalid API Key, resolve to the matching live project
-        if (keyRef && hostRef !== keyRef) {
+        if (keyRef && parsed.hostname.endsWith(".supabase.co") && hostRef !== keyRef) {
           console.info(`Supabase URL auto-aligned to match key project ref: https://${keyRef}.supabase.co`);
           return `https://${keyRef}.supabase.co`;
         }
-        return trimmed;
+        return `${parsed.protocol}//${parsed.host}`;
       }
     } catch {
       // Malformed URL, fallback below
@@ -88,7 +107,11 @@ async function safeAuthLock<R>(
     return await fn();
   }
 
-  const boundedTimeoutMs = Math.min(Math.max(acquireTimeout || 2500, 1500), 3000);
+  // GoTrue passes acquireTimeout = -1 for indefinite waits; give parallel requests a generous 5s window
+  const boundedTimeoutMs =
+    typeof acquireTimeout === "number" && acquireTimeout > 0
+      ? Math.min(Math.max(acquireTimeout, 3000), 6000)
+      : 5000;
   const lockController = new AbortController();
   const timer = setTimeout(() => lockController.abort(), boundedTimeoutMs);
 
@@ -116,11 +139,11 @@ async function safeAuthLock<R>(
  * without injecting non-CORS-safelisted request headers (`Pragma`, `Cache-Control`)
  * that can trigger extra preflight round-trips or mobile carrier/proxy blocks.
  */
-function createResilientFetch(defaultTimeoutMs = 10000): typeof fetch {
+function createResilientFetch(defaultTimeoutMs = 12000): typeof fetch {
   return async (input: RequestInfo | URL, init: RequestInit = {}) => {
     const urlStr = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
     const isAuthRequest = urlStr.includes("/auth/v1/");
-    const timeoutMs = isAuthRequest ? 12000 : defaultTimeoutMs;
+    const timeoutMs = isAuthRequest ? 14000 : defaultTimeoutMs;
 
     const controller = new AbortController();
     const callerSignal = init.signal;
@@ -135,7 +158,8 @@ function createResilientFetch(defaultTimeoutMs = 10000): typeof fetch {
     }
 
     const timer = setTimeout(() => {
-      controller.abort(new DOMException(`Supabase request timed out after ${timeoutMs}ms`, "TimeoutError"));
+      // Must be "AbortError" so @supabase/postgrest-js recognizes timeout cancellation cleanly
+      controller.abort(new DOMException(`Supabase request timed out after ${timeoutMs}ms`, "AbortError"));
     }, timeoutMs);
 
     try {
@@ -163,7 +187,7 @@ function initSupabase() {
         lock: safeAuthLock,
       },
       global: {
-        fetch: createResilientFetch(10000),
+        fetch: createResilientFetch(12000),
       },
       realtime: {
         params: {
@@ -329,7 +353,7 @@ export const SUPABASE_TABLE_SELECTS = {
   customers:
     "id, name, customer_type, contact_person, phone, email, address, city, territory_id, trade_license_number, latitude, longitude, opening_balance, current_due, due_status, notes, assigned_to, is_active, created_at, updated_at",
   productsFull:
-    "id, sku_code, name, brand, category_id, unit_price, dealer_price, distributor_price, mrp, d10_price, b12_price, price_tiers, stock_quantity, reorder_level, unit, image_url, is_active, created_at, updated_at, category:categories(id, name)",
+    "id, sku_code, name, brand, category_id, unit_price, dealer_price, distributor_price, d10_price, b12_price, stock_quantity, reorder_level, unit, image_url, is_active, created_at, updated_at, category:categories(id, name)",
   productsCoreFallback:
     "id, sku_code, name, category_id, unit_price, dealer_price, stock_quantity, reorder_level, unit, image_url, is_active, created_at, updated_at, category:categories(id, name)",
 } as const;

@@ -12,7 +12,7 @@ import type {
   SupplierLedgerEntry,
   ProcurementAuditLog,
 } from '../types';
-import { supabase } from "@/lib/supabase";
+import { supabase, SUPABASE_URL } from "@/lib/supabase";
 import { formatCurrency } from "@/lib/utils";
 
 export type {
@@ -110,6 +110,9 @@ export interface Customer {
   security_notes?: string | null;
   hasSecurityCheque?: boolean | null;
   security_cheque_status?: string | null;
+  is_offline?: boolean;
+  _unsynced?: boolean;
+  _localPendingUntil?: number;
 }
 
 export const STORAGE_KEYS = {
@@ -147,6 +150,145 @@ export const STORAGE_KEYS = {
   AUTH_CREDENTIALS: 'sales_erp_auth_credentials',
 } as const;
 
+export const CACHE_SYNC_VERSION = "hamko-cloud-sync-v3";
+const CACHE_SYNC_META_KEY = "sales_erp_cloud_cache_meta_v3";
+const CROSS_TAB_CHANNEL_NAME = "hamko_erp_cross_tab_sync";
+
+/**
+ * Determines whether a local record represents a genuinely unsynced offline/optimistic mutation.
+ * Already-synced cloud UUID records return `false` so records deleted on another device
+ * are cleanly evicted instead of resurrected from stale localStorage caches.
+ */
+export function isPendingOfflineRecord(record: any): boolean {
+  if (!record || typeof record !== "object") return false;
+  if (record.is_offline === true || record._unsynced === true) return true;
+  if (typeof record._localPendingUntil === "number" && record._localPendingUntil > Date.now()) {
+    return true;
+  }
+  const rawId = String(record.id || "").trim();
+  if (!rawId) return false;
+  if (/^(?:ord|col|cust|visit|temp|prod|exp|cat|inv)-/i.test(rawId)) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Purges stale cloud-mirror arrays and outdated tombstones when upgrading cache schema
+ * or switching Supabase project URLs, while strictly preserving unsynced offline field entries.
+ */
+export function ensureCrossPlatformCacheConsistency(): boolean {
+  if (typeof window === "undefined" || !window.localStorage) return false;
+  try {
+    const rawMeta = window.localStorage.getItem(CACHE_SYNC_META_KEY);
+    if (rawMeta) {
+      try {
+        const parsedMeta = JSON.parse(rawMeta);
+        if (parsedMeta?.version === CACHE_SYNC_VERSION && parsedMeta?.projectUrl === SUPABASE_URL) {
+          return false;
+        }
+      } catch {
+        // Malformed metadata — proceed with cache normalization
+      }
+    }
+
+    const mirroredCollectionKeys = [
+      STORAGE_KEYS.ORDERS,
+      STORAGE_KEYS.COLLECTIONS,
+      STORAGE_KEYS.CUSTOMERS,
+      STORAGE_KEYS.PRODUCTS,
+      STORAGE_KEYS.CATEGORIES,
+      STORAGE_KEYS.INVENTORY,
+      STORAGE_KEYS.EXPENSES,
+      STORAGE_KEYS.VISITS,
+    ];
+
+    for (const key of mirroredCollectionKeys) {
+      const existing = getItemWithTTL<any[]>(key, []);
+      if (Array.isArray(existing) && existing.length > 0) {
+        const pendingOnly = existing.filter((item) => isPendingOfflineRecord(item));
+        if (pendingOnly.length > 0) {
+          setItemWithTTL(key, pendingOnly, null);
+        } else {
+          removeItem(key);
+        }
+      }
+    }
+
+    const staleTombstoneKeys = [
+      STORAGE_KEYS.DELETED_ORDERS,
+      STORAGE_KEYS.DELETED_PRODUCTS,
+      STORAGE_KEYS.DELETED_COLLECTIONS,
+      STORAGE_KEYS.DELETED_EXPENSES,
+      STORAGE_KEYS.DELETED_CUSTOMERS,
+      STORAGE_KEYS.DELETED_VISITS,
+    ];
+    for (const delKey of staleTombstoneKeys) {
+      removeItem(delKey);
+    }
+
+    window.localStorage.setItem(
+      CACHE_SYNC_META_KEY,
+      JSON.stringify({
+        version: CACHE_SYNC_VERSION,
+        projectUrl: SUPABASE_URL,
+        invalidatedAt: new Date().toISOString(),
+      }),
+    );
+    return true;
+  } catch (err) {
+    console.warn("[LocalStore] Cross-platform cache consistency check warning:", err);
+    return false;
+  }
+}
+
+let crossTabChannel: BroadcastChannel | null = null;
+let isDispatchingStorageEvent = false;
+
+function initCrossTabChannel(): BroadcastChannel | null {
+  if (typeof window === "undefined" || typeof BroadcastChannel === "undefined") return null;
+  if (crossTabChannel) return crossTabChannel;
+  try {
+    crossTabChannel = new BroadcastChannel(CROSS_TAB_CHANNEL_NAME);
+    crossTabChannel.onmessage = (event) => {
+      if (isDispatchingStorageEvent) return;
+      const payload = event?.data;
+      if (!payload || typeof payload !== "object") return;
+      isDispatchingStorageEvent = true;
+      try {
+        window.dispatchEvent(
+          new CustomEvent("sales_erp_storage_update", {
+            detail: payload.detail || { key: payload.key, fromBroadcast: true },
+          }),
+        );
+      } catch {
+        // ignore
+      } finally {
+        isDispatchingStorageEvent = false;
+      }
+    };
+  } catch {
+    crossTabChannel = null;
+  }
+  return crossTabChannel;
+}
+
+// Run cache consistency check and attach cross-tab channel once on client startup
+if (typeof window !== "undefined") {
+  ensureCrossPlatformCacheConsistency();
+  initCrossTabChannel();
+}
+
+export function broadcastCrossTabSync(payload: { key?: string; detail?: any }): void {
+  const ch = initCrossTabChannel();
+  if (!ch) return;
+  try {
+    ch.postMessage({ ...payload, ts: Date.now() });
+  } catch {
+    // ignore closed/unsupported channel errors
+  }
+}
+
 export function getLocalData<T = any>(key: string, defaultValue?: T): T {
   const fallback = (defaultValue !== undefined ? defaultValue : ([] as unknown)) as T;
   if (typeof window === "undefined" || !window.localStorage) return fallback;
@@ -172,8 +314,6 @@ export function getLocalData<T = any>(key: string, defaultValue?: T): T {
   }
 }
 
-let isDispatchingStorageEvent = false;
-
 export function setLocalData<T = any>(key: string, value: T, ttlMs?: number | null, silent = false): void {
   if (typeof window === "undefined" || !window.localStorage) return;
   try {
@@ -193,6 +333,7 @@ export function setLocalData<T = any>(key: string, value: T, ttlMs?: number | nu
       isDispatchingStorageEvent = true;
       try {
         window.dispatchEvent(new CustomEvent('sales_erp_storage_update', { detail: { key } }));
+        broadcastCrossTabSync({ key, detail: { key } });
       } catch {
         // ignore
       } finally {
@@ -1288,13 +1429,13 @@ export function parseCustomerNotes(rawNotes?: string | null): {
     else if (rawSt === "active") status = "Active";
   }
 
-  const partyMatch = rawNotes.match(/\[PARTY:([^\]]+)\]/i);
+  const partyMatch = rawNotes.match(/\[(?:PARTY|party_code):([^\]]+)\]/i);
   if (partyMatch) party_code = partyMatch[1].trim();
 
-  const areaMatch = rawNotes.match(/\[AREA:([^\]]+)\]/i);
+  const areaMatch = rawNotes.match(/\[(?:AREA|area):([^\]]+)\]/i);
   if (areaMatch) area = areaMatch[1].trim();
 
-  const altMatch = rawNotes.match(/\[ALT:([^\]]+)\]/i);
+  const altMatch = rawNotes.match(/\[(?:ALT|alt_phone):([^\]]+)\]/i);
   if (altMatch) alt_phone = altMatch[1].trim();
 
   const secChequeMatch = rawNotes.match(/\[SEC_CHEQUE:([^\]]+)\]/i);
@@ -1302,6 +1443,13 @@ export function parseCustomerNotes(rawNotes?: string | null): {
 
   const secBankMatch = rawNotes.match(/\[SEC_BANK:([^\]]+)\]/i);
   if (secBankMatch) securityBankName = secBankMatch[1].trim();
+
+  const legacySecCombined = rawNotes.match(/\[security_cheque:([^\]]+)\]/i);
+  if (legacySecCombined) {
+    const [chkPart, bnkPart] = legacySecCombined[1].split("|");
+    if (!securityChequeNo && chkPart?.trim()) securityChequeNo = chkPart.trim();
+    if (!securityBankName && bnkPart?.trim()) securityBankName = bnkPart.trim();
+  }
 
   const secBranchMatch = rawNotes.match(/\[SEC_BRANCH:([^\]]+)\]/i);
   if (secBranchMatch) securityBranchName = secBranchMatch[1].trim();
@@ -1314,14 +1462,15 @@ export function parseCustomerNotes(rawNotes?: string | null): {
 
   const cleanNotes = rawNotes
     .replace(/\[STATUS:[^\]]+\]/gi, "")
-    .replace(/\[PARTY:[^\]]+\]/gi, "")
-    .replace(/\[AREA:[^\]]+\]/gi, "")
-    .replace(/\[ALT:[^\]]+\]/gi, "")
+    .replace(/\[(?:PARTY|party_code):[^\]]+\]/gi, "")
+    .replace(/\[(?:AREA|area):[^\]]+\]/gi, "")
+    .replace(/\[(?:ALT|alt_phone):[^\]]+\]/gi, "")
     .replace(/\[SEC_CHEQUE:[^\]]+\]/gi, "")
     .replace(/\[SEC_BANK:[^\]]+\]/gi, "")
     .replace(/\[SEC_BRANCH:[^\]]+\]/gi, "")
     .replace(/\[SEC_DATE:[^\]]+\]/gi, "")
     .replace(/\[SEC_NOTES:[^\]]+\]/gi, "")
+    .replace(/\[security_cheque:[^\]]*\]/gi, "")
     .trim();
 
   return {
@@ -1339,8 +1488,9 @@ export function parseCustomerNotes(rawNotes?: string | null): {
 }
 
 /**
- * Merges remote customers from Supabase with pending local customers from LocalStorage.
- * Ensures newly added outlets never disappear upon page reload, and decodes party_code/area/alt_phone tags.
+ * Merges remote customers from Supabase (Cloud-Authoritative) with genuinely unsynced
+ * offline local customers. Ensures web and mobile always converge to the exact same state,
+ * evicting cloud-deleted records while preserving offline field entries.
  */
 export function mergeAndEnrichCustomers(
   remoteCustomers: Customer[],
@@ -1348,26 +1498,29 @@ export function mergeAndEnrichCustomers(
 ): Customer[] {
   const deletedCustomerIds = getDeletedIds(STORAGE_KEYS.DELETED_CUSTOMERS);
   const validRemote: Customer[] = (Array.isArray(remoteCustomers) ? remoteCustomers : []).filter(
-    (c: Customer) => !deletedCustomerIds.has(c.id)
+    (c: Customer) => Boolean(c && c.id) && !deletedCustomerIds.has(c.id)
   );
   const remoteIdSet = new Set<string>(validRemote.map((c: Customer) => String(c.id)));
   const currentLocal: Customer[] = getCustomers();
-  const pendingLocal: Customer[] = currentLocal.filter((lc: Customer) => !remoteIdSet.has(String(lc.id)));
+  const pendingLocal: Customer[] = currentLocal.filter(
+    (lc: Customer) =>
+      Boolean(lc && lc.id) &&
+      !deletedCustomerIds.has(lc.id) &&
+      !remoteIdSet.has(String(lc.id)) &&
+      isPendingOfflineRecord(lc),
+  );
 
   const localMap = new Map<string, Customer>(currentLocal.map((c: Customer) => [String(c.id), c]));
   const enrichedRemote: Customer[] = validRemote.map((rc: Customer) => {
     const loc = localMap.get(String(rc.id));
+    const locIsPending = Boolean(loc && isPendingOfflineRecord(loc));
     const parsed = parseCustomerNotes(rc.notes);
 
-    // Resolve status with robust priority:
-    // 1. Local customer status has absolute priority if loc exists in local storage!
-    // 2. Explicit status tag in notes: parsed.status
-    // 3. Remote customer is_active or status
-    // 4. Default to Active
+    // Cloud-Authoritative status resolution (only defer to local if local has an unsynced offline mutation)
     let resolvedStatus: string = "Active";
-    if (loc?.status !== undefined && loc.status !== null) {
+    if (locIsPending && loc?.status !== undefined && loc.status !== null) {
       resolvedStatus = loc.status;
-    } else if (loc?.is_active !== undefined && loc.is_active !== null) {
+    } else if (locIsPending && loc?.is_active !== undefined && loc.is_active !== null) {
       resolvedStatus = loc.is_active ? "Active" : "Inactive";
     } else if (parsed.status) {
       resolvedStatus = parsed.status;
@@ -1380,33 +1533,45 @@ export function mergeAndEnrichCustomers(
     }
     const resolvedIsActive = resolvedStatus === "Active";
 
-    // Geo-location & address persistence preservation across page reload
-    const resolvedAddress = loc?.address || rc.address || null;
-    const resolvedPostalCode = loc?.postal_code || rc.postal_code || null;
+    const resolvedAddress = (locIsPending ? loc?.address : undefined) ?? rc.address ?? null;
+    const resolvedPostalCode = rc.postal_code || loc?.postal_code || null;
     const resolvedLatitude =
-      loc?.latitude !== undefined && loc?.latitude !== null && !isNaN(Number(loc.latitude))
+      locIsPending && loc?.latitude !== undefined && loc?.latitude !== null && !isNaN(Number(loc.latitude))
         ? Number(loc.latitude)
         : rc.latitude !== undefined && rc.latitude !== null && !isNaN(Number(rc.latitude))
         ? Number(rc.latitude)
         : null;
     const resolvedLongitude =
-      loc?.longitude !== undefined && loc?.longitude !== null && !isNaN(Number(loc.longitude))
+      locIsPending && loc?.longitude !== undefined && loc?.longitude !== null && !isNaN(Number(loc.longitude))
         ? Number(loc.longitude)
         : rc.longitude !== undefined && rc.longitude !== null && !isNaN(Number(rc.longitude))
         ? Number(rc.longitude)
         : null;
 
+    const remoteOpening = Number(rc.opening_balance ?? 0);
+    const remoteDue = Number(rc.current_due ?? 0);
+    const resolvedOpening =
+      locIsPending && loc?.opening_balance !== undefined ? Number(loc.opening_balance) : remoteOpening;
+    const resolvedDue =
+      locIsPending && loc?.current_due !== undefined ? Number(loc.current_due) : remoteDue;
+    const resolvedDueStatus =
+      (locIsPending ? loc?.due_status : undefined) ||
+      rc.due_status ||
+      (resolvedDue > 0 ? "Partial" : "Clear");
+
     return {
       ...rc,
-      outlet_name: rc.outlet_name || loc?.outlet_name || rc.name,
-      name: rc.name,
-      party_code: rc.party_code || loc?.party_code || parsed.party_code || null,
-      area: rc.area || loc?.area || rc.city || parsed.area || null,
-      alt_phone: rc.alt_phone || loc?.alt_phone || parsed.alt_phone || null,
-      phone: loc?.phone || rc.phone || null,
-      contact_person: loc?.contact_person || rc.contact_person || null,
-      customer_type: loc?.customer_type || rc.customer_type,
-      trade_license_number: loc?.trade_license_number || rc.trade_license_number || null,
+      outlet_name: rc.outlet_name || rc.name || loc?.outlet_name || "",
+      name: (locIsPending && loc?.name ? loc.name : rc.name) || "",
+      party_code: rc.party_code || parsed.party_code || loc?.party_code || null,
+      area: rc.area || parsed.area || rc.city || loc?.area || null,
+      city: (locIsPending ? loc?.city : undefined) ?? rc.city ?? parsed.area ?? null,
+      alt_phone: rc.alt_phone || parsed.alt_phone || loc?.alt_phone || null,
+      phone: (locIsPending ? loc?.phone : undefined) ?? rc.phone ?? null,
+      contact_person: (locIsPending ? loc?.contact_person : undefined) ?? rc.contact_person ?? null,
+      customer_type: (locIsPending ? loc?.customer_type : undefined) || rc.customer_type || "Retailer",
+      trade_license_number:
+        (locIsPending ? loc?.trade_license_number : undefined) ?? rc.trade_license_number ?? null,
       address: resolvedAddress,
       postal_code: resolvedPostalCode,
       latitude: resolvedLatitude,
@@ -1416,43 +1581,44 @@ export function mergeAndEnrichCustomers(
       securityChequeNo:
         rc.securityChequeNo ||
         (rc as any).security_cheque_no ||
+        parsed.securityChequeNo ||
         loc?.securityChequeNo ||
         (loc as any)?.security_cheque_no ||
-        parsed.securityChequeNo ||
         null,
       securityBankName:
         rc.securityBankName ||
         (rc as any).security_bank_name ||
+        parsed.securityBankName ||
         loc?.securityBankName ||
         (loc as any)?.security_bank_name ||
-        parsed.securityBankName ||
         null,
       securityBranchName:
         rc.securityBranchName ||
         (rc as any).security_branch_name ||
+        parsed.securityBranchName ||
         loc?.securityBranchName ||
         (loc as any)?.security_branch_name ||
-        parsed.securityBranchName ||
         null,
       securityChequeDate:
         rc.securityChequeDate ||
         (rc as any).security_cheque_date ||
+        parsed.securityChequeDate ||
         loc?.securityChequeDate ||
         (loc as any)?.security_cheque_date ||
-        parsed.securityChequeDate ||
         null,
       securityNotes:
         rc.securityNotes ||
         (rc as any).security_notes ||
+        parsed.securityNotes ||
         loc?.securityNotes ||
         (loc as any)?.security_notes ||
-        parsed.securityNotes ||
         null,
       notes: parsed.cleanNotes !== undefined ? parsed.cleanNotes : rc.notes,
-      opening_balance: loc?.opening_balance !== undefined ? loc.opening_balance : (rc.opening_balance ?? 0),
-      current_due: loc?.current_due !== undefined ? loc.current_due : rc.current_due,
-      due_status: loc?.due_status || rc.due_status,
-      updated_at: loc?.updated_at || rc.updated_at || new Date().toISOString(),
+      opening_balance: resolvedOpening,
+      current_due: resolvedDue,
+      due_status: resolvedDueStatus,
+      updated_at: (locIsPending ? loc?.updated_at : undefined) || rc.updated_at || new Date().toISOString(),
+      is_offline: locIsPending ? Boolean(loc?.is_offline) : false,
     };
   });
 
@@ -1464,6 +1630,197 @@ export function mergeAndEnrichCustomers(
     setLocalData(STORAGE_KEYS.CUSTOMERS, merged, null, true);
   }
   return merged;
+}
+
+/**
+ * Cloud-Authoritative reconciler for Orders.
+ * Remote Supabase state wins for synced records; deleted cloud records are evicted;
+ * only genuinely unsynced offline orders (`isPendingOfflineRecord`) are retained locally.
+ */
+export function reconcileOrdersWithRemote(
+  remoteOrders: Order[],
+  options?: { persist?: boolean; maxCache?: number },
+): Order[] {
+  const deletedOrderIds = getDeletedIds(STORAGE_KEYS.DELETED_ORDERS);
+  const currentLocal = getOrders().filter((o) => Boolean(o && o.id) && !deletedOrderIds.has(o.id));
+  const localById = new Map<string, Order>();
+  const localByNum = new Map<string, Order>();
+  for (let i = 0; i < currentLocal.length; i++) {
+    const lo = currentLocal[i];
+    if (lo.id) localById.set(String(lo.id), lo);
+    if (lo.order_number) localByNum.set(String(lo.order_number).trim().toUpperCase(), lo);
+  }
+
+  const validRemote = (Array.isArray(remoteOrders) ? remoteOrders : [])
+    .filter((ro) => Boolean(ro && ro.id) && !deletedOrderIds.has(ro.id))
+    .map((ro) => {
+      const matchLocal =
+        localById.get(String(ro.id)) ||
+        (ro.order_number ? localByNum.get(String(ro.order_number).trim().toUpperCase()) : undefined);
+      const remoteItems = Array.isArray((ro as any).order_items) ? (ro as any).order_items : undefined;
+      const fallbackItems = !remoteItems && matchLocal ? (matchLocal as any).order_items : undefined;
+      return {
+        ...(matchLocal || {}),
+        ...ro,
+        ...(remoteItems !== undefined
+          ? { order_items: remoteItems }
+          : fallbackItems !== undefined
+          ? { order_items: fallbackItems }
+          : {}),
+        customer: (ro as any).customer || (matchLocal as any)?.customer || undefined,
+        is_offline: false,
+      } as Order;
+    });
+
+  const remoteIdSet = new Set(validRemote.map((o) => String(o.id)));
+  const remoteNumSet = new Set(
+    validRemote.map((o) => String(o.order_number || "").trim().toUpperCase()).filter(Boolean),
+  );
+
+  const pendingLocal = currentLocal.filter(
+    (lo) =>
+      !remoteIdSet.has(String(lo.id)) &&
+      (!lo.order_number || !remoteNumSet.has(String(lo.order_number).trim().toUpperCase())) &&
+      isPendingOfflineRecord(lo),
+  );
+
+  const reconciled = deduplicateOrders([...pendingLocal, ...validRemote], {
+    excludeDrafts: false,
+    excludeCancelled: false,
+  }) as Order[];
+
+  if (options?.persist !== false) {
+    const toStore = options?.maxCache ? reconciled.slice(0, options.maxCache) : reconciled;
+    setLocalData(STORAGE_KEYS.ORDERS, toStore, null, true);
+  }
+  return reconciled;
+}
+
+/**
+ * Cloud-Authoritative reconciler for Collections.
+ * Remote Supabase state wins for synced records; deleted cloud collections are evicted;
+ * only genuinely unsynced offline collections (`isPendingOfflineRecord`) are retained locally.
+ */
+export function reconcileCollectionsWithRemote(
+  remoteCols: Collection[],
+  options?: { persist?: boolean; maxCache?: number },
+): Collection[] {
+  const deletedColIds = getDeletedIds(STORAGE_KEYS.DELETED_COLLECTIONS);
+  const currentLocal = getCollections().filter((c) => Boolean(c && c.id) && !deletedColIds.has(c.id));
+  const localById = new Map<string, Collection>();
+  const localByNum = new Map<string, Collection>();
+  for (let i = 0; i < currentLocal.length; i++) {
+    const lc = currentLocal[i];
+    if (lc.id) localById.set(String(lc.id), lc);
+    if (lc.collection_number) localByNum.set(String(lc.collection_number).trim().toUpperCase(), lc);
+  }
+
+  const validRemote = (Array.isArray(remoteCols) ? remoteCols : [])
+    .filter((rc) => Boolean(rc && rc.id) && !deletedColIds.has(rc.id))
+    .map((rc) => {
+      const matchLocal =
+        localById.get(String(rc.id)) ||
+        (rc.collection_number ? localByNum.get(String(rc.collection_number).trim().toUpperCase()) : undefined);
+      if (!matchLocal) {
+        return { ...rc, is_offline: false } as Collection;
+      }
+      return {
+        ...matchLocal,
+        ...rc,
+        settlement_discount: (rc as any).settlement_discount ?? matchLocal.settlement_discount ?? null,
+        previous_due: (rc as any).previous_due ?? matchLocal.previous_due ?? null,
+        remaining_due: (rc as any).remaining_due ?? matchLocal.remaining_due ?? null,
+        is_offline: false,
+      } as Collection;
+    });
+
+  const remoteIdSet = new Set(validRemote.map((c) => String(c.id)));
+  const remoteColNumSet = new Set(
+    validRemote.map((c) => String(c.collection_number || "").trim().toUpperCase()).filter(Boolean),
+  );
+
+  const pendingLocal = currentLocal.filter(
+    (lc) =>
+      !remoteIdSet.has(String(lc.id)) &&
+      (!lc.collection_number || !remoteColNumSet.has(String(lc.collection_number).trim().toUpperCase())) &&
+      isPendingOfflineRecord(lc),
+  );
+
+  const reconciled = deduplicateCollections([...pendingLocal, ...validRemote]);
+
+  if (options?.persist !== false) {
+    const toStore = options?.maxCache ? reconciled.slice(0, options.maxCache) : reconciled;
+    setLocalData(STORAGE_KEYS.COLLECTIONS, toStore, null, true);
+  }
+  return reconciled;
+}
+
+/**
+ * Cloud-Authoritative reconciler for Products.
+ * Remote Supabase stock_quantity, pricing, and active status strictly override stale local caches.
+ */
+export function reconcileProductsWithRemote(
+  remoteProducts: Product[],
+  options?: { persist?: boolean },
+): Product[] {
+  const deletedProdIds = getDeletedIds(STORAGE_KEYS.DELETED_PRODUCTS);
+  const localProds = getProducts().filter((p) => Boolean(p && p.id) && !deletedProdIds.has(String(p.id)));
+  const localProdMap = new Map<string, Product>();
+  const localSkuMap = new Map<string, Product>();
+  for (let i = 0; i < localProds.length; i++) {
+    const lp = localProds[i];
+    if (lp.id) localProdMap.set(String(lp.id), lp);
+    if (lp.sku_code) localSkuMap.set(String(lp.sku_code).trim().toUpperCase(), lp);
+  }
+
+  const validRemote = (Array.isArray(remoteProducts) ? remoteProducts : [])
+    .filter((rp) => Boolean(rp && rp.id) && !deletedProdIds.has(String(rp.id)))
+    .map((rp) => {
+      const lp =
+        localProdMap.get(String(rp.id)) ||
+        (rp.sku_code ? localSkuMap.get(String(rp.sku_code).trim().toUpperCase()) : undefined);
+      const remoteStock = Math.max(0, Math.round(Number(rp.stock_quantity ?? (rp as any).stock ?? 0)));
+      if (!lp) {
+        return {
+          ...rp,
+          stock_quantity: remoteStock,
+          stock: remoteStock,
+          is_offline: false,
+        } as Product;
+      }
+      const lpPending = isPendingOfflineRecord(lp);
+      const resolvedStock = lpPending
+        ? Math.max(0, Math.round(Number(lp.stock_quantity ?? (lp as any).stock ?? remoteStock)))
+        : remoteStock;
+      return {
+        ...lp,
+        ...rp,
+        stock_quantity: resolvedStock,
+        stock: resolvedStock,
+        purchase_price: rp.purchase_price ?? lp.purchase_price ?? null,
+        purchase_cost: rp.purchase_cost ?? lp.purchase_cost ?? null,
+        cost_price: rp.cost_price ?? lp.cost_price ?? null,
+        is_offline: lpPending ? Boolean((lp as any).is_offline) : false,
+      } as Product;
+    });
+
+  const remoteIdSet = new Set(validRemote.map((p) => String(p.id)));
+  const remoteSkuSet = new Set(
+    validRemote.map((p) => String(p.sku_code || "").trim().toUpperCase()).filter(Boolean),
+  );
+
+  const pendingLocal = localProds.filter(
+    (lp) =>
+      !remoteIdSet.has(String(lp.id)) &&
+      (!lp.sku_code || !remoteSkuSet.has(String(lp.sku_code).trim().toUpperCase())) &&
+      isPendingOfflineRecord(lp),
+  );
+
+  const reconciled = [...pendingLocal, ...validRemote];
+  if (options?.persist !== false) {
+    setLocalData(STORAGE_KEYS.PRODUCTS, reconciled, null, true);
+  }
+  return reconciled;
 }
 
 export const getCustomers = (): Customer[] => {
@@ -2348,6 +2705,7 @@ export const dispatchGlobalStateUpdate = (detail?: TransactionLedgerDetail) => {
     if (detail?.customerId) {
       window.dispatchEvent(new CustomEvent("customer_ledger_updated", { detail }));
     }
+    broadcastCrossTabSync({ detail });
   }, 0);
 };
 
