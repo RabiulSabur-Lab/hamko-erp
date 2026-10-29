@@ -220,7 +220,7 @@ export function DashboardPage() {
       const prevMonthCollections =
         prevMetrics.prevCollection || r2(calculatedPrevMonthCollections);
 
-      const { totalDue: outstandingDue } = calculateCustomerDues(customers, validOrders, uniqueCollections);
+      const { totalDue: outstandingDue } = calculateCustomerDues(customers, orders, uniqueCollections);
 
       let activeCount = 0;
       let inactiveCount = 0;

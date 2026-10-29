@@ -15,7 +15,6 @@ import {
   type SupabaseFailureKind,
 } from "@/lib/supabaseQuery";
 import { useAutoSync } from "@/hooks/useAutoSync";
-import { initialOrders, initialCollections } from "@/lib/mockData";
 import {
   getOrders,
   getCollections,
@@ -64,7 +63,7 @@ interface SafeQueryResult<T> {
 }
 
 const SKELETON_HARD_CAP_MS = 9000;
-const MIN_AUTO_FETCH_INTERVAL_MS = 5000;
+const MIN_AUTO_FETCH_INTERVAL_MS = 1500;
 const MAX_LOCAL_CACHE_ORDERS = 400;
 const MAX_LOCAL_CACHE_COLLECTIONS = 800;
 
@@ -172,12 +171,10 @@ function scheduleIdleTask(cb: () => void): void {
 function readCachedDashboardSnapshot() {
   try {
     const deletedOrderIds = getDeletedIds(STORAGE_KEYS.DELETED_ORDERS);
-    const rawCachedOrders = getOrders().filter((o) => o && !deletedOrderIds.has(o.id));
-    const cachedOrders: Order[] = rawCachedOrders.length > 0 ? rawCachedOrders : initialOrders;
+    const cachedOrders: Order[] = getOrders().filter((o) => o && !deletedOrderIds.has(o.id));
 
     const deletedColIds = getDeletedIds(STORAGE_KEYS.DELETED_COLLECTIONS);
-    const rawCachedCols = getCollections().filter((c) => c && !deletedColIds.has(c.id));
-    const cachedCols: Collection[] = rawCachedCols.length > 0 ? rawCachedCols : initialCollections;
+    const cachedCols: Collection[] = getCollections().filter((c) => c && !deletedColIds.has(c.id));
 
     const cachedCustomers = getCustomers();
     const deletedProdIds = getDeletedIds(STORAGE_KEYS.DELETED_PRODUCTS);
@@ -187,8 +184,8 @@ function readCachedDashboardSnapshot() {
       : [];
 
     const hasAnyCached =
-      rawCachedOrders.length > 0 ||
-      rawCachedCols.length > 0 ||
+      cachedOrders.length > 0 ||
+      cachedCols.length > 0 ||
       cachedCustomers.length > 0 ||
       cachedProducts.length > 0;
 
@@ -202,8 +199,8 @@ function readCachedDashboardSnapshot() {
   } catch (err) {
     console.warn("[Dashboard] Failed reading local snapshot, using clean empty defaults:", err);
     return {
-      orders: initialOrders,
-      collections: initialCollections,
+      orders: [] as Order[],
+      collections: [] as Collection[],
       customers: [] as Customer[],
       products: [] as Product[],
       hasAnyCached: false,
@@ -472,7 +469,7 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
           };
 
           // ── Orders (Cloud-Authoritative) ────────────────────────────────────
-          let resolvedOrders: Order[] = initialOrders;
+          let resolvedOrders: Order[] = [];
           let shouldCacheOrders = false;
           const deletedOrderIds = getDeletedIds(STORAGE_KEYS.DELETED_ORDERS);
           if (!oRes.error && oRes.data !== null) {
@@ -480,12 +477,11 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
             shouldCacheOrders = true;
           } else {
             recordFailure("orders", oRes.error);
-            const fallbackOrders = getOrders().filter((o) => o && !deletedOrderIds.has(o.id));
-            resolvedOrders = fallbackOrders.length > 0 ? fallbackOrders : initialOrders;
+            resolvedOrders = getOrders().filter((o) => o && !deletedOrderIds.has(o.id));
           }
 
           // ── Collections (Cloud-Authoritative) ───────────────────────────────
-          let resolvedCollections: Collection[] = initialCollections;
+          let resolvedCollections: Collection[] = [];
           let shouldCacheCollections = false;
           const deletedColIds = getDeletedIds(STORAGE_KEYS.DELETED_COLLECTIONS);
           if (!colRes.error && colRes.data !== null) {
@@ -493,8 +489,7 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
             shouldCacheCollections = true;
           } else {
             recordFailure("collections", colRes.error);
-            const fallbackCols = getCollections().filter((c) => c && !deletedColIds.has(c.id));
-            resolvedCollections = fallbackCols.length > 0 ? fallbackCols : initialCollections;
+            resolvedCollections = getCollections().filter((c) => c && !deletedColIds.has(c.id));
           }
 
           // Yield again before customer enrichment & state commit
@@ -738,20 +733,18 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
       debounceTimer = setTimeout(() => {
         if (!mountedRef.current || inFlightRef.current) return;
         const snap = readCachedDashboardSnapshot();
-        if (snap.hasAnyCached) {
-          startTransition(() => {
-            setOrders(snap.orders);
-            setCollections(snap.collections);
-            setCustomers(snap.customers);
-            setProducts(snap.products);
-            if ((eTypeRef.current || "").includes("cloud_")) {
-              setIsFallbackData(false);
-              setConnectionIssue(null);
-              setLastSynced(new Date());
-            }
-          });
-        }
-      }, 200);
+        startTransition(() => {
+          setOrders(snap.orders);
+          setCollections(snap.collections);
+          setCustomers(snap.customers);
+          setProducts(snap.products);
+          if ((eTypeRef.current || "").includes("cloud_")) {
+            setIsFallbackData(false);
+            setConnectionIssue(null);
+            setLastSynced(new Date());
+          }
+        });
+      }, 150);
     };
 
     const eTypeRef = { current: "" };
@@ -783,15 +776,16 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
     };
   }, []);
 
-  // Auto-sync on mobile app resume / focus / online reconnect (debounced to 15s)
+  // Auto-sync on mobile app resume / focus / online reconnect (Cloud-First revalidation)
   useAutoSync(
     () => {
       if (!loading && !refreshing && !inFlightRef.current && sessionVerified && userId) {
+        lastAutoFetchAtRef.current = 0;
         void fetchFromSupabase(false);
       }
     },
     !loading && sessionVerified && Boolean(userId),
-    15000,
+    1200,
   );
 
   return {

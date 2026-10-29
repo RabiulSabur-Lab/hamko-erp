@@ -1,5 +1,6 @@
-import { useEffect, useState, useMemo } from "react";
-import { supabase, type Collection, type Expense, type Customer, type Order } from "@/lib/supabase";
+import { useEffect, useState, useMemo, useRef, useCallback } from "react";
+import { supabase, SUPABASE_TABLE_SELECTS, type Collection, type Expense, type Customer, type Order } from "@/lib/supabase";
+import { useAutoSync } from "@/hooks/useAutoSync";
 import { useI18n } from "@/lib/i18n";
 import { useAuth } from "@/lib/auth";
 import { useRouter } from "@/router";
@@ -46,6 +47,8 @@ import {
   deleteExpense,
   getDeletedIds,
   mergeAndEnrichCustomers,
+  reconcileOrdersWithRemote,
+  reconcileCollectionsWithRemote,
   calculateCustomerDues,
   getCustomerLedgerDetails,
   recalculateCustomerLedger,
@@ -326,194 +329,169 @@ export function AccountsPage() {
     return map;
   }, [salesOfficers, usersMap]);
 
-  useEffect(() => {
-    let isMounted = true;
-    async function load() {
-      try {
-        const [usersRes, colRes, expRes, cRes, oRes, officersData] = await Promise.all([
-          supabase.from("users").select("id, full_name, email, role_name"),
-          supabase.from("collections").select("*, customer:customers(name), order:orders(order_number), collector:users(id, full_name, email)").order("collection_date", { ascending: false }),
-          supabase.from("expenses").select("*").order("expense_date", { ascending: false }),
-          supabase.from("customers").select("*").eq("is_active", true).order("name"),
-          supabase.from("orders").select("id, order_number, due_amount").gt("due_amount", 0).order("order_date", { ascending: false }),
-          fetchActiveSalesOfficers(),
-        ]);
-        if (!isMounted) return;
+  const mountedRef = useRef(true);
 
-        // Build enriched user lookup map from database query, officers list, and collections
-        const updatedUsersMap: Record<string, UserLookupInfo> = { ...buildUserLookupMap(profile) };
+  const loadAccountsData = useCallback(async () => {
+    try {
+      const [usersRes, colRes, expRes, cRes, oRes, officersData] = await Promise.all([
+        supabase.from("users").select("id, full_name, email, role_name"),
+        supabase.from("collections").select("*, customer:customers(name), order:orders(order_number), collector:users(id, full_name, email)").order("collection_date", { ascending: false }),
+        supabase.from("expenses").select("*").order("expense_date", { ascending: false }),
+        supabase.from("customers").select("*").order("name"),
+        supabase.from("orders").select(SUPABASE_TABLE_SELECTS.ordersWithItemsAndCustomer).order("order_date", { ascending: false }).limit(1000),
+        fetchActiveSalesOfficers(),
+      ]);
+      if (!mountedRef.current) return;
 
-        if (!usersRes.error && Array.isArray(usersRes.data)) {
-          usersRes.data.forEach((u: any) => {
-            if (u.id) {
-              updatedUsersMap[String(u.id)] = {
-                id: String(u.id),
-                full_name: u.full_name || u.name || "",
-                email: u.email,
-                role_name: u.role_name,
-              };
-            }
-          });
-        }
+      // Build enriched user lookup map from database query, officers list, and collections
+      const updatedUsersMap: Record<string, UserLookupInfo> = { ...buildUserLookupMap(profile) };
 
-        if (Array.isArray(officersData) && officersData.length > 0) {
-          officersData.forEach((so) => {
-            if (so.id) {
-              updatedUsersMap[String(so.id)] = {
-                id: String(so.id),
-                full_name: so.full_name || updatedUsersMap[String(so.id)]?.full_name || "",
-                email: so.email || updatedUsersMap[String(so.id)]?.email,
-                role_name: so.role_name || updatedUsersMap[String(so.id)]?.role_name,
-              };
-            }
-          });
-          setSalesOfficers(officersData);
-        }
-
-        if (!colRes.error && Array.isArray(colRes.data)) {
-          (colRes.data as any[]).forEach((col) => {
-            if (col.collected_by && col.collector?.full_name) {
-              updatedUsersMap[String(col.collected_by)] = {
-                id: String(col.collected_by),
-                full_name: col.collector.full_name,
-                email: col.collector.email || updatedUsersMap[String(col.collected_by)]?.email,
-              };
-            }
-          });
-        }
-
-        setUsersMap(updatedUsersMap);
-
-        const deletedColIds = getDeletedIds(STORAGE_KEYS.DELETED_COLLECTIONS);
-        let remoteCols: Collection[] = [];
-
-        if (!colRes.error && Array.isArray(colRes.data) && colRes.data.length > 0) {
-          remoteCols = (colRes.data as Collection[]).filter((c: any) => !deletedColIds.has(c.id));
-        } else {
-          // If joined select had an error or returned 0 items, try fallback select('*')
-          try {
-            const fallbackRes = await supabase.from("collections").select("*").order("collection_date", { ascending: false });
-            if (!fallbackRes.error && Array.isArray(fallbackRes.data) && fallbackRes.data.length > 0) {
-              remoteCols = (fallbackRes.data as Collection[]).filter((c: any) => !deletedColIds.has(c.id));
-            }
-          } catch (fbErr) {
-            console.warn("Fallback collections fetch notice:", fbErr);
-          }
-        }
-
-        const localCols: Collection[] = getCollections().filter((c: Collection) => !deletedColIds.has(c.id));
-
-        const allCustomers: Customer[] = (!cRes.error && Array.isArray(cRes.data)) ? mergeAndEnrichCustomers(cRes.data as Customer[]) : getCustomers();
-        const allOrders: Order[] = (!oRes.error && Array.isArray(oRes.data)) ? (oRes.data as Order[]) : getOrders();
-
-        if (remoteCols.length > 0) {
-          const enrichedRemoteCols: Collection[] = remoteCols.map((c: Collection) => {
-            const resolvedCollectorName = getUserName(
-              c.collected_by,
-              c.collector?.full_name || (c as any).collector_name || (c as any).collected_by_name || (c as any).sales_rep_name || "Sales Officer"
-            );
-            return {
-              ...c,
-              customer: c.customer || allCustomers.find((cust: Customer) => cust.id === c.customer_id),
-              order: c.order || allOrders.find((ord: Order) => ord.id === c.order_id),
-              collector_name: resolvedCollectorName || (c as any).collector_name || null,
-              collected_by_name: resolvedCollectorName || (c as any).collected_by_name || null,
+      if (!usersRes.error && Array.isArray(usersRes.data)) {
+        usersRes.data.forEach((u: any) => {
+          if (u.id) {
+            updatedUsersMap[String(u.id)] = {
+              id: String(u.id),
+              full_name: u.full_name || u.name || "",
+              email: u.email,
+              role_name: u.role_name,
             };
-          });
-
-          const remoteIdSet = new Set(enrichedRemoteCols.map((c) => String(c.id)));
-          const remoteColNumSet = new Set(
-            enrichedRemoteCols.map((c) => String(c.collection_number || "").trim().toUpperCase()).filter(Boolean)
-          );
-          const pendingLocal = localCols.filter(
-            (lc) =>
-              !remoteIdSet.has(String(lc.id)) &&
-              (!lc.collection_number || !remoteColNumSet.has(String(lc.collection_number).trim().toUpperCase())) &&
-              isPendingOfflineRecord(lc)
-          );
-          const merged = deduplicateCollections([...pendingLocal, ...enrichedRemoteCols]).map((c: Collection) => {
-            const resolvedCollectorName = getUserName(
-              c.collected_by,
-              c.collector?.full_name || (c as any).collector_name || (c as any).collected_by_name || (c as any).sales_rep_name || "Sales Officer"
-            );
-            return {
-              ...c,
-              collector_name: resolvedCollectorName || (c as any).collector_name || null,
-              collected_by_name: resolvedCollectorName || (c as any).collected_by_name || null,
-            };
-          }).sort(
-            (a, b) => new Date(b.collection_date || b.created_at || 0).getTime() - new Date(a.collection_date || a.created_at || 0).getTime()
-          );
-          setCollections(merged);
-          saveCollections(merged);
-        } else {
-          // If Supabase returns empty or fails, load from STORAGE_KEYS.COLLECTIONS as fallback instead of setting state to an empty array []
-          setCollections(localCols);
-        }
-        const deletedExpIds = getDeletedIds(STORAGE_KEYS.DELETED_EXPENSES);
-        let finalExps: Expense[] = [];
-        if (!expRes.error && Array.isArray(expRes.data)) {
-          const remoteExps = (expRes.data as Expense[]).filter((e: any) => !deletedExpIds.has(e.id));
-          const localExps = getExpenses().filter((e: Expense) => !deletedExpIds.has(e.id));
-          const remoteExpIds = new Set(remoteExps.map((e) => String(e.id)));
-          const pendingLocalExps = localExps.filter(
-            (le) => !remoteExpIds.has(String(le.id)) && isPendingOfflineRecord(le)
-          );
-          finalExps = syncSupplierPaymentsToExpenses([...pendingLocalExps, ...remoteExps]);
-        } else {
-          const localExps = getExpenses().filter((e: Expense) => !deletedExpIds.has(e.id));
-          finalExps = syncSupplierPaymentsToExpenses(localExps);
-        }
-        setExpenses(finalExps);
-        saveExpenses(finalExps);
-        if (!cRes.error && Array.isArray(cRes.data)) {
-          setCustomers(allCustomers);
-        }
-        if (!oRes.error && Array.isArray(oRes.data)) {
-          const deletedOrderIds = getDeletedIds(STORAGE_KEYS.DELETED_ORDERS);
-          const validFetched: Order[] = (oRes.data as Order[]).filter((o: Order) => !deletedOrderIds.has(o.id));
-          const existingOrders: Order[] = getOrders();
-          if (existingOrders.length > 0) {
-            const dueMap = new Map(validFetched.map((o: Order) => [o.id, o.due_amount]));
-            const merged: Order[] = existingOrders.map((o: Order) => {
-              if (dueMap.has(o.id)) {
-                return { ...o, due_amount: Number(dueMap.get(o.id)) };
-              }
-              return o;
-            });
-            setOrders(merged);
-            saveOrders(merged);
-          } else {
-            setOrders(validFetched);
-            saveOrders(validFetched);
           }
-        }
-      } catch (err) {
-        console.warn("Using cached accounts data due to network error:", err);
-      } finally {
-        if (isMounted) setLoading(false);
+        });
       }
+
+      if (Array.isArray(officersData) && officersData.length > 0) {
+        officersData.forEach((so) => {
+          if (so.id) {
+            updatedUsersMap[String(so.id)] = {
+              id: String(so.id),
+              full_name: so.full_name || updatedUsersMap[String(so.id)]?.full_name || "",
+              email: so.email || updatedUsersMap[String(so.id)]?.email,
+              role_name: so.role_name || updatedUsersMap[String(so.id)]?.role_name,
+            };
+          }
+        });
+        setSalesOfficers(officersData);
+      }
+
+      if (!colRes.error && Array.isArray(colRes.data)) {
+        (colRes.data as any[]).forEach((col) => {
+          if (col.collected_by && col.collector?.full_name) {
+            updatedUsersMap[String(col.collected_by)] = {
+              id: String(col.collected_by),
+              full_name: col.collector.full_name,
+              email: col.collector.email || updatedUsersMap[String(col.collected_by)]?.email,
+            };
+          }
+        });
+      }
+
+      setUsersMap(updatedUsersMap);
+
+      const deletedColIds = getDeletedIds(STORAGE_KEYS.DELETED_COLLECTIONS);
+      let remoteCols: Collection[] | null = null;
+
+      if (!colRes.error && Array.isArray(colRes.data)) {
+        remoteCols = (colRes.data as Collection[]).filter((c: any) => !deletedColIds.has(c.id));
+      } else {
+        try {
+          const fallbackRes = await supabase.from("collections").select("*").order("collection_date", { ascending: false });
+          if (!fallbackRes.error && Array.isArray(fallbackRes.data)) {
+            remoteCols = (fallbackRes.data as Collection[]).filter((c: any) => !deletedColIds.has(c.id));
+          }
+        } catch (fbErr) {
+          console.warn("Fallback collections fetch notice:", fbErr);
+        }
+      }
+
+      const allCustomers: Customer[] = (!cRes.error && Array.isArray(cRes.data))
+        ? mergeAndEnrichCustomers(cRes.data as Customer[], { persist: true })
+        : getCustomers();
+      const allOrders: Order[] = (!oRes.error && Array.isArray(oRes.data))
+        ? reconcileOrdersWithRemote(oRes.data as unknown as Order[], { persist: true, maxCache: 500 })
+        : getOrders();
+
+      if (remoteCols !== null) {
+        const reconciledCols = reconcileCollectionsWithRemote(remoteCols, { persist: false });
+        const enrichedCols: Collection[] = reconciledCols.map((c: Collection) => {
+          const resolvedCollectorName = getUserName(
+            c.collected_by,
+            c.collector?.full_name || (c as any).collector_name || (c as any).collected_by_name || (c as any).sales_rep_name || "Sales Officer"
+          );
+          return {
+            ...c,
+            customer: c.customer || allCustomers.find((cust: Customer) => cust.id === c.customer_id),
+            order: c.order || allOrders.find((ord: Order) => ord.id === c.order_id),
+            collector_name: resolvedCollectorName || (c as any).collector_name || null,
+            collected_by_name: resolvedCollectorName || (c as any).collected_by_name || null,
+          };
+        }).sort(
+          (a, b) => new Date(b.collection_date || b.created_at || 0).getTime() - new Date(a.collection_date || a.created_at || 0).getTime()
+        );
+        setCollections(enrichedCols);
+        setLocalData(STORAGE_KEYS.COLLECTIONS, enrichedCols, null, true);
+      } else {
+        setCollections(getCollections().filter((c: Collection) => !deletedColIds.has(c.id)));
+      }
+
+      const deletedExpIds = getDeletedIds(STORAGE_KEYS.DELETED_EXPENSES);
+      let finalExps: Expense[] = [];
+      if (!expRes.error && Array.isArray(expRes.data)) {
+        const remoteExps = (expRes.data as Expense[]).filter((e: any) => !deletedExpIds.has(e.id));
+        const localExps = getExpenses().filter((e: Expense) => !deletedExpIds.has(e.id));
+        const remoteExpIds = new Set(remoteExps.map((e) => String(e.id)));
+        const pendingLocalExps = localExps.filter(
+          (le) => !remoteExpIds.has(String(le.id)) && isPendingOfflineRecord(le)
+        );
+        finalExps = syncSupplierPaymentsToExpenses([...pendingLocalExps, ...remoteExps]);
+      } else {
+        const localExps = getExpenses().filter((e: Expense) => !deletedExpIds.has(e.id));
+        finalExps = syncSupplierPaymentsToExpenses(localExps);
+      }
+      setExpenses(finalExps);
+      setLocalData(STORAGE_KEYS.EXPENSES, finalExps, null, true);
+
+      if (!cRes.error && Array.isArray(cRes.data)) {
+        setCustomers(allCustomers);
+      }
+      if (!oRes.error && Array.isArray(oRes.data)) {
+        setOrders(allOrders);
+      }
+    } catch (err) {
+      console.warn("Using cached accounts data due to network error:", err);
+    } finally {
+      if (mountedRef.current) setLoading(false);
     }
-    load();
+  }, [profile, getUserName]);
+
+  useAutoSync(() => {
+    void loadAccountsData();
+  });
+
+  useEffect(() => {
+    mountedRef.current = true;
+    void loadAccountsData();
 
     const accChannel = supabase
       .channel("accounts-page-realtime")
       .on("postgres_changes", { event: "*", schema: "public", table: "collections" }, () => {
-        if (isMounted) load();
+        if (mountedRef.current) void loadAccountsData();
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "expenses" }, () => {
-        if (isMounted) load();
+        if (mountedRef.current) void loadAccountsData();
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => {
-        if (isMounted) load();
+        if (mountedRef.current) void loadAccountsData();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "customers" }, () => {
+        if (mountedRef.current) void loadAccountsData();
       })
       .subscribe();
 
     return () => {
-      isMounted = false;
+      mountedRef.current = false;
       supabase.removeChannel(accChannel);
     };
-  }, []);
+  }, [loadAccountsData]);
 
   useEffect(() => {
     const handleStorageUpdate = () => {
@@ -995,17 +973,32 @@ export function AccountsPage() {
     }
 
     if (target?.order_id) {
+      let nextOrderPaid = 0;
+      let nextOrderDue = 0;
+      let nextOrderStatus: "Unpaid" | "Partial" | "Paid" = "Unpaid";
       setOrders((prev) => {
         const updated = prev.map((ord) => {
           if (ord.id !== target.order_id) return ord;
           const newPaid = Math.max(0, r2((ord.paid_amount || 0) - Number(target.amount || 0)));
           const newDue = Math.max(0, r2(ord.total_amount - newPaid));
           const newStatus = newPaid <= 0 ? "Unpaid" : newDue <= 0 ? "Paid" : "Partial";
+          nextOrderPaid = newPaid;
+          nextOrderDue = newDue;
+          nextOrderStatus = newStatus;
           return { ...ord, paid_amount: newPaid, due_amount: newDue, payment_status: newStatus as any };
         });
         saveOrders(updated);
         return updated;
       });
+      supabase
+        .from("orders")
+        .update({
+          paid_amount: nextOrderPaid,
+          due_amount: nextOrderDue,
+          payment_status: nextOrderStatus,
+        })
+        .eq("id", target.order_id)
+        .then(undefined, (err) => console.warn("Supabase order paid/due revert notice:", err));
     }
 
     const updated = deleteCollection(id);

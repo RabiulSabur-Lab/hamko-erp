@@ -168,6 +168,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
     };
 
     let syncChannel: any = null;
+    let crossDeviceBroadcastChannel: any = null;
     try {
       if (supabase?.channel) {
         syncChannel = supabase
@@ -177,7 +178,18 @@ export function AppLayout({ children }: { children: ReactNode }) {
           .on("postgres_changes", { event: "*", schema: "public", table: "collections" }, scheduleRealtimePull)
           .on("postgres_changes", { event: "*", schema: "public", table: "customers" }, scheduleRealtimePull)
           .on("postgres_changes", { event: "*", schema: "public", table: "products" }, scheduleRealtimePull)
+          .on("postgres_changes", { event: "*", schema: "public", table: "categories" }, scheduleRealtimePull)
+          .on("postgres_changes", { event: "*", schema: "public", table: "stock_transactions" }, scheduleRealtimePull)
           .on("postgres_changes", { event: "*", schema: "public", table: "expenses" }, scheduleRealtimePull)
+          .subscribe();
+
+        crossDeviceBroadcastChannel = supabase
+          .channel("hamko-cross-device-sync", {
+            config: { broadcast: { self: false } },
+          })
+          .on("broadcast", { event: "erp_mutation" }, () => {
+            scheduleRealtimePull();
+          })
           .subscribe();
       }
     } catch (err) {
@@ -187,9 +199,9 @@ export function AppLayout({ children }: { children: ReactNode }) {
     const handleVisibilityOrFocus = () => {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       const now = Date.now();
-      if (now - lastResumeSyncAt < 8000) return;
+      if (now - lastResumeSyncAt < 1500) return;
       lastResumeSyncAt = now;
-      void runFullBidirectionalSync(false);
+      void runFullBidirectionalSync(true);
     };
 
     const handleOnline = () => {
@@ -198,7 +210,10 @@ export function AppLayout({ children }: { children: ReactNode }) {
     };
 
     document.addEventListener("visibilitychange", handleVisibilityOrFocus);
+    document.addEventListener("resume", handleVisibilityOrFocus as EventListener);
     window.addEventListener("focus", handleVisibilityOrFocus);
+    window.addEventListener("pageshow", handleVisibilityOrFocus);
+    window.addEventListener("resume", handleVisibilityOrFocus as EventListener);
     window.addEventListener("online", handleOnline);
 
     return () => {
@@ -208,11 +223,17 @@ export function AppLayout({ children }: { children: ReactNode }) {
         if (syncChannel && supabase?.removeChannel) {
           supabase.removeChannel(syncChannel);
         }
+        if (crossDeviceBroadcastChannel && supabase?.removeChannel) {
+          supabase.removeChannel(crossDeviceBroadcastChannel);
+        }
       } catch {
         // ignore
       }
       document.removeEventListener("visibilitychange", handleVisibilityOrFocus);
+      document.removeEventListener("resume", handleVisibilityOrFocus as EventListener);
       window.removeEventListener("focus", handleVisibilityOrFocus);
+      window.removeEventListener("pageshow", handleVisibilityOrFocus);
+      window.removeEventListener("resume", handleVisibilityOrFocus as EventListener);
       window.removeEventListener("online", handleOnline);
     };
   }, [userId, sessionVerified]);

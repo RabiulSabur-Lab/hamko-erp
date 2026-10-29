@@ -17,6 +17,7 @@ import { exportToExcel } from "@/lib/export";
 import { Search, Download, Warehouse, Loader2 } from "lucide-react";
 import { useRouter } from "@/router";
 import { toast } from "sonner";
+import { useAutoSync } from "@/hooks/useAutoSync";
 
 import {
   STORAGE_KEYS,
@@ -26,6 +27,9 @@ import {
   r2,
   getProductPurchasePrice,
   calculateInventoryStockValue,
+  isPendingOfflineRecord,
+  adjustProductStock,
+  getProducts,
 } from "@/utils/localStore";
 
 export type StockType = "Stock In" | "Stock Out" | "Damage";
@@ -119,6 +123,11 @@ export function InventoryPage() {
     };
   }, []);
 
+  // Cloud-First re-validation on window focus, visibility change, and mobile app resume
+  useAutoSync(() => {
+    void loadData();
+  });
+
   async function loadData() {
     try {
       const [pRes, cRes] = await Promise.all([
@@ -143,9 +152,10 @@ export function InventoryPage() {
 
         const enriched = filtered.map((p: any) => {
           const loc = localMap.get(String(p.id));
+          const locIsPending = Boolean(loc && isPendingOfflineRecord(loc));
           const localStock = loc?.stock_quantity ?? loc?.stock;
-          const remoteStock = p.stock_quantity ?? p.stock ?? 0;
-          const effectiveStock = localStock !== undefined && localStock > remoteStock ? localStock : remoteStock;
+          const remoteStock = Number(p.stock_quantity ?? p.stock ?? 0);
+          const effectiveStock = locIsPending && localStock !== undefined ? Number(localStock) : remoteStock;
           const resolvedCost = loc?.purchase_cost ?? (p as any).purchase_cost ?? p.distributor_price ?? loc?.distributor_price ?? loc?.purchase_price ?? null;
 
           return {
@@ -229,44 +239,61 @@ export function InventoryPage() {
     const txType = form.transaction_type || "Stock Out";
     setSaving(true);
     try {
-      let newQty = targetProduct.stock_quantity;
-      if (txType === "Stock In") newQty += qty;
-      else if (txType === "Stock Out" || txType === "Damage") newQty = Math.max(0, newQty - qty);
-
-      // 1. Instant local state updates
-      const updatedProducts = products.map((p) =>
-        p.id === form.product_id ? { ...p, stock_quantity: newQty } : p
-      );
-      const sorted = [...updatedProducts].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+      const delta = txType === "Stock In" ? qty : -qty;
+      adjustProductStock(form.product_id, delta, "Main Warehouse");
+      const sorted = [...getProducts()].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
       setProducts(sorted);
-      setLocalData(STORAGE_KEYS.PRODUCTS, sorted);
+
+      const nowIso = new Date().toISOString();
+      const newTxRecord = {
+        id: typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `tx-${Date.now()}`,
+        product_id: form.product_id,
+        transaction_type: txType,
+        quantity: qty,
+        from_warehouse: "Main Warehouse",
+        to_warehouse: "Main Warehouse",
+        reference: form.reference?.trim() || null,
+        notes: form.notes?.trim() || null,
+        performed_by: profile?.id ?? null,
+        transaction_date: nowIso,
+        created_at: nowIso,
+        product: targetProduct,
+      };
+      const existingTx = getLocalData<any[]>(STORAGE_KEYS.TRANSACTIONS, []);
+      setLocalData(STORAGE_KEYS.TRANSACTIONS, [newTxRecord, ...(Array.isArray(existingTx) ? existingTx : [])]);
 
       toast.success(`${txType} updated successfully`);
       setDialogOpen(false);
 
-      // 2. Persist updated stock directly to Supabase products table
-      supabase
-        .from("products")
-        .update({ stock_quantity: newQty })
-        .eq("id", form.product_id)
-        .then(({ error }) => {
-          if (error) console.warn("Supabase update product error:", error.message);
-        });
-
-      // 3. Optional record in RPC if available
+      // 3. Record stock transaction in Supabase via RPC or direct table insert fallback
       supabase.rpc("record_stock_transaction", {
         p_tx: {
           product_id: form.product_id,
           transaction_type: txType,
           quantity: qty,
-          from_warehouse: "Main",
-          to_warehouse: "Main",
+          from_warehouse: "Main Warehouse",
+          to_warehouse: "Main Warehouse",
           reference: form.reference?.trim() ?? "",
           notes: form.notes?.trim() ?? "",
           performed_by: profile?.id ?? "",
         },
       }).then(({ error }) => {
-        if (error) console.warn("Background RPC notice:", error.message);
+        if (error) {
+          supabase
+            .from("stock_transactions")
+            .insert({
+              product_id: form.product_id,
+              transaction_type: txType,
+              quantity: qty,
+              from_warehouse: "Main Warehouse",
+              to_warehouse: "Main Warehouse",
+              reference: form.reference?.trim() || null,
+              notes: form.notes?.trim() || null,
+              performed_by: profile?.id ?? null,
+              transaction_date: nowIso,
+            })
+            .then(undefined, (insErr) => console.warn("Direct stock_transactions insert notice:", insErr));
+        }
       });
     } catch (e: any) {
       toast.error(e.message);

@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo, useRef } from "react";
-import { supabase, type Customer, type Territory, type Order, type Collection } from "@/lib/supabase";
+import { supabase, SUPABASE_TABLE_SELECTS, type Customer, type Territory, type Order, type Collection } from "@/lib/supabase";
 import { useI18n } from "@/lib/i18n";
 import { useAuth } from "@/lib/auth";
 import { Card, CardContent } from "@/components/ui/card";
@@ -37,6 +37,8 @@ import {
   getAreas,
   type Area,
   mergeAndEnrichCustomers,
+  reconcileOrdersWithRemote,
+  reconcileCollectionsWithRemote,
   calculateCustomerDues,
   r2,
   deduplicateCollections,
@@ -133,12 +135,12 @@ export function CustomersPage() {
       const [cRes, tRes, oRes, colRes] = await Promise.all([
         supabase.from("customers").select("*, territory:territories(*)").order("name", { ascending: true }),
         supabase.from("territories").select("*").order("name"),
-        supabase.from("orders").select("id, customer_id, total_amount, status, created_at, order_date, customer:customers(name)").order("order_date", { ascending: false }),
-        supabase.from("collections").select("id, customer_id, amount, collection_date, customer:customers(name)").order("collection_date", { ascending: false }),
+        supabase.from("orders").select(SUPABASE_TABLE_SELECTS.ordersWithItemsAndCustomer).order("order_date", { ascending: false }).limit(1000),
+        supabase.from("collections").select(SUPABASE_TABLE_SELECTS.collections).order("collection_date", { ascending: false }).limit(2000),
       ]);
       if (!mountedRef.current) return;
       if (!cRes.error && Array.isArray(cRes.data)) {
-        const merged = mergeAndEnrichCustomers(cRes.data as Customer[]);
+        const merged = mergeAndEnrichCustomers(cRes.data as Customer[], { persist: true });
         if (mountedRef.current) setCustomers(Array.isArray(merged) ? merged : []);
         if (isManual) {
           toast.success(`Live sync: ${merged.length} customers/outlets synchronized`);
@@ -148,34 +150,12 @@ export function CustomersPage() {
         setTerritories(tRes.data);
       }
       if (!oRes.error && Array.isArray(oRes.data)) {
-        const deletedOrderIds = getDeletedIds(STORAGE_KEYS.DELETED_ORDERS);
-        const remoteOrders = (oRes.data as unknown as Order[]).filter((o: any) => !deletedOrderIds.has(o.id));
-        const remoteIdSet = new Set(remoteOrders.map((o) => String(o.id)));
-        const currentLocal = getOrders().filter((o: any) => !deletedOrderIds.has(o.id));
-        const pendingLocal = currentLocal.filter(
-          (lo) => !remoteIdSet.has(String(lo.id)) && isPendingOfflineRecord(lo)
-        );
-        const merged = [...pendingLocal, ...remoteOrders];
+        const merged = reconcileOrdersWithRemote(oRes.data as unknown as Order[], { persist: true, maxCache: 500 });
         if (mountedRef.current) setOrders(merged);
-        setLocalData(STORAGE_KEYS.ORDERS, merged, null, true);
       }
       if (!colRes.error && Array.isArray(colRes.data)) {
-        const deletedColIds = getDeletedIds(STORAGE_KEYS.DELETED_COLLECTIONS);
-        const remoteCols = (colRes.data as unknown as Collection[]).filter((c: any) => !deletedColIds.has(c.id));
-        const remoteIdSet = new Set(remoteCols.map((c) => String(c.id)));
-        const remoteColNumSet = new Set(
-          remoteCols.map((c: any) => String(c.collection_number || "").trim().toUpperCase()).filter(Boolean)
-        );
-        const currentLocal = getCollections().filter((c: any) => !deletedColIds.has(c.id));
-        const pendingLocal = currentLocal.filter(
-          (lc) =>
-            !remoteIdSet.has(String(lc.id)) &&
-            (!lc.collection_number || !remoteColNumSet.has(String(lc.collection_number).trim().toUpperCase())) &&
-            isPendingOfflineRecord(lc)
-        );
-        const merged = deduplicateCollections([...pendingLocal, ...remoteCols]);
+        const merged = reconcileCollectionsWithRemote(colRes.data as unknown as Collection[], { persist: true, maxCache: 1000 });
         if (mountedRef.current) setCollections(merged);
-        setLocalData(STORAGE_KEYS.COLLECTIONS, merged, null, true);
       }
     } catch (err) {
       console.warn("Using local customer cache due to fetch error:", err);

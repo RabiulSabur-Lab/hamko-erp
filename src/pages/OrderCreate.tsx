@@ -956,20 +956,10 @@ export function OrderCreate() {
               unit_price: it.unit_price,
               discount: it.discount,
               subtotal: it.subtotal,
-              price_tier: it.price_tier ?? null,
             })),
           );
           if (itemsErr) {
-            await supabase.from("order_items").insert(
-              sanitizedItems.map((it) => ({
-                order_id: orderId,
-                product_id: it.product_id,
-                quantity: it.quantity,
-                unit_price: it.unit_price,
-                discount: it.discount,
-                subtotal: it.subtotal,
-              })),
-            );
+            console.warn("Supabase order_items insert notice:", itemsErr.message);
           }
 
           // Also sync updated customer due in Supabase so Web & Mobile stay identical immediately

@@ -861,11 +861,15 @@ export async function pullFreshCloudStateToLocalStore(options?: {
   }
 
   const now = Date.now();
-  if (!options?.force && now - lastCloudPullAt < 4000) {
+  if (!options?.force && now - lastCloudPullAt < 1500) {
     return inFlightCloudPull ?? { synced: false, updatedTables: [], error: null };
   }
   if (inFlightCloudPull) {
-    return inFlightCloudPull;
+    if (options?.force && now - lastCloudPullAt > 400) {
+      await inFlightCloudPull.catch(() => null);
+    } else {
+      return inFlightCloudPull;
+    }
   }
 
   const task = (async (): Promise<CloudPullResult> => {

@@ -150,8 +150,8 @@ export const STORAGE_KEYS = {
   AUTH_CREDENTIALS: 'sales_erp_auth_credentials',
 } as const;
 
-export const CACHE_SYNC_VERSION = "hamko-cloud-sync-v3";
-const CACHE_SYNC_META_KEY = "sales_erp_cloud_cache_meta_v3";
+export const CACHE_SYNC_VERSION = "hamko-cloud-sync-v4";
+const CACHE_SYNC_META_KEY = "sales_erp_cloud_cache_meta_v4";
 const CROSS_TAB_CHANNEL_NAME = "hamko_erp_cross_tab_sync";
 
 /**
@@ -334,6 +334,7 @@ export function setLocalData<T = any>(key: string, value: T, ttlMs?: number | nu
       try {
         window.dispatchEvent(new CustomEvent('sales_erp_storage_update', { detail: { key } }));
         broadcastCrossTabSync({ key, detail: { key } });
+        broadcastCrossDeviceRealtimeMutation({ type: key });
       } catch {
         // ignore
       } finally {
@@ -1615,11 +1616,13 @@ export function mergeAndEnrichCustomers(
         null,
       notes: parsed.cleanNotes !== undefined ? parsed.cleanNotes : rc.notes,
       opening_balance: resolvedOpening,
+      opening_due: resolvedOpening,
       current_due: resolvedDue,
+      currentDue: resolvedDue,
       due_status: resolvedDueStatus,
       updated_at: (locIsPending ? loc?.updated_at : undefined) || rc.updated_at || new Date().toISOString(),
       is_offline: locIsPending ? Boolean(loc?.is_offline) : false,
-    };
+    } as Customer;
   });
 
   const merged: Customer[] = [...pendingLocal, ...enrichedRemote].sort((a: Customer, b: Customer) =>
@@ -1658,15 +1661,26 @@ export function reconcileOrdersWithRemote(
         localById.get(String(ro.id)) ||
         (ro.order_number ? localByNum.get(String(ro.order_number).trim().toUpperCase()) : undefined);
       const remoteItems = Array.isArray((ro as any).order_items) ? (ro as any).order_items : undefined;
-      const fallbackItems = !remoteItems && matchLocal ? (matchLocal as any).order_items : undefined;
+      const hasRemoteItems = Boolean(remoteItems && remoteItems.length > 0);
+      const fallbackItems = !hasRemoteItems && matchLocal ? (matchLocal as any).order_items : undefined;
+      const resolvedItems = hasRemoteItems
+        ? remoteItems
+        : fallbackItems !== undefined
+        ? fallbackItems
+        : remoteItems;
+      const resolvedTotal = Number(ro.total_amount ?? (matchLocal as any)?.total_amount ?? 0);
+      const resolvedPaid = Number(ro.paid_amount ?? (matchLocal as any)?.paid_amount ?? 0);
+      const resolvedDue = Number(ro.due_amount ?? Math.max(0, r2(resolvedTotal - resolvedPaid)));
       return {
         ...(matchLocal || {}),
         ...ro,
-        ...(remoteItems !== undefined
-          ? { order_items: remoteItems }
-          : fallbackItems !== undefined
-          ? { order_items: fallbackItems }
-          : {}),
+        subtotal: Number(ro.subtotal ?? (matchLocal as any)?.subtotal ?? resolvedTotal),
+        total_amount: resolvedTotal,
+        paid_amount: resolvedPaid,
+        paidAmount: resolvedPaid,
+        due_amount: resolvedDue,
+        dueAmount: resolvedDue,
+        ...(resolvedItems !== undefined ? { order_items: resolvedItems, items: resolvedItems } : {}),
         customer: (ro as any).customer || (matchLocal as any)?.customer || undefined,
         is_offline: false,
       } as Order;
@@ -2173,11 +2187,8 @@ export const deleteOrder = (id: string, currentItems?: any[]): any[] & { success
     return res;
   }
 
-  // If order was cancelled and has linked collections, void them to prevent orphaned collections in the cash book
-  if (isCancelled && hasLinkedCollection) {
-    voidOrderCollections(id, targetOrder?.order_number);
-  }
-
+  // If order was cancelled and has linked collections, internalDeleteOrder unlinks them
+  // (order_id = null) so they convert cleanly into Customer Advance Credit Balance.
   const result = internalDeleteOrder(id, currentItems);
   if (result.success !== false) {
     if (targetOrder?.customer_id) {
@@ -2417,7 +2428,7 @@ export function calculateOrdersCogs(
   let totalItemsSold = 0;
 
   ordersList.forEach((order) => {
-    if (order.status === "Cancelled") return;
+    if (order.status === "Cancelled" || order.status === "Draft") return;
 
     const items = (Array.isArray(order.order_items) && order.order_items.length > 0)
       ? order.order_items
@@ -2698,6 +2709,27 @@ export interface TransactionLedgerDetail {
 
 export type GlobalStateUpdateDetail = TransactionLedgerDetail;
 
+let crossDeviceRealtimeChannel: any = null;
+
+function broadcastCrossDeviceRealtimeMutation(detail?: TransactionLedgerDetail) {
+  try {
+    if (!supabase?.channel) return;
+    if (!crossDeviceRealtimeChannel) {
+      crossDeviceRealtimeChannel = supabase.channel("hamko-cross-device-sync", {
+        config: { broadcast: { self: false } },
+      });
+      crossDeviceRealtimeChannel.subscribe();
+    }
+    void crossDeviceRealtimeChannel.send({
+      type: "broadcast",
+      event: "erp_mutation",
+      payload: { detail: detail || { type: "mutation" }, ts: Date.now() },
+    });
+  } catch {
+    // Ignore transient websocket broadcast errors when offline
+  }
+}
+
 export const dispatchGlobalStateUpdate = (detail?: TransactionLedgerDetail) => {
   if (typeof window === "undefined") return;
   setTimeout(() => {
@@ -2706,6 +2738,7 @@ export const dispatchGlobalStateUpdate = (detail?: TransactionLedgerDetail) => {
       window.dispatchEvent(new CustomEvent("customer_ledger_updated", { detail }));
     }
     broadcastCrossTabSync({ detail });
+    broadcastCrossDeviceRealtimeMutation(detail);
   }, 0);
 };
 

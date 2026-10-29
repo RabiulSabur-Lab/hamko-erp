@@ -363,8 +363,8 @@ export function OrdersPage() {
         const [usersQueryRes, oRes, cRes, pRes, officersData] = await Promise.all([
           supabase.from("users").select("id, full_name, email, role_name"),
           supabase.from("orders").select("*, customer:customers(name, current_due, address, city, phone, trade_license_number), sales_rep:users(id, full_name, email), order_items(*, product:products(name, sku_code, unit_price))").order("order_date", { ascending: false }),
-          supabase.from("customers").select("*").eq("is_active", true).order("name"),
-          supabase.from("products").select("*").eq("is_active", true).order("name"),
+          supabase.from("customers").select("*").order("name"),
+          supabase.from("products").select("*").order("name"),
           fetchActiveSalesOfficers(),
         ]);
         if (!isMountedRef.current) return;
@@ -428,7 +428,7 @@ export function OrdersPage() {
               (ord as any).created_by_name ||
               null;
 
-            if (rawItems && Array.isArray(rawItems)) {
+            if (rawItems && Array.isArray(rawItems) && rawItems.length > 0) {
               const cleanItems: OrderItem[] = deduplicateOrderItems(rawItems).map((item: any, idx: number) => {
                 const prodInfo = resolveOrderProduct(item.product, item.product_id, pRes.data || []);
                 return {
@@ -444,11 +444,15 @@ export function OrdersPage() {
                   product: prodInfo.exists ? prodInfo.product : null,
                 };
               });
-              const newSubtotal = r2(cleanItems.reduce((sum: number, it: any) => sum + Number(it.subtotal || 0), 0));
+              const itemsSubtotal = r2(cleanItems.reduce((sum: number, it: any) => sum + Number(it.subtotal || 0), 0));
               const disc = Number(ord.discount) || 0;
-              const newTotal = r2(Math.max(0, newSubtotal - disc));
+              const cloudTotal = Number(ord.total_amount) || 0;
+              const newSubtotal = Number(ord.subtotal) > 0 ? Number(ord.subtotal) : itemsSubtotal;
+              const newTotal = cloudTotal > 0 ? cloudTotal : r2(Math.max(0, newSubtotal - disc));
               const paid = Number(ord.paid_amount) || 0;
-              const newDue = r2(Math.max(0, newTotal - paid));
+              const newDue = ord.due_amount !== undefined && ord.due_amount !== null
+                ? Number(ord.due_amount)
+                : r2(Math.max(0, newTotal - paid));
               return {
                 ...ord,
                 sales_rep_name: repName || ord.sales_rep_name || null,
@@ -457,7 +461,10 @@ export function OrdersPage() {
                 items: cleanItems,
                 subtotal: newSubtotal,
                 total_amount: newTotal,
+                paid_amount: paid,
+                paidAmount: paid,
                 due_amount: newDue,
+                dueAmount: newDue,
               } as Order;
             }
             return {
@@ -969,7 +976,7 @@ export function OrdersPage() {
             console.warn("Supabase order_items delete notice:", delErr.message);
           }
 
-          // Then insert the updated items array
+          // Then insert the updated items array (strictly matching physical order_items columns)
           if (orderFormData.items.length > 0) {
             const dbItemsPayload = orderFormData.items.map((it) => ({
               order_id: editingOrder.id,
@@ -978,7 +985,6 @@ export function OrdersPage() {
               unit_price: r2(Number(it.unit_price) || 0),
               discount: r2(Number(it.discount) || 0),
               subtotal: r2(Number(it.subtotal) || 0),
-              price_tier: it.price_tier || "DP",
             }));
             const { error: itemsErr } = await supabase.from("order_items").insert(dbItemsPayload);
             if (itemsErr) console.warn("Supabase order_items re-insert notice:", itemsErr.message);
@@ -1068,6 +1074,7 @@ export function OrdersPage() {
         // 1b. Record additional cash payment into Cash/Accounts ledger (Collections)
         // If payment was covered by existing advance deposit, do NOT create redundant collection
         let nextCollections = getCollections();
+        let pendingRemoteCollectionPayload: Record<string, any> | null = null;
 
         if (additionalCash > 0) {
           const colNumber = generateCollectionNumber(nextCollections);
@@ -1101,24 +1108,19 @@ export function OrdersPage() {
           nextCollections = deduplicateCollections([newCollection, ...nextCollections]);
           saveCollections(nextCollections);
 
-          // Background Supabase collection insert with matching ID and subsequent timestamp
-          supabase
-            .from("collections")
-            .insert({
-              id: colId,
-              collection_number: colNumber,
-              customer_id: orderFormData.customer_id,
-              order_id: tempId,
-              amount: additionalCash,
-              payment_method: (orderFormData.payment_method as any) || "Cash",
-              collection_date: orderFormData.order_date || new Date().toISOString(),
-              collected_by: profile?.id ?? null,
-              notes: `Order ${orderNumber} payment (${payStatus})`,
-              created_at: colCreatedIso,
-            })
-            .then(({ error: colErr }) => {
-              if (colErr) console.warn("Notice inserting collection to Supabase:", colErr.message);
-            });
+          // Defer remote Supabase collection insert until AFTER parent order exists in public.orders (prevents 23503 FK race)
+          pendingRemoteCollectionPayload = {
+            id: colId,
+            collection_number: colNumber,
+            customer_id: orderFormData.customer_id,
+            order_id: tempId,
+            amount: additionalCash,
+            payment_method: (orderFormData.payment_method as any) || "Cash",
+            collection_date: orderFormData.order_date || new Date().toISOString(),
+            collected_by: profile?.id ?? null,
+            notes: `Order ${orderNumber} payment (${payStatus})`,
+            created_at: colCreatedIso,
+          };
         }
 
         // 1c. Recalculate customer due using master recalculateCustomerLedger WITH the new collection
@@ -1192,10 +1194,11 @@ export function OrdersPage() {
 
         // 2. Background persistence: Attempt RPC first, fallback to direct table inserts
         const dbOrderPayload = {
+          id: tempId,
           order_number: orderNumber,
           customer_id: orderFormData.customer_id,
           sales_rep_id: profile?.id ?? null,
-          status: orderFormData.status || "Pending",
+          status: effectiveStatus,
           order_date: orderFormData.order_date || new Date().toISOString(),
           subtotal: r2(Number(orderFormData.subtotal || 0)),
           discount: r2(Number(orderFormData.discount || 0)),
@@ -1205,6 +1208,28 @@ export function OrdersPage() {
           payment_status: dbPayStatus,
           notes: orderFormData.notes?.trim() || null,
           delivery_date: orderFormData.delivery_date ? orderFormData.delivery_date : null,
+        };
+
+        const persistLinkedCollectionRemotely = async (persistedOrderId: string) => {
+          if (!pendingRemoteCollectionPayload) return;
+          try {
+            const payloadToInsert = {
+              ...pendingRemoteCollectionPayload,
+              order_id: persistedOrderId,
+            };
+            if (persistedOrderId !== tempId) {
+              const cols = getCollections();
+              saveCollections(
+                cols.map((c) => (c.id === pendingRemoteCollectionPayload?.id ? { ...c, order_id: persistedOrderId } : c))
+              );
+            }
+            const { error: colErr } = await supabase.from("collections").insert(payloadToInsert);
+            if (colErr) {
+              console.warn("Notice inserting collection to Supabase:", colErr.message);
+            }
+          } catch (colEx) {
+            console.warn("Exception inserting linked collection to Supabase:", colEx);
+          }
         };
 
         const handleReconcileOrder = (createdServerId: string) => {
@@ -1238,7 +1263,10 @@ export function OrdersPage() {
               const realOrderId = orderData.id;
               handleReconcileOrder(realOrderId);
 
-              // Insert line items
+              // Insert linked upfront collection AFTER parent order exists in PostgreSQL
+              await persistLinkedCollectionRemotely(realOrderId);
+
+              // Insert line items (strictly matching physical order_items schema)
               if (orderFormData.items.length > 0) {
                 const dbItemsPayload = orderFormData.items.map((it) => ({
                   order_id: realOrderId,
@@ -1247,7 +1275,6 @@ export function OrdersPage() {
                   unit_price: r2(Number(it.unit_price) || 0),
                   discount: r2(Number(it.discount) || 0),
                   subtotal: r2(Number(it.subtotal) || 0),
-                  price_tier: it.price_tier || "DP",
                 }));
 
                 const { error: itemsErr } = await supabase
@@ -1256,23 +1283,19 @@ export function OrdersPage() {
 
                 if (itemsErr) {
                   console.warn("Direct Supabase order_items insert error:", itemsErr.message);
-                } else {
-                  // Note: Product stock reduction for "Delivered" orders is already handled
-                  // centrally via adjustProductStock above (single source of truth).
-                  // Do NOT decrement remote stock here to prevent double deduction.
+                }
+              }
 
-                  // Update customer current_due in Supabase using master recalculateCustomerLedger
-                  if (orderFormData.customer_id) {
-                    try {
-                      const ledgerRes = recalculateCustomerLedger(orderFormData.customer_id, undefined, undefined, { persist: true });
-                      await supabase
-                        .from("customers")
-                        .update({ current_due: ledgerRes.currentDue, due_status: ledgerRes.dueStatus })
-                        .eq("id", orderFormData.customer_id);
-                    } catch (e) {
-                      console.warn("Notice updating remote customer due on direct insert:", e);
-                    }
-                  }
+              // Update customer current_due in Supabase using master recalculateCustomerLedger
+              if (orderFormData.customer_id) {
+                try {
+                  const ledgerRes = recalculateCustomerLedger(orderFormData.customer_id, undefined, undefined, { persist: true });
+                  await supabase
+                    .from("customers")
+                    .update({ current_due: ledgerRes.currentDue, due_status: ledgerRes.dueStatus })
+                    .eq("id", orderFormData.customer_id);
+                } catch (e) {
+                  console.warn("Notice updating remote customer due on direct insert:", e);
                 }
               }
             }
@@ -1312,6 +1335,7 @@ export function OrdersPage() {
               await insertDirectly();
             } else {
               handleReconcileOrder(data.id);
+              await persistLinkedCollectionRemotely(data.id);
             }
           } catch (err: any) {
             console.warn("RPC invocation exception, falling back to direct table inserts:", err?.message || err);

@@ -18,6 +18,7 @@ import {
   PieChart, Pie, Cell, Legend,
 } from "recharts";
 import { toast } from "sonner";
+import { useAutoSync } from "@/hooks/useAutoSync";
 import { resolveOrderProduct } from "@/utils/productUtils";
 import {
   fetchActiveSalesOfficers,
@@ -28,6 +29,7 @@ import { useUsers } from "@/context/UsersContext";
 import {
   STORAGE_KEYS,
   getLocalData,
+  setLocalData,
   r2,
   getOrders,
   getCollections,
@@ -231,7 +233,7 @@ export function ReportsPage() {
         };
       };
 
-      // Merge remote and pending local orders without mutating localStorage
+      // Merge remote and pending local orders and persist silently
       if (oSettled.status === "fulfilled" && !oSettled.value.error && Array.isArray(oSettled.value.data)) {
         const deletedIds = getDeletedIds(STORAGE_KEYS.DELETED_ORDERS);
         const validRemote = oSettled.value.data
@@ -245,10 +247,12 @@ export function ReportsPage() {
         const pendingLocal = currentLocal.filter(
           (lo: any) => !remoteIdSet.has(String(lo.id)) && isPendingOfflineRecord(lo),
         );
-        setOrders([...pendingLocal, ...validRemote]);
+        const mergedOrders = [...pendingLocal, ...validRemote];
+        setOrders(mergedOrders);
+        setLocalData(STORAGE_KEYS.ORDERS, mergedOrders.slice(0, 500), null, true);
       }
 
-      // Merge remote and pending local collections without mutating localStorage
+      // Merge remote and pending local collections and persist silently
       if (cSettled.status === "fulfilled" && !cSettled.value.error && Array.isArray(cSettled.value.data)) {
         const deletedIds = getDeletedIds(STORAGE_KEYS.DELETED_COLLECTIONS);
         const validRemote = cSettled.value.data
@@ -268,16 +272,18 @@ export function ReportsPage() {
             (!lc.collection_number || !remoteColNumSet.has(String(lc.collection_number).trim().toUpperCase())) &&
             isPendingOfflineRecord(lc),
         );
-        setCollections(deduplicateCollections([...pendingLocal, ...validRemote]));
+        const mergedCols = deduplicateCollections([...pendingLocal, ...validRemote]);
+        setCollections(mergedCols);
+        setLocalData(STORAGE_KEYS.COLLECTIONS, mergedCols.slice(0, 1000), null, true);
       }
 
-      // Merge remote customers in-memory only without saving to localStorage
+      // Merge remote customers and persist silently so local store stays cloud-authoritative
       if (custSettled.status === "fulfilled" && !custSettled.value.error && Array.isArray(custSettled.value.data)) {
-        const mergedCusts = mergeAndEnrichCustomers(custSettled.value.data as unknown as Customer[], { persist: false });
+        const mergedCusts = mergeAndEnrichCustomers(custSettled.value.data as unknown as Customer[], { persist: true });
         setCustomers(mergedCusts);
       }
 
-      // Merge remote expenses without mutating localStorage
+      // Merge remote expenses without firing recursive storage events
       if (eSettled.status === "fulfilled" && !eSettled.value.error && Array.isArray(eSettled.value.data)) {
         const deletedIds = getDeletedIds(STORAGE_KEYS.DELETED_EXPENSES);
         const validRemote = eSettled.value.data.filter((e: any) => !deletedIds.has(e.id));
@@ -286,10 +292,12 @@ export function ReportsPage() {
         const pendingLocal = currentLocal.filter(
           (le: any) => !remoteIdSet.has(String(le.id)) && isPendingOfflineRecord(le),
         );
-        setExpenses([...pendingLocal, ...validRemote]);
+        const mergedExps = [...pendingLocal, ...validRemote];
+        setExpenses(mergedExps);
+        setLocalData(STORAGE_KEYS.EXPENSES, mergedExps, null, true);
       }
 
-      // Merge remote products without mutating localStorage
+      // Merge remote products without firing recursive storage events
       if (pSettled.status === "fulfilled" && !pSettled.value.error && Array.isArray(pSettled.value.data)) {
         const deletedIds = getDeletedIds(STORAGE_KEYS.DELETED_PRODUCTS);
         const validRemote = pSettled.value.data.filter((p: any) => !deletedIds.has(p.id));
@@ -298,12 +306,19 @@ export function ReportsPage() {
         const pendingLocal = currentLocal.filter(
           (lp: any) => !remoteIdSet.has(String(lp.id)) && isPendingOfflineRecord(lp),
         );
-        setProducts([...pendingLocal, ...validRemote]);
+        const mergedProds = [...pendingLocal, ...validRemote];
+        setProducts(mergedProds);
+        setLocalData(STORAGE_KEYS.PRODUCTS, mergedProds, null, true);
       }
     } catch (err) {
       console.warn("Reports remote sync notice:", err);
     }
   }, []);
+
+  // Cloud-First re-validation on window focus, visibility change, and mobile app resume
+  useAutoSync(() => {
+    void syncRemoteData();
+  });
 
   // 3. Stable lifecycle: fetch once on mount, and listen to localStore updates reactively (read-only)
   useEffect(() => {
@@ -379,7 +394,7 @@ export function ReportsPage() {
 
     if (reportType === "daily") {
       const filtered = effectiveOrders.filter(
-        (o: any) => o.status !== "Cancelled" && inDateRange(o.order_date || o.created_at)
+        (o: any) => o.status !== "Cancelled" && o.status !== "Draft" && inDateRange(o.order_date || o.created_at)
       );
 
       const map = new Map<string, { date: string; rawDate: string; sales: number; orders: number; avgTicket: number }>();
@@ -413,7 +428,7 @@ export function ReportsPage() {
 
     } else if (reportType === "monthly") {
       const filtered = effectiveOrders.filter(
-        (o: any) => o.status !== "Cancelled" && inDateRange(o.order_date || o.created_at)
+        (o: any) => o.status !== "Cancelled" && o.status !== "Draft" && inDateRange(o.order_date || o.created_at)
       );
 
       const map = new Map<string, { month: string; rawMonth: string; sales: number; orders: number; avgOrder: number }>();
@@ -444,7 +459,7 @@ export function ReportsPage() {
 
     } else if (reportType === "product") {
       const filtered = effectiveOrders.filter(
-        (o: any) => o.status !== "Cancelled" && inDateRange(o.order_date || o.created_at)
+        (o: any) => o.status !== "Cancelled" && o.status !== "Draft" && inDateRange(o.order_date || o.created_at)
       );
 
       const map = new Map<string, { product: string; qty: number; revenue: number; avgPrice: number }>();
@@ -477,7 +492,7 @@ export function ReportsPage() {
 
     } else if (reportType === "customer") {
       const filtered = effectiveOrders.filter(
-        (o: any) => o.status !== "Cancelled" && inDateRange(o.order_date || o.created_at)
+        (o: any) => o.status !== "Cancelled" && o.status !== "Draft" && inDateRange(o.order_date || o.created_at)
       );
 
       const map = new Map<string, { customer: string; area: string; revenue: number; orders: number; avgOrder: number }>();
@@ -510,7 +525,7 @@ export function ReportsPage() {
 
     } else if (reportType === "territory") {
       const filtered = effectiveOrders.filter(
-        (o: any) => o.status !== "Cancelled" && inDateRange(o.order_date || o.created_at)
+        (o: any) => o.status !== "Cancelled" && o.status !== "Draft" && inDateRange(o.order_date || o.created_at)
       );
 
       const map = new Map<string, { territory: string; revenue: number; orders: number }>();
@@ -571,7 +586,7 @@ export function ReportsPage() {
 
     } else if (reportType === "profit_loss") {
       const filteredOrders = effectiveOrders.filter(
-        (o: any) => o.status !== "Cancelled" && inDateRange(o.order_date || o.created_at)
+        (o: any) => o.status !== "Cancelled" && o.status !== "Draft" && inDateRange(o.order_date || o.created_at)
       );
       const filteredExps = expenses.filter((e: any) => inDateRange(e.expense_date || e.created_at));
 
