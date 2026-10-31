@@ -48,6 +48,7 @@ class RealtimeSyncManager {
   private lastResumeSyncAt = 0;
   private lastCloudSyncAt = 0;
   private isAutoPulling = false;
+  private convergencePollTimer: ReturnType<typeof setInterval> | null = null;
   private config: Required<RealtimeManagerConfig>;
 
   private constructor(config?: RealtimeManagerConfig) {
@@ -56,6 +57,7 @@ class RealtimeSyncManager {
       (window as any).__hamkoRealtimeBroadcast = (detail: any) => this.broadcastMutation(detail);
     }
     this.bindPlatformLifecycleEvents();
+    this.startConvergencePolling();
   }
 
   public static getInstance(config?: RealtimeManagerConfig): RealtimeSyncManager {
@@ -75,6 +77,7 @@ class RealtimeSyncManager {
   public async init(): Promise<void> {
     if (typeof window === "undefined" || !supabase?.channel) return;
     this.isDestroyed = false;
+    this.startConvergencePolling();
 
     // Align realtime auth credentials with active session if present
     await this.alignRealtimeAuth();
@@ -361,10 +364,37 @@ class RealtimeSyncManager {
   }
 
   /**
+   * Continuous background state convergence polling loop.
+   * Forcefully queries Supabase every 7.5s, bypassing any WebSocket dropouts.
+   */
+  public startConvergencePolling(): void {
+    if (this.convergencePollTimer) return;
+    this.convergencePollTimer = setInterval(() => {
+      if (this.isDestroyed) return;
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      if (typeof navigator !== "undefined" && navigator.onLine === false) return;
+      if (!this.isAutoPulling) {
+        this.isAutoPulling = true;
+        void pullFreshCloudStateToLocalStore({ force: true, silent: true }).finally(() => {
+          this.isAutoPulling = false;
+        });
+      }
+    }, 7500);
+  }
+
+  public stopConvergencePolling(): void {
+    if (this.convergencePollTimer) {
+      clearInterval(this.convergencePollTimer);
+      this.convergencePollTimer = null;
+    }
+  }
+
+  /**
    * Fully cleans up and unsubscribes channels.
    */
   public cleanup(): void {
     this.isDestroyed = true;
+    this.stopConvergencePolling();
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;

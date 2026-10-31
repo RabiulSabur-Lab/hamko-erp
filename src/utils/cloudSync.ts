@@ -1329,17 +1329,10 @@ export async function pullFreshCloudStateToLocalStore(options?: {
         console.warn("[CloudSync] Inventory reconcile notice:", e);
       }
 
-      if (updatedTables.length > 0 && !options?.silent) {
+      if (updatedTables.length > 0) {
         const detail = { type: "cloud_pull_completed", updatedTables };
         window.dispatchEvent(new CustomEvent("sales_erp_storage_update", { detail }));
         broadcastCrossTabSync({ detail });
-      } else if (updatedTables.length > 0) {
-        // Even in silent mode, notify active in-memory React views once so UI reflects fresh cloud rows
-        window.dispatchEvent(
-          new CustomEvent("sales_erp_storage_update", {
-            detail: { type: "cloud_pull_completed", updatedTables },
-          }),
-        );
       }
 
       if (tableErrors.length > 0) {

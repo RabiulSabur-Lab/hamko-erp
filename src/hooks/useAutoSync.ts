@@ -3,12 +3,18 @@ import { pullFreshCloudStateToLocalStore } from "@/utils/cloudSync";
 
 /**
  * Automatically triggers a Cloud-First data refresh when:
- * 1. The mobile app/tab becomes visible again (visibilitychange)
- * 2. The window gains focus or restores from BFCache (focus / pageshow)
- * 3. Native Capacitor app resumes from background (resume)
- * 4. The device regains internet connectivity (online)
+ * 1. Periodic background state convergence polling loop fires (every 7s)
+ * 2. The mobile app/tab becomes visible again (visibilitychange)
+ * 3. The window gains focus or restores from BFCache (focus / pageshow)
+ * 4. Native Capacitor app resumes from background (resume)
+ * 5. The device regains internet connectivity (online)
  */
-export function useAutoSync(onSync: () => void | Promise<void>, enabled = true, debounceMs = 1200) {
+export function useAutoSync(
+  onSync: () => void | Promise<void>,
+  enabled = true,
+  debounceMs = 1200,
+  pollIntervalMs = 7000,
+) {
   const lastSyncRef = useRef<number>(0);
   const onSyncRef = useRef(onSync);
   onSyncRef.current = onSync;
@@ -30,6 +36,16 @@ export function useAutoSync(onSync: () => void | Promise<void>, enabled = true, 
         }
       }
     };
+
+    // Periodic state convergence polling loop
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+    if (pollIntervalMs > 0) {
+      intervalId = setInterval(() => {
+        if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+        if (typeof navigator !== "undefined" && navigator.onLine === false) return;
+        triggerSync(true);
+      }, pollIntervalMs);
+    }
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
@@ -61,6 +77,7 @@ export function useAutoSync(onSync: () => void | Promise<void>, enabled = true, 
     window.addEventListener("online", handleOnline);
 
     return () => {
+      if (intervalId) clearInterval(intervalId);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       document.removeEventListener("resume", handleResume as EventListener);
       window.removeEventListener("focus", handleFocus);
@@ -68,5 +85,5 @@ export function useAutoSync(onSync: () => void | Promise<void>, enabled = true, 
       window.removeEventListener("resume", handleResume as EventListener);
       window.removeEventListener("online", handleOnline);
     };
-  }, [enabled, debounceMs]);
+  }, [enabled, debounceMs, pollIntervalMs]);
 }
