@@ -2279,6 +2279,12 @@ export function applyRealtimeTablePatch(
         setLocalData(STORAGE_KEYS.INVENTORY, current, null, true);
         break;
       }
+      case "sales_targets": {
+        if (id) saveDeletedId(STORAGE_KEYS.DELETED_TARGETS, id);
+        const current = getLocalData<any[]>(STORAGE_KEYS.TARGETS, []).filter((t) => String(t.id) !== id);
+        setLocalData(STORAGE_KEYS.TARGETS, current, null, true);
+        break;
+      }
       default:
         return false;
     }
@@ -2321,6 +2327,17 @@ export function applyRealtimeTablePatch(
     }
     case "inventory": {
       reconcileInventoryWithRemote([payloadRecord], { incremental: true, persist: true });
+      break;
+    }
+    case "sales_targets": {
+      const current = getLocalData<any[]>(STORAGE_KEYS.TARGETS, []);
+      const idx = current.findIndex((t) => String(t.id) === id);
+      if (idx >= 0) {
+        current[idx] = { ...current[idx], ...payloadRecord };
+      } else {
+        current.unshift(payloadRecord);
+      }
+      setLocalData(STORAGE_KEYS.TARGETS, current, null, true);
       break;
     }
     default:

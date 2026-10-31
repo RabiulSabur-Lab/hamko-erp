@@ -145,18 +145,25 @@ export function InventoryPage() {
         : getLocalData(STORAGE_KEYS.CATEGORIES, []);
       const catMap = new Map(cachedCategories.map((c) => [c.id, c]));
 
-      if (!pRes.error && Array.isArray(pRes.data)) {
+      let rawProductList: any[] | null = !pRes.error && Array.isArray(pRes.data) ? pRes.data : null;
+      if (!rawProductList) {
+        console.warn("Inventory products joined select notice, attempting fallback query:", pRes?.error?.message);
+        const fbRes = await supabase.from("products").select("*").order("name", { ascending: true });
+        if (!fbRes.error && Array.isArray(fbRes.data)) {
+          rawProductList = fbRes.data;
+        }
+      }
+
+      if (rawProductList) {
         const deletedIds = getDeletedIds(STORAGE_KEYS.DELETED_PRODUCTS);
-        const filtered = (pRes.data as Product[]).filter((p) => !deletedIds.has(p.id));
+        const filtered = (rawProductList as Product[]).filter((p) => !deletedIds.has(p.id));
         const currentLocal = getLocalData<any[]>(STORAGE_KEYS.PRODUCTS, []);
         const localMap = new Map<string, any>((Array.isArray(currentLocal) ? currentLocal : []).map((p: any) => [String(p.id), p]));
 
         const enriched = filtered.map((p: any) => {
           const loc = localMap.get(String(p.id));
-          const locIsPending = Boolean(loc && isPendingOfflineRecord(loc));
-          const localStock = loc?.stock_quantity ?? loc?.stock;
           const remoteStock = Number(p.stock_quantity ?? p.stock ?? 0);
-          const effectiveStock = locIsPending && localStock !== undefined ? Number(localStock) : remoteStock;
+          const effectiveStock = remoteStock;
           const resolvedCost = loc?.purchase_cost ?? (p as any).purchase_cost ?? p.distributor_price ?? loc?.distributor_price ?? loc?.purchase_price ?? null;
 
           return {

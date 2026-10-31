@@ -413,8 +413,18 @@ export function AccountsPage() {
       const allCustomers: Customer[] = (!cRes.error && Array.isArray(cRes.data))
         ? mergeAndEnrichCustomers(cRes.data as Customer[], { persist: true })
         : getCustomers();
-      const allOrders: Order[] = (!oRes.error && Array.isArray(oRes.data))
-        ? reconcileOrdersWithRemote(oRes.data as unknown as Order[], { persist: true, maxCache: 500 })
+
+      let resolvedOrdersData = !oRes.error && Array.isArray(oRes.data) ? oRes.data : null;
+      if (!resolvedOrdersData && oRes.error) {
+        try {
+          const fallbackOrdersRes = await supabase.from("orders").select("id, order_number, customer_id, total_amount, paid_amount, due_amount").limit(1000);
+          if (!fallbackOrdersRes.error && Array.isArray(fallbackOrdersRes.data)) {
+            resolvedOrdersData = fallbackOrdersRes.data as any;
+          }
+        } catch {}
+      }
+      const allOrders: Order[] = resolvedOrdersData
+        ? reconcileOrdersWithRemote(resolvedOrdersData as unknown as Order[], { persist: true, maxCache: 500 })
         : getOrders();
 
       if (remoteCols !== null) {

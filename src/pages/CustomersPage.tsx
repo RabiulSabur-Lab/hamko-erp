@@ -139,9 +139,19 @@ export function CustomersPage() {
         supabase.from("collections").select(SUPABASE_TABLE_SELECTS.collections).order("collection_date", { ascending: false }).limit(2000),
       ]);
       if (!mountedRef.current) return;
-      if (!cRes.error && Array.isArray(cRes.data)) {
-        const merged = mergeAndEnrichCustomers(cRes.data as Customer[], { persist: true });
-        if (mountedRef.current) setCustomers(Array.isArray(merged) ? merged : []);
+
+      let custData: Customer[] | null = !cRes.error && Array.isArray(cRes.data) ? (cRes.data as Customer[]) : null;
+      if (!custData) {
+        console.warn("Customers joined select notice, attempting fallback query:", cRes?.error?.message);
+        const fbRes = await supabase.from("customers").select("*").order("name", { ascending: true });
+        if (!fbRes.error && Array.isArray(fbRes.data)) {
+          custData = fbRes.data as Customer[];
+        }
+      }
+
+      if (custData && mountedRef.current) {
+        const merged = mergeAndEnrichCustomers(custData, { persist: true });
+        setCustomers(Array.isArray(merged) ? merged : []);
         if (isManual) {
           toast.success(`Live sync: ${merged.length} customers/outlets synchronized`);
         }

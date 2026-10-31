@@ -377,6 +377,18 @@ export function OrdersPage() {
         ]);
         if (!isMountedRef.current) return;
 
+        let resolvedOrderData: any[] | null = !oRes.error && Array.isArray(oRes.data) ? oRes.data : null;
+        if (!resolvedOrderData) {
+          console.warn("Orders primary join query notice, attempting fallback query:", oRes?.error?.message);
+          const fallbackRes = await supabase
+            .from("orders")
+            .select("*, order_items(*), customer:customers(name, current_due, phone)")
+            .order("order_date", { ascending: false });
+          if (!fallbackRes.error && Array.isArray(fallbackRes.data)) {
+            resolvedOrderData = fallbackRes.data;
+          }
+        }
+
         // Build enriched user lookup map from database query, officers list, and orders
         const updatedUsersMap: Record<string, UserLookupInfo> = { ...buildUserLookupMap(profile) };
 
@@ -407,8 +419,8 @@ export function OrdersPage() {
           setSalesOfficers(officersData);
         }
 
-        if (!oRes.error && Array.isArray(oRes.data)) {
-          (oRes.data as any[]).forEach((ord) => {
+        if (resolvedOrderData) {
+          resolvedOrderData.forEach((ord) => {
             if (ord.sales_rep_id && ord.sales_rep?.full_name) {
               updatedUsersMap[String(ord.sales_rep_id)] = {
                 id: String(ord.sales_rep_id),
@@ -421,9 +433,9 @@ export function OrdersPage() {
 
         setUsersMap(updatedUsersMap);
 
-        if (!oRes.error && Array.isArray(oRes.data)) {
+        if (resolvedOrderData) {
           const deletedIds = getDeletedIds(STORAGE_KEYS.DELETED_ORDERS);
-          const rawOrders = (oRes.data as Order[]).filter((o: any) => !deletedIds.has(o.id));
+          const rawOrders = (resolvedOrderData as Order[]).filter((o: any) => !deletedIds.has(o.id));
           // Clean duplicate line items defensively and fix any inflated totals
           const remoteOrders = rawOrders.map((ord) => {
             const rawItems = ord.order_items || (ord as any).items;
@@ -513,13 +525,7 @@ export function OrdersPage() {
             return ro;
           });
 
-          const pendingLocalOrders = currentLocal.filter((lo) => {
-            const idMatch = remoteIdSet.has(String(lo.id));
-            const numMatch = lo.order_number && remoteOrderNumSet.has(String(lo.order_number).trim().toUpperCase());
-            return !idMatch && !numMatch && isPendingOfflineRecord(lo);
-          });
-
-          const mergedOrders = [...pendingLocalOrders, ...enrichedRemoteOrders].map((ord) => {
+          const mergedOrders = enrichedRemoteOrders.map((ord) => {
             const repName =
               (ord.sales_rep_id ? getSalesOfficerById(ord.sales_rep_id)?.full_name : null) ||
               (ord.sales_rep_id ? getUserName(ord.sales_rep_id) : null) ||

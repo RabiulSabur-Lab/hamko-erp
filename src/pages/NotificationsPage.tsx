@@ -19,6 +19,7 @@ import {
   getDeletedIds,
 } from "@/utils/localStore";
 import { sanitizePayload } from "@/lib/payloadSanitizer";
+import { useAutoSync } from "@/hooks/useAutoSync";
 
 const typeIcons: Record<string, any> = {
   "Due Reminder": DollarSign,
@@ -67,6 +68,10 @@ export function NotificationsPage() {
       window.removeEventListener("sales_erp_storage_update", handleStorageUpdate);
     };
   }, []);
+
+  useAutoSync(() => {
+    void loadNotifications();
+  });
 
   async function loadNotifications(isMounted: boolean = true) {
     const local = getLocalData<Notification[]>(STORAGE_KEYS.NOTIFICATIONS, []);

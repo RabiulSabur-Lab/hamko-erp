@@ -18,6 +18,7 @@ import { useUsers } from "@/context/UsersContext";
 import { toast } from "sonner";
 import {
   supabase,
+  SUPABASE_TABLE_SELECTS,
   type Customer,
   type Product,
   type Order,
@@ -42,6 +43,8 @@ import {
   generateOrderNumber,
   generateCollectionNumber,
   getDeletedIds,
+  mergeAndEnrichCustomers,
+  reconcileProductsWithRemote,
 } from "@/utils/localStore";
 import { normalizePaymentMethod } from "@/utils/cloudSync";
 import { sanitizeFormulaInput, formatTierLabel, calculateDefaultPriceTiers, DEFAULT_TIER_NAMES } from "@/utils/productUtils";
@@ -261,15 +264,31 @@ export function OrderCreate() {
     async function fetchLive() {
       try {
         const [cRes, pRes] = await Promise.all([
-          supabase.from("customers").select("*").eq("is_active", true).order("name"),
-          supabase.from("products").select("*").eq("is_active", true).order("name"),
+          supabase.from("customers").select(SUPABASE_TABLE_SELECTS.customers).order("name", { ascending: true }),
+          supabase.from("products").select(SUPABASE_TABLE_SELECTS.productsFull).order("name", { ascending: true }),
         ]);
         if (!isMounted) return;
         if (!cRes.error && Array.isArray(cRes.data) && cRes.data.length > 0) {
-          setCustomers(cRes.data as Customer[]);
+          const enrichedCusts = mergeAndEnrichCustomers(cRes.data as Customer[], { persist: true });
+          setCustomers(enrichedCusts.filter((c) => c.is_active !== false && c.status !== "Inactive"));
+        } else if (cRes.error) {
+          // Fallback query if joined/extended columns encounter schema issues
+          const fbCust = await supabase.from("customers").select("*").order("name", { ascending: true });
+          if (!fbCust.error && Array.isArray(fbCust.data) && isMounted) {
+            const enriched = mergeAndEnrichCustomers(fbCust.data as Customer[], { persist: true });
+            setCustomers(enriched.filter((c) => c.is_active !== false && c.status !== "Inactive"));
+          }
         }
+
         if (!pRes.error && Array.isArray(pRes.data) && pRes.data.length > 0) {
-          setProducts(pRes.data as Product[]);
+          const reconciledProds = reconcileProductsWithRemote(pRes.data as Product[], { persist: true });
+          setProducts(reconciledProds.filter((p) => p.is_active !== false));
+        } else if (pRes.error) {
+          const fbProd = await supabase.from("products").select("*").order("name", { ascending: true });
+          if (!fbProd.error && Array.isArray(fbProd.data) && isMounted) {
+            const reconciled = reconcileProductsWithRemote(fbProd.data as Product[], { persist: true });
+            setProducts(reconciled.filter((p) => p.is_active !== false));
+          }
         }
       } catch (err) {
         console.warn("OrderCreate live fetch notice:", err);

@@ -21,6 +21,8 @@ import { UserManagement } from "./pages/UserManagement";
 import { ResetPassword } from "./pages/ResetPassword";
 import { Loader2 } from "lucide-react";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { initRealtimeSync, cleanupRealtimeSync } from "./services/realtimeSync";
+import { pullFreshCloudStateToLocalStore } from "./utils/cloudSync";
 
 function ProtectedRoute({
   allowed,
@@ -83,6 +85,16 @@ export function App() {
   const { session, user, profile, loading: authLoading } = useAuth();
   const { path, navigate } = useRouter();
   const [initTimeout, setInitTimeout] = useState(false);
+
+  // Centralized Global Realtime & Cross-Device Cloud Sync
+  useEffect(() => {
+    if (session) {
+      void initRealtimeSync();
+      void pullFreshCloudStateToLocalStore({ force: true, silent: true });
+    } else {
+      cleanupRealtimeSync();
+    }
+  }, [session]);
 
   // Hard 6.5-second fallback timeout: Force UI unlock and render login if initialization stalls on mobile
   useEffect(() => {

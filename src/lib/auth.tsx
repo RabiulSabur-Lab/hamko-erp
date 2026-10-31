@@ -472,6 +472,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
+      if (sess.access_token && supabase?.realtime?.setAuth) {
+        try {
+          supabase.realtime.setAuth(sess.access_token);
+        } catch {
+          // ignore
+        }
+      }
+
       // Defer Supabase table queries outside the synchronous GoTrue lock callback
       setTimeout(() => {
         if (!mounted) return;

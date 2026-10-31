@@ -31,6 +31,7 @@ const MONITORED_TABLES = [
   "categories",
   "visits",
   "territories",
+  "sales_targets",
   "notifications",
 ] as const;
 
@@ -45,6 +46,7 @@ class RealtimeSyncManager {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private pullDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private lastResumeSyncAt = 0;
+  private lastCloudSyncAt = 0;
   private isAutoPulling = false;
   private config: Required<RealtimeManagerConfig>;
 
@@ -290,8 +292,8 @@ class RealtimeSyncManager {
 
     // Trigger state convergence on reconnect if network is available
     const now = Date.now();
-    if (now - this.lastResumeSyncAt > 1500) {
-      this.lastResumeSyncAt = now;
+    if (now - this.lastCloudSyncAt > 1500) {
+      this.lastCloudSyncAt = now;
       void pullFreshCloudStateToLocalStore({ force: true, silent: true });
     }
   }
