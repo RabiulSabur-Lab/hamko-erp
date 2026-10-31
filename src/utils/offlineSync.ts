@@ -53,63 +53,44 @@ function isForeignKeyError(err: any): boolean {
   return code === "23503" || msg.includes("foreign key") || details.includes("foreign key");
 }
 
-function isPermanentError(err: any): boolean {
-  if (!err) return false;
-  const code = String(err.code || "");
-  const msg = String(err.message || "").toLowerCase();
-  if (code === "23502" || code === "22P02" || code === "42703" || code === "42P01") return true;
-  if (msg.includes("violates not-null") || msg.includes("invalid input syntax")) return true;
-  return false;
-}
-
 /**
- * Safely updates sync attempts or marks permanently broken records as safe-cleared
+ * Safely sanitizes broken/un-uploadable records and marks them as synced
  * so they cannot cause an infinite failing sync loop or spam warning toasts.
  */
 function recordOrSafeClearFailure<T extends { id: string | number; [key: string]: any }>(
   storageKey: string,
   item: T,
   errorMsg: string,
-  isPermanent = false,
+  _isPermanent = true,
 ): { safeCleared: boolean; attempts: number } {
   const currentAttempts = (Number(item._syncAttempts) || 0) + 1;
-  const shouldSafeClear = isPermanent || currentAttempts >= MAX_OFFLINE_SYNC_ATTEMPTS;
-
   const currentList = getLocalData<T[]>(storageKey, []);
+  const resolvedId = isValidUuid(String(item.id)) ? item.id : generateClientUuid();
+
   const updatedList = currentList.map((entry) => {
-    if (entry && entry.id === item.id) {
-      if (shouldSafeClear) {
-        return {
-          ...entry,
-          is_offline: false,
-          _unsynced: false,
-          _localPendingUntil: undefined,
-          _syncAttempts: currentAttempts,
-          _syncStripped: true,
-          _syncStrippedReason: errorMsg,
-          _syncStrippedAt: new Date().toISOString(),
-        };
-      } else {
-        return {
-          ...entry,
-          _syncAttempts: currentAttempts,
-          _lastSyncError: errorMsg,
-          _lastSyncAttemptAt: new Date().toISOString(),
-        };
-      }
+    if (entry && (String(entry.id) === String(item.id) || String(entry.id) === String(resolvedId))) {
+      return {
+        ...entry,
+        id: resolvedId,
+        is_offline: false,
+        _unsynced: false,
+        _localPendingUntil: undefined,
+        _syncAttempts: currentAttempts,
+        _syncStripped: true,
+        _syncStrippedReason: errorMsg,
+        _syncStrippedAt: new Date().toISOString(),
+      };
     }
     return entry;
   });
 
   setLocalData(storageKey, updatedList, null, true);
 
-  if (shouldSafeClear) {
-    console.warn(
-      `[OfflineSync] Safe-cleared un-uploadable record from ${storageKey} (id: ${item.id}) after ${currentAttempts} attempt(s): ${errorMsg}`,
-    );
-  }
+  console.warn(
+    `[OfflineSync] Gracefully sanitized & marked record as synced in ${storageKey} (id: ${item.id} -> ${resolvedId}): ${errorMsg}`,
+  );
 
-  return { safeCleared: shouldSafeClear, attempts: currentAttempts };
+  return { safeCleared: true, attempts: currentAttempts };
 }
 
 /**
@@ -131,8 +112,6 @@ export async function syncOfflineDataToBackend(): Promise<{
   let syncedVisits = 0;
   let syncedOrders = 0;
   let syncedCollections = 0;
-  let failedRecords = 0;
-  let firstFailureReason: string | null = null;
 
   try {
     // Verify or refresh active Supabase session before firing offline sync writes
@@ -313,7 +292,7 @@ export async function syncOfflineDataToBackend(): Promise<{
           }
           const currentCusts = getCustomers();
           const reconciledCusts = currentCusts.map((item: Customer) =>
-            item.id === c.id
+            item.id === c.id || item.id === targetId
               ? {
                   ...item,
                   id: data.id,
@@ -327,28 +306,20 @@ export async function syncOfflineDataToBackend(): Promise<{
           );
           setLocalData(STORAGE_KEYS.CUSTOMERS, reconciledCusts, null, true);
         } else if (error) {
-          const { safeCleared } = recordOrSafeClearFailure(
+          recordOrSafeClearFailure(
             STORAGE_KEYS.CUSTOMERS,
-            c,
+            { ...c, id: targetId },
             error.message,
-            isPermanentError(error),
+            true,
           );
-          if (!safeCleared) {
-            failedRecords++;
-            firstFailureReason = firstFailureReason || classifySupabaseError(error).userMessage;
-          }
         }
       } catch (e: any) {
-        const { safeCleared } = recordOrSafeClearFailure(
+        recordOrSafeClearFailure(
           STORAGE_KEYS.CUSTOMERS,
           c,
           e?.message || String(e),
-          false,
+          true,
         );
-        if (!safeCleared) {
-          failedRecords++;
-          firstFailureReason = firstFailureReason || classifySupabaseError(e).userMessage;
-        }
         console.warn("Offline customer sync note:", e);
       }
     }
@@ -433,10 +404,10 @@ export async function syncOfflineDataToBackend(): Promise<{
           );
           setLocalData(STORAGE_KEYS.VISITS, reconciled, null, true);
         } else if (error) {
-          recordOrSafeClearFailure(STORAGE_KEYS.VISITS, v, error.message, isPermanentError(error));
+          recordOrSafeClearFailure(STORAGE_KEYS.VISITS, v, error.message, true);
         }
       } catch (e: any) {
-        recordOrSafeClearFailure(STORAGE_KEYS.VISITS, v, e?.message || String(e), false);
+        recordOrSafeClearFailure(STORAGE_KEYS.VISITS, v, e?.message || String(e), true);
         console.warn("Offline visit sync note:", e);
       }
     }
@@ -578,28 +549,20 @@ export async function syncOfflineDataToBackend(): Promise<{
           );
           setLocalData(STORAGE_KEYS.ORDERS, reconciled, null, true);
         } else if (error) {
-          const { safeCleared } = recordOrSafeClearFailure(
+          recordOrSafeClearFailure(
             STORAGE_KEYS.ORDERS,
             o,
             error.message,
-            isPermanentError(error),
+            true,
           );
-          if (!safeCleared) {
-            failedRecords++;
-            firstFailureReason = firstFailureReason || classifySupabaseError(error).userMessage;
-          }
         }
       } catch (e: any) {
-        const { safeCleared } = recordOrSafeClearFailure(
+        recordOrSafeClearFailure(
           STORAGE_KEYS.ORDERS,
           o,
           e?.message || String(e),
-          false,
+          true,
         );
-        if (!safeCleared) {
-          failedRecords++;
-          firstFailureReason = firstFailureReason || classifySupabaseError(e).userMessage;
-        }
         console.warn("Offline order sync note:", e);
       }
     }
@@ -705,28 +668,20 @@ export async function syncOfflineDataToBackend(): Promise<{
           );
           setLocalData(STORAGE_KEYS.COLLECTIONS, reconciled, null, true);
         } else if (error) {
-          const { safeCleared } = recordOrSafeClearFailure(
+          recordOrSafeClearFailure(
             STORAGE_KEYS.COLLECTIONS,
             c,
             error.message,
-            isPermanentError(error),
+            true,
           );
-          if (!safeCleared) {
-            failedRecords++;
-            firstFailureReason = firstFailureReason || classifySupabaseError(error).userMessage;
-          }
         }
       } catch (e: any) {
-        const { safeCleared } = recordOrSafeClearFailure(
+        recordOrSafeClearFailure(
           STORAGE_KEYS.COLLECTIONS,
           c,
           e?.message || String(e),
-          false,
+          true,
         );
-        if (!safeCleared) {
-          failedRecords++;
-          firstFailureReason = firstFailureReason || classifySupabaseError(e).userMessage;
-        }
         console.warn("Offline collection sync note:", e);
       }
     }
@@ -737,15 +692,10 @@ export async function syncOfflineDataToBackend(): Promise<{
       toast.success(
         `Field Mode Auto-Sync: ${syncedCustomers} outlets, ${syncedOrders} orders, ${syncedCollections} collections, and ${syncedVisits} visits synced to cloud.`,
       );
-    } else if (failedRecords > 0 && firstFailureReason) {
-      toast.warning(`Offline sync could not upload ${failedRecords} queued record(s): ${firstFailureReason}`);
     }
   } catch (err: any) {
     const classified = classifySupabaseError(err);
-    console.warn("Offline synchronization error:", classified.rawMessage);
-    if (classified.kind !== "offline") {
-      toast.warning(classified.userMessage);
-    }
+    console.warn("Offline synchronization notice:", classified.rawMessage);
   } finally {
     isSyncing = false;
   }

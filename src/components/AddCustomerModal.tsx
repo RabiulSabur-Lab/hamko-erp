@@ -32,6 +32,22 @@ import { AreaManagementModal } from "./AreaManagementModal";
 
 export { generatePartyCode };
 
+function generateClientUuid(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+function isValidUuid(str?: string | null): boolean {
+  if (!str || typeof str !== "string") return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(str.trim());
+}
+
 export const PREDEFINED_AREAS = [
   "Mathbaria",
   "Bhandaria",
@@ -671,9 +687,9 @@ export function AddCustomerModal({
         }
       } else {
         // Create New Customer / Outlet
-        const creatorId = profile?.id || user?.id || null;
+        const creatorId = (isValidUuid(profile?.id) ? profile?.id : null) || (isValidUuid(user?.id) ? user?.id : null);
         const creatorName = profile?.full_name || null;
-        const tempId = crypto.randomUUID ? crypto.randomUUID() : `cust-${Date.now()}`;
+        const tempId = generateClientUuid();
         const newRecord: Customer = {
           id: tempId,
           ...payload,
@@ -738,17 +754,28 @@ export function AddCustomerModal({
             is_active: finalIsActive,
           };
 
-          const res = await supabase
+          let res = await supabase
             .from("customers")
             .insert(supabasePayload)
             .select()
             .single();
 
+          // If FK constraint fails on assigned_to, retry with assigned_to: null
+          if (res.error && (res.error.code === "23503" || res.error.message?.includes("foreign key"))) {
+            console.warn("[AddCustomer] FK violation on assigned_to; retrying with assigned_to: null:", res.error.message);
+            supabasePayload.assigned_to = null;
+            res = await supabase
+              .from("customers")
+              .insert(supabasePayload)
+              .select()
+              .single();
+          }
+
           if (!res.error && res.data?.id) {
             const remoteId = res.data.id;
             const refreshed: Customer[] = getCustomers();
             const reconciled: Customer[] = refreshed.map((c: Customer) =>
-              c.id === tempId
+              c.id === tempId || c.id === remoteId
                 ? { ...c, id: remoteId, is_offline: false, _unsynced: false, _localPendingUntil: undefined }
                 : c
             );
@@ -756,11 +783,11 @@ export function AddCustomerModal({
             dispatchGlobalStateUpdate({ customerId: remoteId, type: "customer_created" });
           } else if (res.error) {
             console.warn("Supabase customer insert notice (queued for offline sync):", res.error.message);
-            saveCustomer({ id: tempId, is_offline: true, _localPendingUntil: undefined });
+            saveCustomer({ id: tempId, is_offline: true, _unsynced: true, _localPendingUntil: undefined });
           }
         } catch (err) {
           console.warn("Supabase customer insert exception (queued for offline sync):", err);
-          saveCustomer({ id: tempId, is_offline: true, _localPendingUntil: undefined });
+          saveCustomer({ id: tempId, is_offline: true, _unsynced: true, _localPendingUntil: undefined });
         }
       }
     } catch (e: any) {

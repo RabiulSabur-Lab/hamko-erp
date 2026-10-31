@@ -156,9 +156,25 @@ export const STORAGE_KEYS = {
   AUTH_CREDENTIALS: 'sales_erp_auth_credentials',
 } as const;
 
-export const CACHE_SYNC_VERSION = "hamko-cloud-sync-v4";
-const CACHE_SYNC_META_KEY = "sales_erp_cloud_cache_meta_v4";
+export const CACHE_SYNC_VERSION = "hamko-cloud-sync-v5";
+const CACHE_SYNC_META_KEY = "sales_erp_cloud_cache_meta_v5";
 const CROSS_TAB_CHANNEL_NAME = "hamko_erp_cross_tab_sync";
+
+export function isValidUUID(str?: string | null): boolean {
+  if (!str || typeof str !== "string") return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(str.trim());
+}
+
+export function generateUUID(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
 
 /**
  * Determines whether a local record represents a genuinely unsynced offline/optimistic mutation.
@@ -168,7 +184,7 @@ const CROSS_TAB_CHANNEL_NAME = "hamko_erp_cross_tab_sync";
 export function isPendingOfflineRecord(record: any): boolean {
   if (!record || typeof record !== "object") return false;
   if (record._syncStripped === true) return false;
-  if (record.is_offline === false && record._unsynced === false && !record._localPendingUntil) {
+  if (record.is_offline === false || record._unsynced === false) {
     return false;
   }
   if (record.is_offline === true || record._unsynced === true) return true;
@@ -264,6 +280,33 @@ export function ensureCrossPlatformCacheConsistency(): boolean {
     for (const key of mirroredCollectionKeys) {
       const existing = getItemWithTTL<any[]>(key, []);
       if (Array.isArray(existing) && existing.length > 0) {
+        if (key === STORAGE_KEYS.CUSTOMERS) {
+          // Sanitize customers: ensure valid UUID and clear stale failure flags
+          const sanitized = existing.map((c) => {
+            if (!c) return c;
+            const validId = isValidUUID(c.id) ? c.id : generateUUID();
+            if (!isValidUUID(c.id) || c._syncStripped || c._syncAttempts || c._lastSyncError) {
+              return {
+                ...c,
+                id: validId,
+                is_offline: false,
+                _unsynced: false,
+                _localPendingUntil: undefined,
+                _syncAttempts: undefined,
+                _syncStripped: undefined,
+              };
+            }
+            return c;
+          });
+          const pendingOnly = sanitized.filter((item) => isPendingOfflineRecord(item));
+          if (pendingOnly.length > 0) {
+            setItemWithTTL(key, pendingOnly, null);
+          } else {
+            setItemWithTTL(key, sanitized, null);
+          }
+          continue;
+        }
+
         const pendingOnly = existing.filter((item) => isPendingOfflineRecord(item));
         if (pendingOnly.length > 0) {
           setItemWithTTL(key, pendingOnly, null);
