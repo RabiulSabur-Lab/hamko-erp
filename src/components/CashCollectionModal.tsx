@@ -485,13 +485,8 @@ export function CashCollectionModal({
             .update(collectionPayload)
             .eq("id", colId);
           if (updErr) {
-            console.warn("Supabase collection update error (queued offline):", updErr.message);
-            const refreshedCols: Collection[] = getLocalData<Collection[]>(STORAGE_KEYS.COLLECTIONS, []);
-            saveCollections(
-              refreshedCols.map((item: Collection) =>
-                item.id === colId ? ({ ...item, is_offline: true } as Collection) : item
-              )
-            );
+            toast.error("Cloud collection update error: " + updErr.message);
+            return;
           }
         } else {
           const { data: insertData, error: insErr } = await supabase
@@ -500,21 +495,16 @@ export function CashCollectionModal({
             .select()
             .single();
 
-          const refreshedCols: Collection[] = getLocalData<Collection[]>(STORAGE_KEYS.COLLECTIONS, []);
-          if (!insErr && insertData?.id) {
-            const reconciled: Collection[] = refreshedCols.map((item: Collection) =>
-              item.id === colId ? ({ ...item, id: insertData.id, is_offline: false } as Collection) : item
-            );
-            saveCollections(reconciled);
-          } else {
-            if (insErr) {
-              console.warn("Supabase collection insert error (queued offline):", insErr.message);
-            }
-            const queued: Collection[] = refreshedCols.map((item: Collection) =>
-              item.id === colId ? ({ ...item, is_offline: true } as Collection) : item
-            );
-            saveCollections(queued);
+          if (insErr || !insertData?.id) {
+            toast.error("Cloud collection record error: " + (insErr?.message || "Failed to persist collection"));
+            return;
           }
+
+          const refreshedCols: Collection[] = getLocalData<Collection[]>(STORAGE_KEYS.COLLECTIONS, []);
+          const reconciled: Collection[] = refreshedCols.map((item: Collection) =>
+            item.id === colId ? ({ ...item, id: insertData.id, is_offline: false } as Collection) : item
+          );
+          saveCollections(reconciled);
         }
 
         if (targetCustomer) {
@@ -536,14 +526,8 @@ export function CashCollectionModal({
         }
 
         dispatchGlobalStateUpdate({ customerId: targetCustomer?.id, type: "collection_synced" });
-      } catch (syncErr) {
-        console.warn("Supabase collection persistence notice (queued offline):", syncErr);
-        const refreshedCols: Collection[] = getLocalData<Collection[]>(STORAGE_KEYS.COLLECTIONS, []);
-        saveCollections(
-          refreshedCols.map((item: Collection) =>
-            item.id === colId ? ({ ...item, is_offline: true } as Collection) : item
-          )
-        );
+      } catch (syncErr: any) {
+        toast.error("Database persistence error: " + (syncErr?.message || syncErr));
       }
     } catch (e: any) {
       toast.error(e.message || "Failed to record collection");

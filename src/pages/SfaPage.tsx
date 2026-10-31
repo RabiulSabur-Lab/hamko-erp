@@ -31,8 +31,6 @@ import {
   Search,
   Receipt,
   QrCode,
-  Wifi,
-  WifiOff,
   User,
   Phone,
 } from "lucide-react";
@@ -40,7 +38,6 @@ import { toast } from "sonner";
 import { SalesTargetModal } from "@/components/SalesTargetModal";
 import { LogVisitModal } from "@/components/LogVisitModal";
 import { EveningHandoverModal } from "@/components/EveningHandoverModal";
-import { useOfflineFieldSync } from "@/utils/offlineSync";
 import { useUsers } from "@/context/UsersContext";
 
 import {
@@ -154,9 +151,8 @@ export function SfaPage() {
   const [deletingVisit, setDeletingVisit] = useState<Visit | null>(null);
   const [deletingVisitLoading, setDeletingVisitLoading] = useState(false);
 
-  // Evening Handover Modal & Offline Sync
+  // Evening Handover Modal
   const [handoverModalOpen, setHandoverModalOpen] = useState(false);
-  const { isOnline, pendingVisitsCount, pendingCollectionsCount, isSyncing, syncNow } = useOfflineFieldSync();
 
   useEffect(() => {
     loadData();
@@ -815,33 +811,8 @@ export function SfaPage() {
         </Card>
       </div>
 
-      {/* Action Buttons & Offline Status */}
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-2">
-          {!isOnline ? (
-            <Badge variant="outline" className="bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-800 gap-1.5 py-1 px-2.5">
-              <WifiOff className="h-3.5 w-3.5 animate-pulse" />
-              <span>Offline Field Mode Active ({pendingVisitsCount + pendingCollectionsCount} queued)</span>
-            </Badge>
-          ) : (pendingVisitsCount > 0 || pendingCollectionsCount > 0) ? (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => syncNow()}
-              disabled={isSyncing}
-              className="gap-1.5 h-8 text-xs border-blue-300 text-blue-700 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800"
-            >
-              {isSyncing ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <RefreshCw className="h-3.5 w-3.5" />
-              )}
-              Sync Queued Data ({pendingVisitsCount + pendingCollectionsCount})
-            </Button>
-          ) : null}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
+      {/* Action Buttons */}
+      <div className="flex flex-wrap items-center justify-end gap-2">
           <Button
             size="sm"
             variant="outline"
@@ -856,7 +827,6 @@ export function SfaPage() {
           <Button size="sm" onClick={openVisit} className="gap-1.5">
             <Plus className="h-4 w-4" /> {t("newVisit")}
           </Button>
-        </div>
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>

@@ -857,7 +857,7 @@ export function AccountsPage() {
             }
           }
 
-          // C. Reconcile temporary ID with persisted Supabase ID or mark offline for retry
+          // C. Reconcile temporary ID with persisted Supabase ID
           if (savedId) {
             setCollections((prev) => {
               const reconciled = prev.map((item) =>
@@ -865,14 +865,6 @@ export function AccountsPage() {
               );
               saveCollections(reconciled);
               return reconciled;
-            });
-          } else {
-            setCollections((prev) => {
-              const queued = prev.map((item) =>
-                item.id === tempId ? ({ ...item, is_offline: true } as Collection) : item
-              );
-              saveCollections(queued);
-              return queued;
             });
           }
 

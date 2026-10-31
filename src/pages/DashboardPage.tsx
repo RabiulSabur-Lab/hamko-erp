@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { formatBDT, toBnDigit } from "@/lib/utils";
 import {
   TrendingUp, TrendingDown, DollarSign, AlertTriangle,
-  Users, ArrowUpRight, RefreshCw, WifiOff,
+  Users, ArrowUpRight, RefreshCw,
 } from "lucide-react";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -158,9 +158,7 @@ export function DashboardPage() {
     prevMetrics,
     loading,
     refreshing,
-    isFallbackData,
     lastSynced,
-    connectionIssue,
     refresh,
   } = useDashboardData(lang === "bn" ? "bn" : "en");
 
@@ -474,11 +472,6 @@ export function DashboardPage() {
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-xl font-bold text-foreground">{t("dashboard") || "Dashboard"}</h1>
-            {!loading && isFallbackData && (
-              <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-600 dark:text-amber-400">
-                {lang === "bn" ? "ক্যাশড মোড" : "Cached Fallback"}
-              </Badge>
-            )}
           </div>
           {lastSynced && (
             <p className="text-xs text-muted-foreground mt-0.5">
@@ -500,32 +493,6 @@ export function DashboardPage() {
             : (lang === "bn" ? "রিফ্রেশ" : "Refresh")}
         </Button>
       </div>
-
-      {/* Connection / Network / CORS fallback banner with Retry action */}
-      {connectionIssue && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30 px-4 py-3 text-sm text-amber-800 dark:text-amber-300 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div className="flex items-start sm:items-center gap-2.5 min-w-0">
-            {connectionIssue.kind === "offline" || connectionIssue.kind === "cors_or_network" ? (
-              <WifiOff className="h-4 w-4 shrink-0 mt-0.5 sm:mt-0 text-amber-600 dark:text-amber-400" />
-            ) : (
-              <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 sm:mt-0 text-amber-600 dark:text-amber-400" />
-            )}
-            <span className="text-xs sm:text-sm leading-snug">
-              {lang === "bn" ? connectionIssue.messageBn : connectionIssue.message}
-            </span>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={refreshing}
-            onClick={() => void refresh(true)}
-            className="h-7 text-xs gap-1.5 shrink-0 border-amber-300 dark:border-amber-700 bg-background/80 hover:bg-background self-end sm:self-auto"
-          >
-            <RefreshCw className={`h-3 w-3 ${refreshing ? "animate-spin" : ""}`} />
-            {lang === "bn" ? "পুনরায় চেষ্টা করুন" : "Retry Connection"}
-          </Button>
-        </div>
-      )}
 
       {/* KPI cards — skeleton while initial load, data thereafter */}
       <ErrorBoundary

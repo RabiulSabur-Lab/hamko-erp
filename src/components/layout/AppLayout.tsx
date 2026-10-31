@@ -15,7 +15,6 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { STORAGE_KEYS, getLocalData, ensureCrossPlatformCacheConsistency } from "@/utils/localStore";
 import { pullFreshCloudStateToLocalStore } from "@/utils/cloudSync";
-import { syncOfflineDataToBackend } from "@/utils/offlineSync";
 import { initRealtimeSync } from "@/services/realtimeSync";
 
 import { Sidebar, navItems, type NavItem } from "@/components/Sidebar";
@@ -155,7 +154,6 @@ export function AppLayout({ children }: { children: ReactNode }) {
       if (!isMounted || (typeof navigator !== "undefined" && navigator.onLine === false)) return;
       const sessionCheck = await ensureValidSession();
       if (!isMounted || sessionCheck.offline) return;
-      await syncOfflineDataToBackend();
       if (isMounted) {
         await pullFreshCloudStateToLocalStore({ force, silent: false });
       }

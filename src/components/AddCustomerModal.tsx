@@ -676,24 +676,87 @@ export function AddCustomerModal({
             .eq("id", customer.id);
 
           if (res.error) {
-            console.warn("Supabase customer update error (persisted locally for offline sync):", res.error.message);
-            saveCustomer({ id: customer.id, is_offline: true });
-          } else {
-            saveCustomer({ id: customer.id, is_offline: false, _unsynced: false });
+            toast.error("Failed to update customer: " + res.error.message);
+            return;
           }
-        } catch (err) {
-          console.warn("Supabase customer update exception (queued offline):", err);
-          saveCustomer({ id: customer.id, is_offline: true });
+
+          saveCustomer({ id: customer.id, is_offline: false, _unsynced: false });
+        } catch (err: any) {
+          toast.error("Failed to update customer: " + (err?.message || "Network error"));
+          return;
         }
       } else {
-        // Create New Customer / Outlet
+        // Create New Customer / Outlet directly in Supabase Central Database
         const creatorId = (isValidUuid(profile?.id) ? profile?.id : null) || (isValidUuid(user?.id) ? user?.id : null);
         const creatorName = profile?.full_name || null;
-        const tempId = generateClientUuid();
-        const newRecord: Customer = {
-          id: tempId,
-          ...payload,
+        const newUuid = generateClientUuid();
+
+        const combinedNotes = encodeCustomerNotes(
+          payload.notes,
+          finalPartyCode,
+          finalArea,
+          payload.alt_phone,
+          secCheque,
+          secBank,
+          secBranch,
+          secChequeDate,
+          secNotes,
+          finalStatus
+        );
+
+        const validCustType = ["Dealer", "Retailer", "Wholesale"].includes(String(payload.customer_type || ""))
+          ? String(payload.customer_type)
+          : "Retailer";
+        const validDueStatus = ["Clear", "Overdue", "Partial"].includes(String(payload.due_status))
+          ? payload.due_status
+          : (Number(payload.current_due || 0) > 0 ? "Partial" : "Clear");
+
+        const supabasePayload: Record<string, any> = {
+          id: newUuid,
+          name: outletName,
+          customer_type: validCustType,
+          contact_person: payload.contact_person || null,
+          phone: payload.phone || null,
+          address: payload.address || null,
+          city: finalArea || null,
+          trade_license_number: payload.trade_license_number || null,
+          opening_balance: Number(payload.opening_balance ?? 0),
+          current_due: Number(payload.current_due ?? 0),
+          due_status: validDueStatus,
+          notes: combinedNotes,
+          latitude: payload.latitude ?? null,
+          longitude: payload.longitude ?? null,
           assigned_to: creatorId,
+          is_active: finalIsActive,
+        };
+
+        let res = await supabase
+          .from("customers")
+          .insert(supabasePayload)
+          .select()
+          .single();
+
+        // If FK constraint fails on assigned_to, retry with assigned_to: null
+        if (res.error && (res.error.code === "23503" || res.error.message?.includes("foreign key"))) {
+          console.warn("[AddCustomer] FK violation on assigned_to; retrying with assigned_to: null:", res.error.message);
+          supabasePayload.assigned_to = null;
+          res = await supabase
+            .from("customers")
+            .insert(supabasePayload)
+            .select()
+            .single();
+        }
+
+        if (res.error || !res.data) {
+          toast.error("Failed to create customer: " + (res.error?.message || "Database insert error"));
+          return;
+        }
+
+        const remoteCustomer = res.data;
+        const newRecord: Customer = {
+          id: remoteCustomer.id,
+          ...payload,
+          assigned_to: remoteCustomer.assigned_to || creatorId,
           assigned_to_name: creatorName,
           created_by_name: creatorName,
           status: finalStatus,
@@ -701,94 +764,16 @@ export function AddCustomerModal({
           opening_balance: payload.opening_balance ?? 0,
           current_due: payload.current_due ?? 0,
           due_status: payload.due_status ?? "Clear",
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-          _localPendingUntil: Date.now() + 30000,
+          created_at: remoteCustomer.created_at || new Date().toISOString(),
+          updated_at: remoteCustomer.updated_at || new Date().toISOString(),
         } as Customer;
 
         saveCustomer(newRecord);
-
         window.dispatchEvent(new CustomEvent("sales_erp_storage_update", { detail: { customer: newRecord } }));
+        dispatchGlobalStateUpdate({ customerId: remoteCustomer.id, type: "customer_created" });
         toast.success(t("created") || "Outlet created successfully");
         onSaved?.(newRecord);
         onClose();
-
-        // Remote Supabase Insert
-        try {
-          const combinedNotes = encodeCustomerNotes(
-            payload.notes,
-            finalPartyCode,
-            finalArea,
-            payload.alt_phone,
-            secCheque,
-            secBank,
-            secBranch,
-            secChequeDate,
-            secNotes,
-            finalStatus
-          );
-
-          const validCustType = ["Dealer", "Retailer", "Wholesale"].includes(String(payload.customer_type || ""))
-            ? String(payload.customer_type)
-            : "Retailer";
-          const validDueStatus = ["Clear", "Overdue", "Partial"].includes(String(payload.due_status))
-            ? payload.due_status
-            : (Number(payload.current_due || 0) > 0 ? "Partial" : "Clear");
-
-          const supabasePayload: Record<string, any> = {
-            id: tempId,
-            name: outletName,
-            customer_type: validCustType,
-            contact_person: payload.contact_person || null,
-            phone: payload.phone || null,
-            address: payload.address || null,
-            city: finalArea || null,
-            trade_license_number: payload.trade_license_number || null,
-            opening_balance: Number(payload.opening_balance ?? 0),
-            current_due: Number(payload.current_due ?? 0),
-            due_status: validDueStatus,
-            notes: combinedNotes,
-            latitude: payload.latitude ?? null,
-            longitude: payload.longitude ?? null,
-            assigned_to: creatorId,
-            is_active: finalIsActive,
-          };
-
-          let res = await supabase
-            .from("customers")
-            .insert(supabasePayload)
-            .select()
-            .single();
-
-          // If FK constraint fails on assigned_to, retry with assigned_to: null
-          if (res.error && (res.error.code === "23503" || res.error.message?.includes("foreign key"))) {
-            console.warn("[AddCustomer] FK violation on assigned_to; retrying with assigned_to: null:", res.error.message);
-            supabasePayload.assigned_to = null;
-            res = await supabase
-              .from("customers")
-              .insert(supabasePayload)
-              .select()
-              .single();
-          }
-
-          if (!res.error && res.data?.id) {
-            const remoteId = res.data.id;
-            const refreshed: Customer[] = getCustomers();
-            const reconciled: Customer[] = refreshed.map((c: Customer) =>
-              c.id === tempId || c.id === remoteId
-                ? { ...c, id: remoteId, is_offline: false, _unsynced: false, _localPendingUntil: undefined }
-                : c
-            );
-            setLocalData(STORAGE_KEYS.CUSTOMERS, reconciled);
-            dispatchGlobalStateUpdate({ customerId: remoteId, type: "customer_created" });
-          } else if (res.error) {
-            console.warn("Supabase customer insert notice (queued for offline sync):", res.error.message);
-            saveCustomer({ id: tempId, is_offline: true, _unsynced: true, _localPendingUntil: undefined });
-          }
-        } catch (err) {
-          console.warn("Supabase customer insert exception (queued for offline sync):", err);
-          saveCustomer({ id: tempId, is_offline: true, _unsynced: true, _localPendingUntil: undefined });
-        }
       }
     } catch (e: any) {
       toast.error(e.message || "Failed to save customer");

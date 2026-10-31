@@ -177,25 +177,10 @@ export function generateUUID(): string {
 }
 
 /**
- * Determines whether a local record represents a genuinely unsynced offline/optimistic mutation.
- * Already-synced cloud UUID records return `false` so records deleted on another device
- * are cleanly evicted instead of resurrected from stale localStorage caches.
+ * Online-First Architecture: Offline pending mutation checks are disabled.
+ * All mutations execute directly against the Supabase central database.
  */
-export function isPendingOfflineRecord(record: any): boolean {
-  if (!record || typeof record !== "object") return false;
-  if (record._syncStripped === true) return false;
-  if (record.is_offline === false || record._unsynced === false) {
-    return false;
-  }
-  if (record.is_offline === true || record._unsynced === true) return true;
-  if (typeof record._localPendingUntil === "number" && record._localPendingUntil > Date.now()) {
-    return true;
-  }
-  const rawId = String(record.id || "").trim();
-  if (!rawId) return false;
-  if (/^(?:ord|col|cust|visit|temp|prod|exp|cat|inv)-/i.test(rawId)) {
-    return true;
-  }
+export function isPendingOfflineRecord(_record?: any): boolean {
   return false;
 }
 
@@ -280,39 +265,30 @@ export function ensureCrossPlatformCacheConsistency(): boolean {
     for (const key of mirroredCollectionKeys) {
       const existing = getItemWithTTL<any[]>(key, []);
       if (Array.isArray(existing) && existing.length > 0) {
-        if (key === STORAGE_KEYS.CUSTOMERS) {
-          // Sanitize customers: ensure valid UUID and clear stale failure flags
-          const sanitized = existing.map((c) => {
-            if (!c) return c;
-            const validId = isValidUUID(c.id) ? c.id : generateUUID();
-            if (!isValidUUID(c.id) || c._syncStripped || c._syncAttempts || c._lastSyncError) {
-              return {
-                ...c,
-                id: validId,
-                is_offline: false,
-                _unsynced: false,
-                _localPendingUntil: undefined,
-                _syncAttempts: undefined,
-                _syncStripped: undefined,
-              };
-            }
-            return c;
-          });
-          const pendingOnly = sanitized.filter((item) => isPendingOfflineRecord(item));
-          if (pendingOnly.length > 0) {
-            setItemWithTTL(key, pendingOnly, null);
-          } else {
-            setItemWithTTL(key, sanitized, null);
+        const sanitized = existing.map((item) => {
+          if (!item || typeof item !== "object") return item;
+          if (
+            item.is_offline ||
+            item._unsynced ||
+            item._syncStripped ||
+            item._localPendingUntil ||
+            item._syncAttempts ||
+            item._lastSyncError
+          ) {
+            const cleaned = { ...item };
+            delete cleaned.is_offline;
+            delete cleaned._unsynced;
+            delete cleaned._syncStripped;
+            delete cleaned._syncStrippedReason;
+            delete cleaned._syncStrippedAt;
+            delete cleaned._localPendingUntil;
+            delete cleaned._syncAttempts;
+            delete cleaned._lastSyncError;
+            return cleaned;
           }
-          continue;
-        }
-
-        const pendingOnly = existing.filter((item) => isPendingOfflineRecord(item));
-        if (pendingOnly.length > 0) {
-          setItemWithTTL(key, pendingOnly, null);
-        } else {
-          removeItem(key);
-        }
+          return item;
+        });
+        setItemWithTTL(key, sanitized, null);
       }
     }
 
@@ -1723,7 +1699,7 @@ export function mergeAndEnrichCustomers(
       currentDue: resolvedDue,
       due_status: resolvedDueStatus,
       updated_at: (!remoteWins ? loc?.updated_at : undefined) || rc.updated_at || new Date().toISOString(),
-      is_offline: remoteWins ? false : Boolean(loc?.is_offline),
+      is_offline: false,
     } as Customer;
   });
 
@@ -1805,7 +1781,7 @@ export function reconcileOrdersWithRemote(
         dueAmount: resolvedDue,
         ...(resolvedItems !== undefined ? { order_items: resolvedItems, items: resolvedItems } : {}),
         customer: (ro as any).customer || (matchLocal as any)?.customer || undefined,
-        is_offline: remoteWins ? false : Boolean((matchLocal as any)?.is_offline),
+        is_offline: false,
       } as Order;
     });
 
@@ -1889,7 +1865,7 @@ export function reconcileCollectionsWithRemote(
         settlement_discount: (rc as any).settlement_discount ?? matchLocal.settlement_discount ?? null,
         previous_due: (rc as any).previous_due ?? matchLocal.previous_due ?? null,
         remaining_due: (rc as any).remaining_due ?? matchLocal.remaining_due ?? null,
-        is_offline: remoteWins ? false : Boolean((matchLocal as any)?.is_offline),
+        is_offline: false,
       } as Collection;
     });
 
@@ -1977,7 +1953,7 @@ export function reconcileProductsWithRemote(
         purchase_price: rp.purchase_price ?? lp.purchase_price ?? null,
         purchase_cost: rp.purchase_cost ?? lp.purchase_cost ?? null,
         cost_price: rp.cost_price ?? lp.cost_price ?? null,
-        is_offline: remoteWins ? false : Boolean((lp as any).is_offline),
+        is_offline: false,
       } as Product;
     });
 

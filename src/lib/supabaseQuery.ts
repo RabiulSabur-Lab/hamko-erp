@@ -200,9 +200,9 @@ export function classifySupabaseError(err: unknown): ClassifiedSupabaseError {
     return {
       kind: "cors_or_network",
       userMessage:
-        "Unable to reach cloud server due to network or cross-origin constraints. Showing local fallback data.",
+        "Unable to reach cloud database due to network or connection constraints.",
       userMessageBn:
-        "নেটওয়ার্ক বা ক্রস-অরিজিন সমস্যার কারণে ক্লাউড সার্ভারে সংযোগ করা যায়নি। লোকাল ডেটা দেখানো হচ্ছে।",
+        "নেটওয়ার্ক সমস্যার কারণে ক্লাউড ডাটাবেজে সংযোগ করা যায়নি।",
       canRetry: true,
       rawMessage,
     };
@@ -210,8 +210,8 @@ export function classifySupabaseError(err: unknown): ClassifiedSupabaseError {
 
   return {
     kind: "server",
-    userMessage: "Cloud data sync encountered an issue. Displaying available fallback data.",
-    userMessageBn: "ক্লাউড সিঙ্কে সমস্যা হয়েছে। উপলব্ধ ডেটা দেখানো হচ্ছে।",
+    userMessage: "Cloud database operation encountered an issue.",
+    userMessageBn: "ক্লাউড ডাটাবেজ অপারেশনে সমস্যা হয়েছে।",
     canRetry: true,
     rawMessage,
   };
