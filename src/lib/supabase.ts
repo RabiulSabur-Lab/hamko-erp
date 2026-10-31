@@ -646,6 +646,12 @@ export const SUPABASE_TABLE_SELECTS = {
     "id, sku_code, name, category_id, unit_price, dealer_price, stock_quantity, reorder_level, unit, image_url, is_active, created_at, updated_at, category:categories(id, name)",
   productsFlatFallback:
     "id, sku_code, name, category_id, unit_price, dealer_price, stock_quantity, reorder_level, unit, image_url, is_active, created_at, updated_at",
+  visits:
+    "id, customer_id, visited_by, visit_date, check_in, check_out, latitude, longitude, purpose, outcome, notes, created_at",
+  territories:
+    "id, name, code, manager_id, region, created_at",
+  inventory:
+    "id, product_id, warehouse, quantity, updated_at",
 } as const;
 
 export interface UserProfile extends DbUserRow {}

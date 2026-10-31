@@ -30,8 +30,8 @@ export type {
   ProcurementAuditLog,
 };
 
-import type { HandoverRecord, Visit } from '@/lib/supabase';
-export type { HandoverRecord, Visit };
+import type { HandoverRecord, Visit, Category } from '@/lib/supabase';
+export type { HandoverRecord, Visit, Category };
 
 export type InvoiceStatus = 'Partial' | 'Paid' | 'Pending' | 'Received' | 'Partially Paid';
 
@@ -178,6 +178,54 @@ export function isPendingOfflineRecord(record: any): boolean {
   const rawId = String(record.id || "").trim();
   if (!rawId) return false;
   if (/^(?:ord|col|cust|visit|temp|prod|exp|cat|inv)-/i.test(rawId)) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Extracts a numeric epoch millisecond timestamp from any record's timestamp candidates.
+ */
+export function parseRecordTimestamp(record: any): number {
+  if (!record || typeof record !== "object") return 0;
+  const candidates = [
+    record.updated_at,
+    record.updatedAt,
+    record._queuedAt,
+    record._modifiedAt,
+    record.created_at,
+    record.createdAt,
+    record.order_date,
+    record.collection_date,
+    record.expense_date,
+    record.visit_date,
+  ];
+  for (const c of candidates) {
+    if (typeof c === "number" && !isNaN(c) && c > 0) return c;
+    if (typeof c === "string" && c.trim()) {
+      const parsed = Date.parse(c);
+      if (!isNaN(parsed) && parsed > 0) return parsed;
+    }
+  }
+  return 0;
+}
+
+/**
+ * Server-Authoritative / Last-Modified-Wins conflict resolver.
+ * 1. If the local record is NOT a pending offline mutation, remote is always authoritative.
+ * 2. If the local record IS a pending offline mutation:
+ *    - If remote has a strictly newer timestamp, remote overrides the stale local change.
+ *    - Otherwise, local pending mutation is retained until offlineSync completes.
+ */
+export function isRemoteAuthoritative(remoteRecord: any, localRecord: any): boolean {
+  if (!localRecord) return true;
+  if (!remoteRecord) return false;
+  if (!isPendingOfflineRecord(localRecord)) return true;
+
+  const remoteTs = parseRecordTimestamp(remoteRecord);
+  const localTs = parseRecordTimestamp(localRecord);
+
+  if (remoteTs > 0 && localTs > 0 && remoteTs > localTs) {
     return true;
   }
   return false;
@@ -1505,7 +1553,7 @@ export function parseCustomerNotes(rawNotes?: string | null): {
  */
 export function mergeAndEnrichCustomers(
   remoteCustomers: Customer[],
-  options?: { persist?: boolean },
+  options?: { persist?: boolean; incremental?: boolean },
 ): Customer[] {
   const deletedCustomerIds = getDeletedIds(STORAGE_KEYS.DELETED_CUSTOMERS);
   const validRemote: Customer[] = (Array.isArray(remoteCustomers) ? remoteCustomers : []).filter(
@@ -1525,13 +1573,14 @@ export function mergeAndEnrichCustomers(
   const enrichedRemote: Customer[] = validRemote.map((rc: Customer) => {
     const loc = localMap.get(String(rc.id));
     const locIsPending = Boolean(loc && isPendingOfflineRecord(loc));
+    const remoteWins = !locIsPending || isRemoteAuthoritative(rc, loc);
     const parsed = parseCustomerNotes(rc.notes);
 
-    // Cloud-Authoritative status resolution (only defer to local if local has an unsynced offline mutation)
+    // Cloud-Authoritative status resolution (only defer to local if local has an unsynced offline mutation with newer timestamp)
     let resolvedStatus: string = "Active";
-    if (locIsPending && loc?.status !== undefined && loc.status !== null) {
+    if (!remoteWins && loc?.status !== undefined && loc.status !== null) {
       resolvedStatus = loc.status;
-    } else if (locIsPending && loc?.is_active !== undefined && loc.is_active !== null) {
+    } else if (!remoteWins && loc?.is_active !== undefined && loc.is_active !== null) {
       resolvedStatus = loc.is_active ? "Active" : "Inactive";
     } else if (parsed.status) {
       resolvedStatus = parsed.status;
@@ -1544,16 +1593,16 @@ export function mergeAndEnrichCustomers(
     }
     const resolvedIsActive = resolvedStatus === "Active";
 
-    const resolvedAddress = (locIsPending ? loc?.address : undefined) ?? rc.address ?? null;
+    const resolvedAddress = (!remoteWins ? loc?.address : undefined) ?? rc.address ?? null;
     const resolvedPostalCode = rc.postal_code || loc?.postal_code || null;
     const resolvedLatitude =
-      locIsPending && loc?.latitude !== undefined && loc?.latitude !== null && !isNaN(Number(loc.latitude))
+      !remoteWins && loc?.latitude !== undefined && loc?.latitude !== null && !isNaN(Number(loc.latitude))
         ? Number(loc.latitude)
         : rc.latitude !== undefined && rc.latitude !== null && !isNaN(Number(rc.latitude))
         ? Number(rc.latitude)
         : null;
     const resolvedLongitude =
-      locIsPending && loc?.longitude !== undefined && loc?.longitude !== null && !isNaN(Number(loc.longitude))
+      !remoteWins && loc?.longitude !== undefined && loc?.longitude !== null && !isNaN(Number(loc.longitude))
         ? Number(loc.longitude)
         : rc.longitude !== undefined && rc.longitude !== null && !isNaN(Number(rc.longitude))
         ? Number(rc.longitude)
@@ -1562,27 +1611,27 @@ export function mergeAndEnrichCustomers(
     const remoteOpening = Number(rc.opening_balance ?? 0);
     const remoteDue = Number(rc.current_due ?? 0);
     const resolvedOpening =
-      locIsPending && loc?.opening_balance !== undefined ? Number(loc.opening_balance) : remoteOpening;
+      !remoteWins && loc?.opening_balance !== undefined ? Number(loc.opening_balance) : remoteOpening;
     const resolvedDue =
-      locIsPending && loc?.current_due !== undefined ? Number(loc.current_due) : remoteDue;
+      !remoteWins && loc?.current_due !== undefined ? Number(loc.current_due) : remoteDue;
     const resolvedDueStatus =
-      (locIsPending ? loc?.due_status : undefined) ||
+      (!remoteWins ? loc?.due_status : undefined) ||
       rc.due_status ||
       (resolvedDue > 0 ? "Partial" : "Clear");
 
     return {
       ...rc,
       outlet_name: rc.outlet_name || rc.name || loc?.outlet_name || "",
-      name: (locIsPending && loc?.name ? loc.name : rc.name) || "",
+      name: (!remoteWins && loc?.name ? loc.name : rc.name) || "",
       party_code: rc.party_code || parsed.party_code || loc?.party_code || null,
       area: rc.area || parsed.area || rc.city || loc?.area || null,
-      city: (locIsPending ? loc?.city : undefined) ?? rc.city ?? parsed.area ?? null,
+      city: (!remoteWins ? loc?.city : undefined) ?? rc.city ?? parsed.area ?? null,
       alt_phone: rc.alt_phone || parsed.alt_phone || loc?.alt_phone || null,
-      phone: (locIsPending ? loc?.phone : undefined) ?? rc.phone ?? null,
-      contact_person: (locIsPending ? loc?.contact_person : undefined) ?? rc.contact_person ?? null,
-      customer_type: (locIsPending ? loc?.customer_type : undefined) || rc.customer_type || "Retailer",
+      phone: (!remoteWins ? loc?.phone : undefined) ?? rc.phone ?? null,
+      contact_person: (!remoteWins ? loc?.contact_person : undefined) ?? rc.contact_person ?? null,
+      customer_type: (!remoteWins ? loc?.customer_type : undefined) || rc.customer_type || "Retailer",
       trade_license_number:
-        (locIsPending ? loc?.trade_license_number : undefined) ?? rc.trade_license_number ?? null,
+        (!remoteWins ? loc?.trade_license_number : undefined) ?? rc.trade_license_number ?? null,
       address: resolvedAddress,
       postal_code: resolvedPostalCode,
       latitude: resolvedLatitude,
@@ -1630,10 +1679,27 @@ export function mergeAndEnrichCustomers(
       current_due: resolvedDue,
       currentDue: resolvedDue,
       due_status: resolvedDueStatus,
-      updated_at: (locIsPending ? loc?.updated_at : undefined) || rc.updated_at || new Date().toISOString(),
-      is_offline: locIsPending ? Boolean(loc?.is_offline) : false,
+      updated_at: (!remoteWins ? loc?.updated_at : undefined) || rc.updated_at || new Date().toISOString(),
+      is_offline: remoteWins ? false : Boolean(loc?.is_offline),
     } as Customer;
   });
+
+  if (options?.incremental) {
+    const map = new Map<string, Customer>();
+    currentLocal.forEach((c) => {
+      if (c && c.id) map.set(String(c.id), c);
+    });
+    enrichedRemote.forEach((c) => {
+      if (c && c.id) map.set(String(c.id), c);
+    });
+    const result = Array.from(map.values()).sort((a: Customer, b: Customer) =>
+      (a.outlet_name || a.name || "").localeCompare(b.outlet_name || b.name || "")
+    );
+    if (options?.persist !== false) {
+      setLocalData(STORAGE_KEYS.CUSTOMERS, result, null, true);
+    }
+    return result;
+  }
 
   const merged: Customer[] = [...pendingLocal, ...enrichedRemote].sort((a: Customer, b: Customer) =>
     (a.outlet_name || a.name || "").localeCompare(b.outlet_name || b.name || "")
@@ -1652,7 +1718,7 @@ export function mergeAndEnrichCustomers(
  */
 export function reconcileOrdersWithRemote(
   remoteOrders: Order[],
-  options?: { persist?: boolean; maxCache?: number },
+  options?: { persist?: boolean; maxCache?: number; incremental?: boolean },
 ): Order[] {
   const deletedOrderIds = getDeletedIds(STORAGE_KEYS.DELETED_ORDERS);
   const currentLocal = getOrders().filter((o) => Boolean(o && o.id) && !deletedOrderIds.has(o.id));
@@ -1670,6 +1736,9 @@ export function reconcileOrdersWithRemote(
       const matchLocal =
         localById.get(String(ro.id)) ||
         (ro.order_number ? localByNum.get(String(ro.order_number).trim().toUpperCase()) : undefined);
+      const locIsPending = Boolean(matchLocal && isPendingOfflineRecord(matchLocal));
+      const remoteWins = !locIsPending || isRemoteAuthoritative(ro, matchLocal);
+
       const remoteItems = Array.isArray((ro as any).order_items) ? (ro as any).order_items : undefined;
       const hasRemoteItems = Boolean(remoteItems && remoteItems.length > 0);
       const fallbackItems = !hasRemoteItems && matchLocal ? (matchLocal as any).order_items : undefined;
@@ -1684,6 +1753,7 @@ export function reconcileOrdersWithRemote(
       return {
         ...(matchLocal || {}),
         ...ro,
+        ...(remoteWins ? {} : (matchLocal || {})),
         subtotal: Number(ro.subtotal ?? (matchLocal as any)?.subtotal ?? resolvedTotal),
         total_amount: resolvedTotal,
         paid_amount: resolvedPaid,
@@ -1692,9 +1762,28 @@ export function reconcileOrdersWithRemote(
         dueAmount: resolvedDue,
         ...(resolvedItems !== undefined ? { order_items: resolvedItems, items: resolvedItems } : {}),
         customer: (ro as any).customer || (matchLocal as any)?.customer || undefined,
-        is_offline: false,
+        is_offline: remoteWins ? false : Boolean((matchLocal as any)?.is_offline),
       } as Order;
     });
+
+  if (options?.incremental) {
+    const map = new Map<string, Order>();
+    currentLocal.forEach((o) => {
+      if (o && o.id) map.set(String(o.id), o);
+    });
+    validRemote.forEach((o) => {
+      if (o && o.id) map.set(String(o.id), o);
+    });
+    const result = deduplicateOrders(Array.from(map.values()), {
+      excludeDrafts: false,
+      excludeCancelled: false,
+    }) as Order[];
+    if (options?.persist !== false) {
+      const toStore = options?.maxCache ? result.slice(0, options.maxCache) : result;
+      setLocalData(STORAGE_KEYS.ORDERS, toStore, null, true);
+    }
+    return result;
+  }
 
   const remoteIdSet = new Set(validRemote.map((o) => String(o.id)));
   const remoteNumSet = new Set(
@@ -1727,7 +1816,7 @@ export function reconcileOrdersWithRemote(
  */
 export function reconcileCollectionsWithRemote(
   remoteCols: Collection[],
-  options?: { persist?: boolean; maxCache?: number },
+  options?: { persist?: boolean; maxCache?: number; incremental?: boolean },
 ): Collection[] {
   const deletedColIds = getDeletedIds(STORAGE_KEYS.DELETED_COLLECTIONS);
   const currentLocal = getCollections().filter((c) => Boolean(c && c.id) && !deletedColIds.has(c.id));
@@ -1748,15 +1837,34 @@ export function reconcileCollectionsWithRemote(
       if (!matchLocal) {
         return { ...rc, is_offline: false } as Collection;
       }
+      const locIsPending = isPendingOfflineRecord(matchLocal);
+      const remoteWins = !locIsPending || isRemoteAuthoritative(rc, matchLocal);
       return {
         ...matchLocal,
         ...rc,
+        ...(remoteWins ? {} : matchLocal),
         settlement_discount: (rc as any).settlement_discount ?? matchLocal.settlement_discount ?? null,
         previous_due: (rc as any).previous_due ?? matchLocal.previous_due ?? null,
         remaining_due: (rc as any).remaining_due ?? matchLocal.remaining_due ?? null,
-        is_offline: false,
+        is_offline: remoteWins ? false : Boolean((matchLocal as any)?.is_offline),
       } as Collection;
     });
+
+  if (options?.incremental) {
+    const map = new Map<string, Collection>();
+    currentLocal.forEach((c) => {
+      if (c && c.id) map.set(String(c.id), c);
+    });
+    validRemote.forEach((c) => {
+      if (c && c.id) map.set(String(c.id), c);
+    });
+    const result = deduplicateCollections(Array.from(map.values()));
+    if (options?.persist !== false) {
+      const toStore = options?.maxCache ? result.slice(0, options.maxCache) : result;
+      setLocalData(STORAGE_KEYS.COLLECTIONS, toStore, null, true);
+    }
+    return result;
+  }
 
   const remoteIdSet = new Set(validRemote.map((c) => String(c.id)));
   const remoteColNumSet = new Set(
@@ -1785,7 +1893,7 @@ export function reconcileCollectionsWithRemote(
  */
 export function reconcileProductsWithRemote(
   remoteProducts: Product[],
-  options?: { persist?: boolean },
+  options?: { persist?: boolean; incremental?: boolean },
 ): Product[] {
   const deletedProdIds = getDeletedIds(STORAGE_KEYS.DELETED_PRODUCTS);
   const localProds = getProducts().filter((p) => Boolean(p && p.id) && !deletedProdIds.has(String(p.id)));
@@ -1813,20 +1921,37 @@ export function reconcileProductsWithRemote(
         } as Product;
       }
       const lpPending = isPendingOfflineRecord(lp);
-      const resolvedStock = lpPending
-        ? Math.max(0, Math.round(Number(lp.stock_quantity ?? (lp as any).stock ?? remoteStock)))
-        : remoteStock;
+      const remoteWins = !lpPending || isRemoteAuthoritative(rp, lp);
+      const resolvedStock = remoteWins
+        ? remoteStock
+        : Math.max(0, Math.round(Number(lp.stock_quantity ?? (lp as any).stock ?? remoteStock)));
       return {
         ...lp,
         ...rp,
+        ...(remoteWins ? {} : lp),
         stock_quantity: resolvedStock,
         stock: resolvedStock,
         purchase_price: rp.purchase_price ?? lp.purchase_price ?? null,
         purchase_cost: rp.purchase_cost ?? lp.purchase_cost ?? null,
         cost_price: rp.cost_price ?? lp.cost_price ?? null,
-        is_offline: lpPending ? Boolean((lp as any).is_offline) : false,
+        is_offline: remoteWins ? false : Boolean((lp as any).is_offline),
       } as Product;
     });
+
+  if (options?.incremental) {
+    const map = new Map<string, Product>();
+    localProds.forEach((p) => {
+      if (p && p.id) map.set(String(p.id), p);
+    });
+    validRemote.forEach((p) => {
+      if (p && p.id) map.set(String(p.id), p);
+    });
+    const result = Array.from(map.values()).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    if (options?.persist !== false) {
+      setLocalData(STORAGE_KEYS.PRODUCTS, result, null, true);
+    }
+    return result;
+  }
 
   const remoteIdSet = new Set(validRemote.map((p) => String(p.id)));
   const remoteSkuSet = new Set(
@@ -1845,6 +1970,344 @@ export function reconcileProductsWithRemote(
     setLocalData(STORAGE_KEYS.PRODUCTS, reconciled, null, true);
   }
   return reconciled;
+}
+
+/**
+ * Cloud-Authoritative reconciler for Categories.
+ */
+export function reconcileCategoriesWithRemote(
+  remoteCats: Category[],
+  options?: { persist?: boolean; incremental?: boolean },
+): Category[] {
+  const currentLocal = getLocalData<Category[]>(STORAGE_KEYS.CATEGORIES, []);
+  const validRemote = (Array.isArray(remoteCats) ? remoteCats : []).filter((c) => Boolean(c && c.id));
+
+  if (options?.incremental) {
+    const map = new Map<string, Category>();
+    (Array.isArray(currentLocal) ? currentLocal : []).forEach((c) => {
+      if (c && c.id) map.set(String(c.id), c);
+    });
+    for (const rc of validRemote) {
+      const existing = map.get(String(rc.id));
+      if (!existing || isRemoteAuthoritative(rc, existing)) {
+        map.set(String(rc.id), { ...(existing || {}), ...rc });
+      }
+    }
+    const result = Array.from(map.values()).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    if (options?.persist !== false) {
+      setLocalData(STORAGE_KEYS.CATEGORIES, result, null, true);
+    }
+    return result;
+  }
+
+  const remoteIdSet = new Set(validRemote.map((c) => String(c.id)));
+  const pendingCats = (Array.isArray(currentLocal) ? currentLocal : []).filter(
+    (lc) => lc && !remoteIdSet.has(String(lc.id)) && isPendingOfflineRecord(lc),
+  );
+  const reconciled = [...pendingCats, ...validRemote].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  if (options?.persist !== false) {
+    setLocalData(STORAGE_KEYS.CATEGORIES, reconciled, null, true);
+  }
+  return reconciled;
+}
+
+/**
+ * Cloud-Authoritative reconciler for Expenses.
+ */
+export function reconcileExpensesWithRemote(
+  remoteExp: Expense[],
+  options?: { persist?: boolean; incremental?: boolean },
+): Expense[] {
+  const deletedExpIds = getDeletedIds(STORAGE_KEYS.DELETED_EXPENSES);
+  const currentLocal = getLocalData<Expense[]>(STORAGE_KEYS.EXPENSES, []).filter(
+    (e) => Boolean(e && e.id) && !deletedExpIds.has(String(e.id)),
+  );
+  const validRemote = (Array.isArray(remoteExp) ? remoteExp : []).filter(
+    (e) => Boolean(e && e.id) && !deletedExpIds.has(String(e.id)),
+  );
+
+  if (options?.incremental) {
+    const map = new Map<string, Expense>();
+    currentLocal.forEach((e) => {
+      if (e && e.id) map.set(String(e.id), e);
+    });
+    for (const re of validRemote) {
+      const existing = map.get(String(re.id));
+      if (!existing || isRemoteAuthoritative(re, existing)) {
+        map.set(String(re.id), { ...(existing || {}), ...re });
+      }
+    }
+    const result = Array.from(map.values()).sort(
+      (a, b) => new Date(b.expense_date || b.created_at || 0).getTime() - new Date(a.expense_date || a.created_at || 0).getTime(),
+    );
+    if (options?.persist !== false) {
+      setLocalData(STORAGE_KEYS.EXPENSES, result, null, true);
+    }
+    return result;
+  }
+
+  const remoteIdSet = new Set(validRemote.map((e) => String(e.id)));
+  const pendingExp = currentLocal.filter(
+    (le) => le && !remoteIdSet.has(String(le.id)) && isPendingOfflineRecord(le),
+  );
+  const reconciled = [...pendingExp, ...validRemote].sort(
+    (a, b) => new Date(b.expense_date || b.created_at || 0).getTime() - new Date(a.expense_date || a.created_at || 0).getTime(),
+  );
+  if (options?.persist !== false) {
+    setLocalData(STORAGE_KEYS.EXPENSES, reconciled, null, true);
+  }
+  return reconciled;
+}
+
+/**
+ * Cloud-Authoritative reconciler for Visits.
+ */
+export function reconcileVisitsWithRemote(
+  remoteVisits: Visit[],
+  options?: { persist?: boolean; incremental?: boolean },
+): Visit[] {
+  const deletedVisitIds = getDeletedIds(STORAGE_KEYS.DELETED_VISITS);
+  const currentLocal = getLocalData<Visit[]>(STORAGE_KEYS.VISITS, []).filter(
+    (v) => Boolean(v && v.id) && !deletedVisitIds.has(String(v.id)),
+  );
+  const validRemote = (Array.isArray(remoteVisits) ? remoteVisits : []).filter(
+    (v) => Boolean(v && v.id) && !deletedVisitIds.has(String(v.id)),
+  );
+
+  if (options?.incremental) {
+    const map = new Map<string, Visit>();
+    currentLocal.forEach((v) => {
+      if (v && v.id) map.set(String(v.id), v);
+    });
+    for (const rv of validRemote) {
+      const existing = map.get(String(rv.id));
+      if (!existing || isRemoteAuthoritative(rv, existing)) {
+        map.set(String(rv.id), { ...(existing || {}), ...rv });
+      }
+    }
+    const result = Array.from(map.values()).sort(
+      (a, b) => new Date(b.visit_date || b.created_at || 0).getTime() - new Date(a.visit_date || a.created_at || 0).getTime(),
+    );
+    if (options?.persist !== false) {
+      setLocalData(STORAGE_KEYS.VISITS, result, null, true);
+    }
+    return result;
+  }
+
+  const remoteIdSet = new Set(validRemote.map((v) => String(v.id)));
+  const pendingVisits = currentLocal.filter(
+    (lv) => lv && !remoteIdSet.has(String(lv.id)) && isPendingOfflineRecord(lv),
+  );
+  const reconciled = [...pendingVisits, ...validRemote].sort(
+    (a, b) => new Date(b.visit_date || b.created_at || 0).getTime() - new Date(a.visit_date || a.created_at || 0).getTime(),
+  );
+  if (options?.persist !== false) {
+    setLocalData(STORAGE_KEYS.VISITS, reconciled, null, true);
+  }
+  return reconciled;
+}
+
+/**
+ * Cloud-Authoritative reconciler for Areas / Territories.
+ */
+export function reconcileAreasWithRemote(
+  remoteTerritories: any[],
+  options?: { persist?: boolean; incremental?: boolean },
+): Area[] {
+  const deletedAreaIds = getDeletedIds(STORAGE_KEYS.DELETED_AREAS);
+  const currentLocal = getLocalData<Area[]>(STORAGE_KEYS.AREAS, []).filter(
+    (a) => Boolean(a && a.id) && !deletedAreaIds.has(String(a.id)),
+  );
+  const validRemote: Area[] = (Array.isArray(remoteTerritories) ? remoteTerritories : [])
+    .filter((t) => Boolean(t && t.id) && !deletedAreaIds.has(String(t.id)))
+    .map((t) => ({
+      id: String(t.id),
+      name: t.name,
+      code_prefix: t.code || t.code_prefix || deriveCodePrefix(t.name),
+      created_at: t.created_at,
+      updated_at: t.updated_at,
+    }));
+
+  if (options?.incremental) {
+    const map = new Map<string, Area>();
+    currentLocal.forEach((a) => {
+      if (a && a.id) map.set(String(a.id), a);
+    });
+    for (const ra of validRemote) {
+      const existing = map.get(String(ra.id));
+      if (!existing || isRemoteAuthoritative(ra, existing)) {
+        map.set(String(ra.id), { ...(existing || {}), ...ra });
+      }
+    }
+    const result = Array.from(map.values()).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    if (options?.persist !== false) {
+      setLocalData(STORAGE_KEYS.AREAS, result, null, true);
+    }
+    return result;
+  }
+
+  const remoteIdSet = new Set(validRemote.map((a) => String(a.id)));
+  const pendingAreas = currentLocal.filter(
+    (la) => la && !remoteIdSet.has(String(la.id)) && isPendingOfflineRecord(la),
+  );
+  const reconciled = [...pendingAreas, ...validRemote].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  if (options?.persist !== false) {
+    setLocalData(STORAGE_KEYS.AREAS, reconciled, null, true);
+  }
+  return reconciled;
+}
+
+/**
+ * Cloud-Authoritative reconciler for Inventory.
+ */
+export function reconcileInventoryWithRemote(
+  remoteInv: any[],
+  options?: { persist?: boolean; incremental?: boolean },
+): any[] {
+  const currentLocal = getLocalData<any[]>(STORAGE_KEYS.INVENTORY, []);
+  const validRemote = (Array.isArray(remoteInv) ? remoteInv : []).filter((i) => Boolean(i && (i.id || i.product_id)));
+
+  if (options?.incremental) {
+    const map = new Map<string, any>();
+    (Array.isArray(currentLocal) ? currentLocal : []).forEach((item) => {
+      const key = String(item.product_id || item.id);
+      if (key) map.set(key, item);
+    });
+    for (const ri of validRemote) {
+      const key = String(ri.product_id || ri.id);
+      const existing = map.get(key);
+      if (!existing || isRemoteAuthoritative(ri, existing)) {
+        map.set(key, { ...(existing || {}), ...ri });
+      }
+    }
+    const result = Array.from(map.values());
+    if (options?.persist !== false) {
+      setLocalData(STORAGE_KEYS.INVENTORY, result, null, true);
+    }
+    return result;
+  }
+
+  if (options?.persist !== false) {
+    setLocalData(STORAGE_KEYS.INVENTORY, validRemote, null, true);
+  }
+  return validRemote;
+}
+
+/**
+ * Applies a granular zero-lag Realtime table patch directly into the local state.
+ */
+export function applyRealtimeTablePatch(
+  table: string,
+  eventType: "INSERT" | "UPDATE" | "DELETE",
+  payloadRecord: any,
+): boolean {
+  if (!table || !payloadRecord) return false;
+  const id = String(payloadRecord.id || "").trim();
+
+  if (eventType === "DELETE") {
+    switch (table) {
+      case "orders": {
+        if (id) saveDeletedId(STORAGE_KEYS.DELETED_ORDERS, id);
+        const current = getOrders().filter((o) => String(o.id) !== id);
+        setLocalData(STORAGE_KEYS.ORDERS, current, null, true);
+        break;
+      }
+      case "customers": {
+        if (id) saveDeletedId(STORAGE_KEYS.DELETED_CUSTOMERS, id);
+        const current = getCustomers().filter((c) => String(c.id) !== id);
+        setLocalData(STORAGE_KEYS.CUSTOMERS, current, null, true);
+        break;
+      }
+      case "products": {
+        if (id) saveDeletedId(STORAGE_KEYS.DELETED_PRODUCTS, id);
+        const current = getProducts().filter((p) => String(p.id) !== id);
+        setLocalData(STORAGE_KEYS.PRODUCTS, current, null, true);
+        break;
+      }
+      case "collections": {
+        if (id) saveDeletedId(STORAGE_KEYS.DELETED_COLLECTIONS, id);
+        const current = getCollections().filter((c) => String(c.id) !== id);
+        setLocalData(STORAGE_KEYS.COLLECTIONS, current, null, true);
+        break;
+      }
+      case "expenses": {
+        if (id) saveDeletedId(STORAGE_KEYS.DELETED_EXPENSES, id);
+        const current = getExpenses().filter((e) => String(e.id) !== id);
+        setLocalData(STORAGE_KEYS.EXPENSES, current, null, true);
+        break;
+      }
+      case "categories": {
+        const current = getLocalData<Category[]>(STORAGE_KEYS.CATEGORIES, []).filter((c) => String(c.id) !== id);
+        setLocalData(STORAGE_KEYS.CATEGORIES, current, null, true);
+        break;
+      }
+      case "visits": {
+        if (id) saveDeletedId(STORAGE_KEYS.DELETED_VISITS, id);
+        const current = getVisits().filter((v) => String(v.id) !== id);
+        setLocalData(STORAGE_KEYS.VISITS, current, null, true);
+        break;
+      }
+      case "territories": {
+        if (id) saveDeletedId(STORAGE_KEYS.DELETED_AREAS, id);
+        const current = getAreas().filter((a) => String(a.id) !== id);
+        setLocalData(STORAGE_KEYS.AREAS, current, null, true);
+        break;
+      }
+      case "inventory": {
+        const current = getLocalData<any[]>(STORAGE_KEYS.INVENTORY, []).filter(
+          (inv) => String(inv.id) !== id && String(inv.product_id) !== String(payloadRecord.product_id),
+        );
+        setLocalData(STORAGE_KEYS.INVENTORY, current, null, true);
+        break;
+      }
+      default:
+        return false;
+    }
+    return true;
+  }
+
+  // INSERT or UPDATE
+  switch (table) {
+    case "orders": {
+      reconcileOrdersWithRemote([payloadRecord], { incremental: true, persist: true });
+      break;
+    }
+    case "customers": {
+      mergeAndEnrichCustomers([payloadRecord], { incremental: true, persist: true });
+      break;
+    }
+    case "products": {
+      reconcileProductsWithRemote([payloadRecord], { incremental: true, persist: true });
+      break;
+    }
+    case "collections": {
+      reconcileCollectionsWithRemote([payloadRecord], { incremental: true, persist: true });
+      break;
+    }
+    case "expenses": {
+      reconcileExpensesWithRemote([payloadRecord], { incremental: true, persist: true });
+      break;
+    }
+    case "categories": {
+      reconcileCategoriesWithRemote([payloadRecord], { incremental: true, persist: true });
+      break;
+    }
+    case "visits": {
+      reconcileVisitsWithRemote([payloadRecord], { incremental: true, persist: true });
+      break;
+    }
+    case "territories": {
+      reconcileAreasWithRemote([payloadRecord], { incremental: true, persist: true });
+      break;
+    }
+    case "inventory": {
+      reconcileInventoryWithRemote([payloadRecord], { incremental: true, persist: true });
+      break;
+    }
+    default:
+      return false;
+  }
+  return true;
 }
 
 export const getCustomers = (): Customer[] => {
@@ -2723,6 +3186,10 @@ let crossDeviceRealtimeChannel: any = null;
 
 function broadcastCrossDeviceRealtimeMutation(detail?: TransactionLedgerDetail) {
   try {
+    if (typeof window !== "undefined" && typeof (window as any).__hamkoRealtimeBroadcast === "function") {
+      void (window as any).__hamkoRealtimeBroadcast(detail);
+      return;
+    }
     if (!supabase?.channel) return;
     if (!crossDeviceRealtimeChannel) {
       crossDeviceRealtimeChannel = supabase.channel("hamko-cross-device-sync", {

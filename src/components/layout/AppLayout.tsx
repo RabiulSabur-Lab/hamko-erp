@@ -16,6 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { STORAGE_KEYS, getLocalData, ensureCrossPlatformCacheConsistency } from "@/utils/localStore";
 import { pullFreshCloudStateToLocalStore } from "@/utils/cloudSync";
 import { syncOfflineDataToBackend } from "@/utils/offlineSync";
+import { initRealtimeSync } from "@/services/realtimeSync";
 
 import { Sidebar, navItems, type NavItem } from "@/components/Sidebar";
 export type { NavItem };
@@ -104,7 +105,13 @@ export function AppLayout({ children }: { children: ReactNode }) {
 
     const handleCustomUpdate = (e: Event) => {
       const detailKey = (e as CustomEvent)?.detail?.key;
-      if (detailKey && detailKey !== STORAGE_KEYS.NOTIFICATIONS && detailKey !== STORAGE_KEYS.DELETED_NOTIFICATIONS) {
+      const detailTable = (e as CustomEvent)?.detail?.table;
+      if (
+        detailKey &&
+        detailKey !== STORAGE_KEYS.NOTIFICATIONS &&
+        detailKey !== STORAGE_KEYS.DELETED_NOTIFICATIONS &&
+        detailTable !== "notifications"
+      ) {
         return;
       }
       scheduleUnreadFetch();
@@ -136,105 +143,28 @@ export function AppLayout({ children }: { children: ReactNode }) {
 
   // Global Cross-Platform Synchronization (Web <-> Mobile):
   // 1. Validates cache consistency & flushes queued offline field entries on startup.
-  // 2. Pulls fresh authoritative Supabase state on app initialization, foreground resume, and reconnect.
-  // 3. Subscribes a single multiplexed Realtime channel so changes on Web appear live on Mobile (and vice versa).
+  // 2. Pulls fresh authoritative Supabase state on app initialization and background reconnect.
+  // 3. Initializes singleton RealtimeSyncManager for instant Postgres CDC updates & cross-device broadcast.
   useEffect(() => {
-    if (!sessionVerified || !userId) return;
     let isMounted = true;
-    let realtimeDebounce: ReturnType<typeof setTimeout> | undefined;
-    let lastResumeSyncAt = 0;
 
     ensureCrossPlatformCacheConsistency();
+    void initRealtimeSync();
 
-    const runFullBidirectionalSync = async (force = true) => {
+    const runStartupSync = async (force = true) => {
       if (!isMounted || (typeof navigator !== "undefined" && navigator.onLine === false)) return;
       const sessionCheck = await ensureValidSession();
-      if (!isMounted || sessionCheck.offline || !sessionCheck.session) return;
+      if (!isMounted || sessionCheck.offline) return;
       await syncOfflineDataToBackend();
       if (isMounted) {
         await pullFreshCloudStateToLocalStore({ force, silent: false });
       }
     };
 
-    void runFullBidirectionalSync(true);
-
-    const scheduleRealtimePull = () => {
-      if (realtimeDebounce) clearTimeout(realtimeDebounce);
-      realtimeDebounce = setTimeout(() => {
-        if (isMounted) {
-          void pullFreshCloudStateToLocalStore({ force: true, silent: false });
-        }
-      }, 900);
-    };
-
-    let syncChannel: any = null;
-    let crossDeviceBroadcastChannel: any = null;
-    try {
-      if (supabase?.channel) {
-        syncChannel = supabase
-          .channel("app-global-cloud-sync")
-          .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, scheduleRealtimePull)
-          .on("postgres_changes", { event: "*", schema: "public", table: "order_items" }, scheduleRealtimePull)
-          .on("postgres_changes", { event: "*", schema: "public", table: "collections" }, scheduleRealtimePull)
-          .on("postgres_changes", { event: "*", schema: "public", table: "customers" }, scheduleRealtimePull)
-          .on("postgres_changes", { event: "*", schema: "public", table: "products" }, scheduleRealtimePull)
-          .on("postgres_changes", { event: "*", schema: "public", table: "categories" }, scheduleRealtimePull)
-          .on("postgres_changes", { event: "*", schema: "public", table: "stock_transactions" }, scheduleRealtimePull)
-          .on("postgres_changes", { event: "*", schema: "public", table: "expenses" }, scheduleRealtimePull)
-          .subscribe();
-
-        crossDeviceBroadcastChannel = supabase
-          .channel("hamko-cross-device-sync", {
-            config: { broadcast: { self: false } },
-          })
-          .on("broadcast", { event: "erp_mutation" }, () => {
-            scheduleRealtimePull();
-          })
-          .subscribe();
-      }
-    } catch (err) {
-      console.warn("Global cloud realtime subscription notice:", err);
-    }
-
-    const handleVisibilityOrFocus = () => {
-      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
-      const now = Date.now();
-      if (now - lastResumeSyncAt < 1500) return;
-      lastResumeSyncAt = now;
-      void runFullBidirectionalSync(true);
-    };
-
-    const handleOnline = () => {
-      lastResumeSyncAt = Date.now();
-      void runFullBidirectionalSync(true);
-    };
-
-    document.addEventListener("visibilitychange", handleVisibilityOrFocus);
-    document.addEventListener("resume", handleVisibilityOrFocus as EventListener);
-    window.addEventListener("focus", handleVisibilityOrFocus);
-    window.addEventListener("pageshow", handleVisibilityOrFocus);
-    window.addEventListener("resume", handleVisibilityOrFocus as EventListener);
-    window.addEventListener("online", handleOnline);
+    void runStartupSync(true);
 
     return () => {
       isMounted = false;
-      if (realtimeDebounce) clearTimeout(realtimeDebounce);
-      try {
-        if (syncChannel && supabase?.removeChannel) {
-          supabase.removeChannel(syncChannel);
-        }
-        if (crossDeviceBroadcastChannel && supabase?.removeChannel) {
-          supabase.removeChannel(crossDeviceBroadcastChannel);
-        }
-      } catch {
-        // ignore
-      }
-      document.removeEventListener("visibilitychange", handleVisibilityOrFocus);
-      document.removeEventListener("resume", handleVisibilityOrFocus as EventListener);
-      window.removeEventListener("focus", handleVisibilityOrFocus);
-      window.removeEventListener("pageshow", handleVisibilityOrFocus);
-      window.removeEventListener("resume", handleVisibilityOrFocus as EventListener);
-      window.removeEventListener("online", handleOnline);
     };
   }, [userId, sessionVerified]);
 

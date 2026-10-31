@@ -11,6 +11,11 @@ import {
   reconcileOrdersWithRemote,
   reconcileCollectionsWithRemote,
   reconcileProductsWithRemote,
+  reconcileCategoriesWithRemote,
+  reconcileExpensesWithRemote,
+  reconcileVisitsWithRemote,
+  reconcileAreasWithRemote,
+  reconcileInventoryWithRemote,
   broadcastCrossTabSync,
   getProducts,
   getCustomers,
@@ -1131,13 +1136,57 @@ export async function pullFreshCloudStateToLocalStore(options?: {
         return full;
       };
 
-      const [ordersRes, colsRes, custRes, prodRes, catRes, expRes] = await Promise.allSettled([
+      const fetchVisitsSafe = async () => {
+        return safeTimedQuery(
+          () =>
+            supabase
+              .from("visits")
+              .select(SUPABASE_TABLE_SELECTS.visits)
+              .order("visit_date", { ascending: false })
+              .limit(1000),
+          10000,
+          "Cloud pull visits",
+          1,
+        );
+      };
+
+      const fetchTerritoriesSafe = async () => {
+        return safeTimedQuery(
+          () =>
+            supabase
+              .from("territories")
+              .select(SUPABASE_TABLE_SELECTS.territories)
+              .order("name", { ascending: true })
+              .limit(500),
+          10000,
+          "Cloud pull territories",
+          1,
+        );
+      };
+
+      const fetchInventorySafe = async () => {
+        return safeTimedQuery(
+          () =>
+            supabase
+              .from("inventory")
+              .select(SUPABASE_TABLE_SELECTS.inventory)
+              .limit(1000),
+          10000,
+          "Cloud pull inventory",
+          1,
+        );
+      };
+
+      const [ordersRes, colsRes, custRes, prodRes, catRes, expRes, visitsRes, terrRes, invRes] = await Promise.allSettled([
         fetchOrdersSafe(),
         fetchCollectionsSafe(),
         fetchCustomersSafe(),
         fetchProductsSafe(),
         fetchCategoriesSafe(),
         fetchExpensesSafe(),
+        fetchVisitsSafe(),
+        fetchTerritoriesSafe(),
+        fetchInventorySafe(),
       ]);
 
       await yieldToUI();
@@ -1204,12 +1253,7 @@ export async function pullFreshCloudStateToLocalStore(options?: {
       try {
         const res = catRes.status === "fulfilled" ? catRes.value : { data: null, error: catRes.reason };
         if (!res.error && Array.isArray(res.data)) {
-          const localCats = getLocalData<any[]>(STORAGE_KEYS.CATEGORIES, []);
-          const remoteCatIdSet = new Set(res.data.map((c: any) => String(c.id)));
-          const pendingCats = (Array.isArray(localCats) ? localCats : []).filter(
-            (lc) => lc && !remoteCatIdSet.has(String(lc.id)) && isPendingOfflineRecord(lc),
-          );
-          setLocalData(STORAGE_KEYS.CATEGORIES, [...pendingCats, ...res.data], null, true);
+          reconcileCategoriesWithRemote(res.data as any, { persist: true });
           updatedTables.push("categories");
         } else if (res.error) {
           tableErrors.push({ table: "categories", error: res.error });
@@ -1223,20 +1267,7 @@ export async function pullFreshCloudStateToLocalStore(options?: {
       try {
         const res = expRes.status === "fulfilled" ? expRes.value : { data: null, error: expRes.reason };
         if (!res.error && Array.isArray(res.data)) {
-          const deletedExpIds = getDeletedIds(STORAGE_KEYS.DELETED_EXPENSES);
-          const validRemoteExp = res.data.filter(
-            (e: any) => e && !deletedExpIds.has(String(e.id)),
-          );
-          const remoteExpIdSet = new Set(validRemoteExp.map((e: any) => String(e.id)));
-          const localExp = getLocalData<any[]>(STORAGE_KEYS.EXPENSES, []);
-          const pendingExp = (Array.isArray(localExp) ? localExp : []).filter(
-            (le) =>
-              le &&
-              !deletedExpIds.has(String(le.id)) &&
-              !remoteExpIdSet.has(String(le.id)) &&
-              isPendingOfflineRecord(le),
-          );
-          setLocalData(STORAGE_KEYS.EXPENSES, [...pendingExp, ...validRemoteExp], null, true);
+          reconcileExpensesWithRemote(res.data as any, { persist: true });
           updatedTables.push("expenses");
         } else if (res.error) {
           tableErrors.push({ table: "expenses", error: res.error });
@@ -1244,6 +1275,48 @@ export async function pullFreshCloudStateToLocalStore(options?: {
       } catch (e) {
         tableErrors.push({ table: "expenses", error: e });
         console.warn("[CloudSync] Expenses reconcile notice:", e);
+      }
+
+      // 7. VISITS
+      try {
+        const res = visitsRes.status === "fulfilled" ? visitsRes.value : { data: null, error: visitsRes.reason };
+        if (!res.error && Array.isArray(res.data)) {
+          reconcileVisitsWithRemote(res.data as any, { persist: true });
+          updatedTables.push("visits");
+        } else if (res.error) {
+          tableErrors.push({ table: "visits", error: res.error });
+        }
+      } catch (e) {
+        tableErrors.push({ table: "visits", error: e });
+        console.warn("[CloudSync] Visits reconcile notice:", e);
+      }
+
+      // 8. TERRITORIES
+      try {
+        const res = terrRes.status === "fulfilled" ? terrRes.value : { data: null, error: terrRes.reason };
+        if (!res.error && Array.isArray(res.data)) {
+          reconcileAreasWithRemote(res.data as any, { persist: true });
+          updatedTables.push("territories");
+        } else if (res.error) {
+          tableErrors.push({ table: "territories", error: res.error });
+        }
+      } catch (e) {
+        tableErrors.push({ table: "territories", error: e });
+        console.warn("[CloudSync] Territories reconcile notice:", e);
+      }
+
+      // 9. INVENTORY
+      try {
+        const res = invRes.status === "fulfilled" ? invRes.value : { data: null, error: invRes.reason };
+        if (!res.error && Array.isArray(res.data)) {
+          reconcileInventoryWithRemote(res.data as any, { persist: true });
+          updatedTables.push("inventory");
+        } else if (res.error) {
+          tableErrors.push({ table: "inventory", error: res.error });
+        }
+      } catch (e) {
+        tableErrors.push({ table: "inventory", error: e });
+        console.warn("[CloudSync] Inventory reconcile notice:", e);
       }
 
       if (updatedTables.length > 0 && !options?.silent) {
