@@ -524,11 +524,26 @@ export async function pushAllLocalDataToSupabase(
         updated_at: new Date().toISOString(),
       };
 
-      const { error } = await safeTimedQuery(
+      let { error } = await safeTimedQuery(
         supabase.from("customers").upsert(custPayload, { onConflict: "id" }),
         10000,
         `Customer upsert (${c.name})`,
       );
+
+      if (error && (error.code === "23503" || error.message?.includes("foreign key"))) {
+        console.warn(`Customer "${c.name}" FK mismatch; retrying with nullified assigned_to & territory_id:`, error.message);
+        const fallbackPayload = {
+          ...custPayload,
+          assigned_to: null,
+          territory_id: null,
+        };
+        const retryRes = await safeTimedQuery(
+          supabase.from("customers").upsert(fallbackPayload, { onConflict: "id" }),
+          10000,
+          `Customer upsert retry (${c.name})`,
+        );
+        error = retryRes.error;
+      }
 
       if (error) {
         summary.errors.push(`Customer "${c.name}": ${error.message}`);

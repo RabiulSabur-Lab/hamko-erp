@@ -113,6 +113,12 @@ export interface Customer {
   is_offline?: boolean;
   _unsynced?: boolean;
   _localPendingUntil?: number;
+  _syncAttempts?: number;
+  _lastSyncError?: string;
+  _lastSyncAttemptAt?: string;
+  _syncStripped?: boolean;
+  _syncStrippedReason?: string;
+  _syncStrippedAt?: string;
 }
 
 export const STORAGE_KEYS = {
@@ -161,6 +167,10 @@ const CROSS_TAB_CHANNEL_NAME = "hamko_erp_cross_tab_sync";
  */
 export function isPendingOfflineRecord(record: any): boolean {
   if (!record || typeof record !== "object") return false;
+  if (record._syncStripped === true) return false;
+  if (record.is_offline === false && record._unsynced === false && !record._localPendingUntil) {
+    return false;
+  }
   if (record.is_offline === true || record._unsynced === true) return true;
   if (typeof record._localPendingUntil === "number" && record._localPendingUntil > Date.now()) {
     return true;
