@@ -366,26 +366,25 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
             : await verifySessionRef.current(isManual);
 
           if (!activeSession) {
-            if (!mountedRef.current) return;
-            applyLocalFallback();
             const isOffline = typeof navigator !== "undefined" && navigator.onLine === false;
-            const authIssue: DashboardConnectionIssue = {
-              kind: isOffline ? "offline" : "auth",
-              message: isOffline
-                ? "Device is offline. Displaying cached dashboard state."
-                : "Session token could not be verified. Displaying cached/default dashboard state.",
-              messageBn: isOffline
-                ? "ইন্টারনেট সংযোগ নেই। সংরক্ষিত ড্যাশবোর্ড ডেটা দেখানো হচ্ছে।"
-                : "সেশন টোকেন যাচাই করা যায়নি। সংরক্ষিত ড্যাশবোর্ড ডেটা দেখানো হচ্ছে।",
-              failedResources: ["session"],
-            };
-            setConnectionIssue(authIssue);
-            if (isManual) {
-              surfaceFailureNotification(authIssue, true, () => {
-                void fetchFromSupabase(true);
-              });
+            if (isOffline) {
+              if (!mountedRef.current) return;
+              applyLocalFallback();
+              const authIssue: DashboardConnectionIssue = {
+                kind: "offline",
+                message: "Device is offline. Displaying cached dashboard state.",
+                messageBn: "ইন্টারনেট সংযোগ নেই। সংরক্ষিত ড্যাশবোর্ড ডেটা দেখানো হচ্ছে।",
+                failedResources: ["network"],
+              };
+              setConnectionIssue(authIssue);
+              if (isManual) {
+                surfaceFailureNotification(authIssue, true, () => {
+                  void fetchFromSupabase(true);
+                });
+              }
+              return;
             }
-            return;
+            console.warn("[Dashboard] Session token absent or expired; proceeding with public cloud read.");
           }
 
           const now = new Date();
@@ -394,6 +393,21 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
           const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
           const prevMonthStart = `${prevMonth.getFullYear()}-${pad(prevMonth.getMonth() + 1)}-01`;
           const prevWeekEnd = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+          const isSchemaOrRelationErr = (err: any): boolean => {
+            if (!err) return false;
+            const code = String(err.code || "");
+            const msg = String(err.message || "").toLowerCase();
+            return (
+              code === "42703" ||
+              code === "PGRST200" ||
+              code === "PGRST204" ||
+              code === "PGRST201" ||
+              msg.includes("column") ||
+              msg.includes("relationship") ||
+              msg.includes("schema cache")
+            );
+          };
 
           // 2. Schema-verified, bounded queries with explicit 9s timeout & try/catch per query.
           const fetchProductsSafe = async (): Promise<SafeQueryResult<Product>> => {
@@ -408,9 +422,8 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
             );
             if (!fullRes.error) return fullRes;
 
-            const errMsg = String((fullRes.error as any)?.message || "");
-            if (errMsg.toLowerCase().includes("column") || (fullRes.error as any)?.code === "42703") {
-              return executeTimedQuery<Product>(
+            if (isSchemaOrRelationErr(fullRes.error)) {
+              const coreRes = await executeTimedQuery<Product>(
                 () =>
                   supabase
                     .from("products")
@@ -419,12 +432,25 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
                     .limit(1000) as unknown as PromiseLike<{ data: Product[] | null; error: any }>,
                 "Products fallback query",
               );
+              if (!coreRes.error) return coreRes;
+              if (isSchemaOrRelationErr(coreRes.error)) {
+                return executeTimedQuery<Product>(
+                  () =>
+                    supabase
+                      .from("products")
+                      .select(SUPABASE_TABLE_SELECTS.productsFlatFallback)
+                      .order("name", { ascending: true })
+                      .limit(1000) as unknown as PromiseLike<{ data: Product[] | null; error: any }>,
+                  "Products flat fallback query",
+                );
+              }
+              return coreRes;
             }
             return fullRes;
           };
 
-          const [oRes, colRes, custRes, prodRes] = await Promise.all([
-            executeTimedQuery<Order>(
+          const fetchOrdersSafe = async (): Promise<SafeQueryResult<Order>> => {
+            const fullRes = await executeTimedQuery<Order>(
               () =>
                 supabase
                   .from("orders")
@@ -432,7 +458,38 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
                   .order("order_date", { ascending: false })
                   .limit(1000) as unknown as PromiseLike<{ data: Order[] | null; error: any }>,
               "Orders query",
-            ),
+            );
+            if (!fullRes.error) return fullRes;
+
+            if (isSchemaOrRelationErr(fullRes.error)) {
+              const coreRes = await executeTimedQuery<Order>(
+                () =>
+                  supabase
+                    .from("orders")
+                    .select(SUPABASE_TABLE_SELECTS.ordersCoreFallback)
+                    .order("order_date", { ascending: false })
+                    .limit(1000) as unknown as PromiseLike<{ data: Order[] | null; error: any }>,
+                "Orders fallback query",
+              );
+              if (!coreRes.error) return coreRes;
+              if (isSchemaOrRelationErr(coreRes.error)) {
+                return executeTimedQuery<Order>(
+                  () =>
+                    supabase
+                      .from("orders")
+                      .select(SUPABASE_TABLE_SELECTS.ordersFlatFallback)
+                      .order("order_date", { ascending: false })
+                      .limit(1000) as unknown as PromiseLike<{ data: Order[] | null; error: any }>,
+                  "Orders flat fallback query",
+                );
+              }
+              return coreRes;
+            }
+            return fullRes;
+          };
+
+          const [oRes, colRes, custRes, prodRes] = await Promise.all([
+            fetchOrdersSafe(),
             executeTimedQuery<Collection>(
               () =>
                 supabase

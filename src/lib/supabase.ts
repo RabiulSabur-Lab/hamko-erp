@@ -628,14 +628,24 @@ export interface DbCollectionRow {
 export const SUPABASE_TABLE_SELECTS = {
   ordersWithItemsAndCustomer:
     "id, order_number, customer_id, sales_rep_id, order_date, delivery_date, status, subtotal, discount, total_amount, paid_amount, due_amount, payment_status, notes, created_at, updated_at, order_items(id, order_id, product_id, quantity, unit_price, discount, subtotal), customer:customers(id, name, city)",
+  ordersCoreFallback:
+    "id, order_number, customer_id, sales_rep_id, order_date, delivery_date, status, subtotal, discount, total_amount, paid_amount, due_amount, payment_status, notes, created_at, updated_at, order_items(id, order_id, product_id, quantity, unit_price, discount, subtotal)",
+  ordersFlatFallback:
+    "id, order_number, customer_id, sales_rep_id, order_date, delivery_date, status, subtotal, discount, total_amount, paid_amount, due_amount, payment_status, notes, created_at, updated_at",
   collections:
     "id, collection_number, customer_id, order_id, amount, payment_method, collection_date, collected_by, notes, created_at",
+  collectionsCoreFallback:
+    "id, collection_number, customer_id, amount, payment_method, collection_date, created_at",
   customers:
     "id, name, customer_type, contact_person, phone, email, address, city, territory_id, trade_license_number, latitude, longitude, opening_balance, current_due, due_status, notes, assigned_to, is_active, created_at, updated_at",
+  customersCoreFallback:
+    "id, name, customer_type, phone, address, city, opening_balance, current_due, due_status, is_active, created_at, updated_at",
   productsFull:
     "id, sku_code, name, brand, category_id, unit_price, dealer_price, distributor_price, d10_price, b12_price, stock_quantity, reorder_level, unit, image_url, is_active, created_at, updated_at, category:categories(id, name)",
   productsCoreFallback:
     "id, sku_code, name, category_id, unit_price, dealer_price, stock_quantity, reorder_level, unit, image_url, is_active, created_at, updated_at, category:categories(id, name)",
+  productsFlatFallback:
+    "id, sku_code, name, category_id, unit_price, dealer_price, stock_quantity, reorder_level, unit, image_url, is_active, created_at, updated_at",
 } as const;
 
 export interface UserProfile extends DbUserRow {}

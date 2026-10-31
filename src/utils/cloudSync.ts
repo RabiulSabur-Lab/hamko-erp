@@ -893,15 +893,30 @@ export async function pullFreshCloudStateToLocalStore(options?: {
       if (sessionCheck.offline) {
         return { synced: false, updatedTables: [], offline: true, error: null };
       }
+      // If user session is absent or refreshing, log diagnostic notice but proceed with read queries
+      // since primary tables have read permissions open to anon & authenticated roles.
       if (!sessionCheck.session || !hasActiveSessionToken(sessionCheck.session)) {
-        const authMsg = sessionCheck.error?.userMessage || null;
-        if (authMsg && options?.notifyOnError) {
-          toast.error(authMsg);
+        if (sessionCheck.error) {
+          console.warn("[CloudSync] Session verification note; proceeding with cloud read queries:", sessionCheck.error.rawMessage);
         }
-        return { synced: false, updatedTables: [], error: authMsg };
       }
 
       lastCloudPullAt = Date.now();
+
+      const isSchemaOrRelationError = (err: any): boolean => {
+        if (!err) return false;
+        const code = String(err.code || "");
+        const msg = String(err.message || "").toLowerCase();
+        return (
+          code === "42703" ||
+          code === "PGRST200" ||
+          code === "PGRST204" ||
+          code === "PGRST201" ||
+          msg.includes("column") ||
+          msg.includes("relationship") ||
+          msg.includes("schema cache")
+        );
+      };
 
       const fetchProductsSafe = async () => {
         const full = await safeTimedQuery(
@@ -916,9 +931,8 @@ export async function pullFreshCloudStateToLocalStore(options?: {
           1,
         );
         if (!full.error) return full;
-        const msg = String(full.error?.message || "").toLowerCase();
-        if (msg.includes("column") || full.error?.code === "42703") {
-          return safeTimedQuery(
+        if (isSchemaOrRelationError(full.error)) {
+          const core = await safeTimedQuery(
             () =>
               supabase
                 .from("products")
@@ -929,12 +943,27 @@ export async function pullFreshCloudStateToLocalStore(options?: {
             "Cloud pull products fallback",
             1,
           );
+          if (!core.error) return core;
+          if (isSchemaOrRelationError(core.error)) {
+            return safeTimedQuery(
+              () =>
+                supabase
+                  .from("products")
+                  .select(SUPABASE_TABLE_SELECTS.productsFlatFallback)
+                  .order("name", { ascending: true })
+                  .limit(1000),
+              10000,
+              "Cloud pull products flat fallback",
+              1,
+            );
+          }
+          return core;
         }
         return full;
       };
 
-      const [ordersRes, colsRes, custRes, prodRes, catRes, expRes] = await Promise.all([
-        safeTimedQuery(
+      const fetchOrdersSafe = async () => {
+        const full = await safeTimedQuery(
           () =>
             supabase
               .from("orders")
@@ -944,8 +973,41 @@ export async function pullFreshCloudStateToLocalStore(options?: {
           10000,
           "Cloud pull orders",
           1,
-        ),
-        safeTimedQuery(
+        );
+        if (!full.error) return full;
+        if (isSchemaOrRelationError(full.error)) {
+          const core = await safeTimedQuery(
+            () =>
+              supabase
+                .from("orders")
+                .select(SUPABASE_TABLE_SELECTS.ordersCoreFallback)
+                .order("order_date", { ascending: false })
+                .limit(1000),
+            10000,
+            "Cloud pull orders fallback",
+            1,
+          );
+          if (!core.error) return core;
+          if (isSchemaOrRelationError(core.error)) {
+            return safeTimedQuery(
+              () =>
+                supabase
+                  .from("orders")
+                  .select(SUPABASE_TABLE_SELECTS.ordersFlatFallback)
+                  .order("order_date", { ascending: false })
+                  .limit(1000),
+              10000,
+              "Cloud pull orders flat fallback",
+              1,
+            );
+          }
+          return core;
+        }
+        return full;
+      };
+
+      const fetchCollectionsSafe = async () => {
+        const full = await safeTimedQuery(
           () =>
             supabase
               .from("collections")
@@ -955,8 +1017,26 @@ export async function pullFreshCloudStateToLocalStore(options?: {
           10000,
           "Cloud pull collections",
           1,
-        ),
-        safeTimedQuery(
+        );
+        if (!full.error) return full;
+        if (isSchemaOrRelationError(full.error)) {
+          return safeTimedQuery(
+            () =>
+              supabase
+                .from("collections")
+                .select(SUPABASE_TABLE_SELECTS.collectionsCoreFallback)
+                .order("collection_date", { ascending: false })
+                .limit(2000),
+            10000,
+            "Cloud pull collections fallback",
+            1,
+          );
+        }
+        return full;
+      };
+
+      const fetchCustomersSafe = async () => {
+        const full = await safeTimedQuery(
           () =>
             supabase
               .from("customers")
@@ -966,9 +1046,26 @@ export async function pullFreshCloudStateToLocalStore(options?: {
           10000,
           "Cloud pull customers",
           1,
-        ),
-        fetchProductsSafe(),
-        safeTimedQuery(
+        );
+        if (!full.error) return full;
+        if (isSchemaOrRelationError(full.error)) {
+          return safeTimedQuery(
+            () =>
+              supabase
+                .from("customers")
+                .select(SUPABASE_TABLE_SELECTS.customersCoreFallback)
+                .order("name", { ascending: true })
+                .limit(2000),
+            10000,
+            "Cloud pull customers fallback",
+            1,
+          );
+        }
+        return full;
+      };
+
+      const fetchCategoriesSafe = async () => {
+        const full = await safeTimedQuery(
           () =>
             supabase
               .from("categories")
@@ -978,8 +1075,26 @@ export async function pullFreshCloudStateToLocalStore(options?: {
           10000,
           "Cloud pull categories",
           1,
-        ),
-        safeTimedQuery(
+        );
+        if (!full.error) return full;
+        if (isSchemaOrRelationError(full.error)) {
+          return safeTimedQuery(
+            () =>
+              supabase
+                .from("categories")
+                .select("id, name")
+                .order("name", { ascending: true })
+                .limit(500),
+            10000,
+            "Cloud pull categories fallback",
+            1,
+          );
+        }
+        return full;
+      };
+
+      const fetchExpensesSafe = async () => {
+        const full = await safeTimedQuery(
           () =>
             supabase
               .from("expenses")
@@ -989,71 +1104,137 @@ export async function pullFreshCloudStateToLocalStore(options?: {
           10000,
           "Cloud pull expenses",
           1,
-        ),
+        );
+        if (!full.error) return full;
+        if (isSchemaOrRelationError(full.error)) {
+          return safeTimedQuery(
+            () =>
+              supabase
+                .from("expenses")
+                .select("id, category, amount, expense_date, created_at")
+                .order("expense_date", { ascending: false })
+                .limit(1000),
+            10000,
+            "Cloud pull expenses fallback",
+            1,
+          );
+        }
+        return full;
+      };
+
+      const [ordersRes, colsRes, custRes, prodRes, catRes, expRes] = await Promise.allSettled([
+        fetchOrdersSafe(),
+        fetchCollectionsSafe(),
+        fetchCustomersSafe(),
+        fetchProductsSafe(),
+        fetchCategoriesSafe(),
+        fetchExpensesSafe(),
       ]);
 
       await yieldToUI();
       const updatedTables: string[] = [];
       const tableErrors: Array<{ table: string; error: any }> = [];
 
-      if (!ordersRes.error && Array.isArray(ordersRes.data)) {
-        reconcileOrdersWithRemote(ordersRes.data as any, { persist: true, maxCache: 500 });
-        updatedTables.push("orders");
-      } else if (ordersRes.error) {
-        tableErrors.push({ table: "orders", error: ordersRes.error });
+      // 1. ORDERS
+      try {
+        const res = ordersRes.status === "fulfilled" ? ordersRes.value : { data: null, error: ordersRes.reason };
+        if (!res.error && Array.isArray(res.data)) {
+          reconcileOrdersWithRemote(res.data as any, { persist: true, maxCache: 500 });
+          updatedTables.push("orders");
+        } else if (res.error) {
+          tableErrors.push({ table: "orders", error: res.error });
+        }
+      } catch (e) {
+        tableErrors.push({ table: "orders", error: e });
+        console.warn("[CloudSync] Orders reconcile notice:", e);
       }
 
-      if (!colsRes.error && Array.isArray(colsRes.data)) {
-        reconcileCollectionsWithRemote(colsRes.data as any, { persist: true, maxCache: 1000 });
-        updatedTables.push("collections");
-      } else if (colsRes.error) {
-        tableErrors.push({ table: "collections", error: colsRes.error });
+      // 2. COLLECTIONS
+      try {
+        const res = colsRes.status === "fulfilled" ? colsRes.value : { data: null, error: colsRes.reason };
+        if (!res.error && Array.isArray(res.data)) {
+          reconcileCollectionsWithRemote(res.data as any, { persist: true, maxCache: 1000 });
+          updatedTables.push("collections");
+        } else if (res.error) {
+          tableErrors.push({ table: "collections", error: res.error });
+        }
+      } catch (e) {
+        tableErrors.push({ table: "collections", error: e });
+        console.warn("[CloudSync] Collections reconcile notice:", e);
       }
 
-      if (!custRes.error && Array.isArray(custRes.data)) {
-        mergeAndEnrichCustomers(custRes.data as any, { persist: true });
-        updatedTables.push("customers");
-      } else if (custRes.error) {
-        tableErrors.push({ table: "customers", error: custRes.error });
+      // 3. CUSTOMERS
+      try {
+        const res = custRes.status === "fulfilled" ? custRes.value : { data: null, error: custRes.reason };
+        if (!res.error && Array.isArray(res.data)) {
+          mergeAndEnrichCustomers(res.data as any, { persist: true });
+          updatedTables.push("customers");
+        } else if (res.error) {
+          tableErrors.push({ table: "customers", error: res.error });
+        }
+      } catch (e) {
+        tableErrors.push({ table: "customers", error: e });
+        console.warn("[CloudSync] Customers reconcile notice:", e);
       }
 
-      if (!prodRes.error && Array.isArray(prodRes.data)) {
-        reconcileProductsWithRemote(prodRes.data as any, { persist: true });
-        updatedTables.push("products");
-      } else if (prodRes.error) {
-        tableErrors.push({ table: "products", error: prodRes.error });
+      // 4. PRODUCTS
+      try {
+        const res = prodRes.status === "fulfilled" ? prodRes.value : { data: null, error: prodRes.reason };
+        if (!res.error && Array.isArray(res.data)) {
+          reconcileProductsWithRemote(res.data as any, { persist: true });
+          updatedTables.push("products");
+        } else if (res.error) {
+          tableErrors.push({ table: "products", error: res.error });
+        }
+      } catch (e) {
+        tableErrors.push({ table: "products", error: e });
+        console.warn("[CloudSync] Products reconcile notice:", e);
       }
 
-      if (!catRes.error && Array.isArray(catRes.data)) {
-        const localCats = getLocalData<any[]>(STORAGE_KEYS.CATEGORIES, []);
-        const remoteCatIdSet = new Set(catRes.data.map((c: any) => String(c.id)));
-        const pendingCats = (Array.isArray(localCats) ? localCats : []).filter(
-          (lc) => lc && !remoteCatIdSet.has(String(lc.id)) && isPendingOfflineRecord(lc),
-        );
-        setLocalData(STORAGE_KEYS.CATEGORIES, [...pendingCats, ...catRes.data], null, true);
-        updatedTables.push("categories");
-      } else if (catRes.error) {
-        tableErrors.push({ table: "categories", error: catRes.error });
+      // 5. CATEGORIES
+      try {
+        const res = catRes.status === "fulfilled" ? catRes.value : { data: null, error: catRes.reason };
+        if (!res.error && Array.isArray(res.data)) {
+          const localCats = getLocalData<any[]>(STORAGE_KEYS.CATEGORIES, []);
+          const remoteCatIdSet = new Set(res.data.map((c: any) => String(c.id)));
+          const pendingCats = (Array.isArray(localCats) ? localCats : []).filter(
+            (lc) => lc && !remoteCatIdSet.has(String(lc.id)) && isPendingOfflineRecord(lc),
+          );
+          setLocalData(STORAGE_KEYS.CATEGORIES, [...pendingCats, ...res.data], null, true);
+          updatedTables.push("categories");
+        } else if (res.error) {
+          tableErrors.push({ table: "categories", error: res.error });
+        }
+      } catch (e) {
+        tableErrors.push({ table: "categories", error: e });
+        console.warn("[CloudSync] Categories reconcile notice:", e);
       }
 
-      if (!expRes.error && Array.isArray(expRes.data)) {
-        const deletedExpIds = getDeletedIds(STORAGE_KEYS.DELETED_EXPENSES);
-        const validRemoteExp = expRes.data.filter(
-          (e: any) => e && !deletedExpIds.has(String(e.id)),
-        );
-        const remoteExpIdSet = new Set(validRemoteExp.map((e: any) => String(e.id)));
-        const localExp = getLocalData<any[]>(STORAGE_KEYS.EXPENSES, []);
-        const pendingExp = (Array.isArray(localExp) ? localExp : []).filter(
-          (le) =>
-            le &&
-            !deletedExpIds.has(String(le.id)) &&
-            !remoteExpIdSet.has(String(le.id)) &&
-            isPendingOfflineRecord(le),
-        );
-        setLocalData(STORAGE_KEYS.EXPENSES, [...pendingExp, ...validRemoteExp], null, true);
-        updatedTables.push("expenses");
-      } else if (expRes.error) {
-        tableErrors.push({ table: "expenses", error: expRes.error });
+      // 6. EXPENSES
+      try {
+        const res = expRes.status === "fulfilled" ? expRes.value : { data: null, error: expRes.reason };
+        if (!res.error && Array.isArray(res.data)) {
+          const deletedExpIds = getDeletedIds(STORAGE_KEYS.DELETED_EXPENSES);
+          const validRemoteExp = res.data.filter(
+            (e: any) => e && !deletedExpIds.has(String(e.id)),
+          );
+          const remoteExpIdSet = new Set(validRemoteExp.map((e: any) => String(e.id)));
+          const localExp = getLocalData<any[]>(STORAGE_KEYS.EXPENSES, []);
+          const pendingExp = (Array.isArray(localExp) ? localExp : []).filter(
+            (le) =>
+              le &&
+              !deletedExpIds.has(String(le.id)) &&
+              !remoteExpIdSet.has(String(le.id)) &&
+              isPendingOfflineRecord(le),
+          );
+          setLocalData(STORAGE_KEYS.EXPENSES, [...pendingExp, ...validRemoteExp], null, true);
+          updatedTables.push("expenses");
+        } else if (res.error) {
+          tableErrors.push({ table: "expenses", error: res.error });
+        }
+      } catch (e) {
+        tableErrors.push({ table: "expenses", error: e });
+        console.warn("[CloudSync] Expenses reconcile notice:", e);
       }
 
       if (updatedTables.length > 0 && !options?.silent) {
