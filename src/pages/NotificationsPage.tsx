@@ -18,6 +18,7 @@ import {
   clearReadNotifications,
   getDeletedIds,
 } from "@/utils/localStore";
+import { sanitizePayload } from "@/lib/payloadSanitizer";
 
 const typeIcons: Record<string, any> = {
   "Due Reminder": DollarSign,
@@ -168,7 +169,8 @@ export function NotificationsPage() {
       if (toInsert.length > 0) {
         let insertedRows: any[] = [];
         try {
-          const { data, error } = await supabase.from("notifications").insert(toInsert).select();
+          const sanitizedPayloads = toInsert.map((item) => sanitizePayload("notifications", item));
+          const { data, error } = await supabase.from("notifications").insert(sanitizedPayloads).select();
           if (!error && data && data.length > 0) {
             insertedRows = data.map((r: any, idx: number) => ({
               ...r,
@@ -176,17 +178,6 @@ export function NotificationsPage() {
               messageKey: toInsert[idx]?.messageKey ?? r.messageKey,
               params: toInsert[idx]?.params ?? r.params,
             }));
-          } else if (error) {
-            const sanitized = toInsert.map(({ titleKey, messageKey, params, ...rest }) => rest);
-            const retry = await supabase.from("notifications").insert(sanitized).select();
-            if (retry.data && retry.data.length > 0) {
-              insertedRows = retry.data.map((r: any, idx: number) => ({
-                ...r,
-                titleKey: toInsert[idx]?.titleKey,
-                messageKey: toInsert[idx]?.messageKey,
-                params: toInsert[idx]?.params,
-              }));
-            }
           }
         } catch {
           // Handled below

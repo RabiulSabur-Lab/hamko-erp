@@ -25,6 +25,15 @@ import {
 } from "./localStore";
 import { toast } from "sonner";
 import { exportJsonBackup } from "./export";
+import {
+  sanitizeCustomerPayload,
+  sanitizeOrderPayload,
+  sanitizeOrderItemPayload,
+  sanitizeCollectionPayload,
+  sanitizeExpensePayload,
+  sanitizeInventoryPayload,
+  sanitizeProductPayload,
+} from "@/lib/payloadSanitizer";
 
 export interface SyncProgress {
   phase: string;
@@ -516,7 +525,7 @@ export async function pushAllLocalDataToSupabase(
 
       const customerId = isValidUUID(c.id) ? c.id : generateUUID();
 
-      const custPayload = {
+      const custPayload = sanitizeCustomerPayload({
         id: customerId,
         name: (c.outlet_name || c.name).trim(),
         customer_type: custType,
@@ -536,7 +545,7 @@ export async function pushAllLocalDataToSupabase(
         assigned_to: isValidUUID(c.assigned_to) ? c.assigned_to : null,
         is_active: c.is_active !== false,
         updated_at: new Date().toISOString(),
-      };
+      });
 
       let { error } = await safeTimedQuery(
         supabase.from("customers").upsert(custPayload, { onConflict: "id" }),
@@ -546,11 +555,11 @@ export async function pushAllLocalDataToSupabase(
 
       if (error && (error.code === "23503" || error.message?.includes("foreign key"))) {
         console.warn(`Customer "${c.name}" FK mismatch; retrying with nullified assigned_to & territory_id:`, error.message);
-        const fallbackPayload = {
+        const fallbackPayload = sanitizeCustomerPayload({
           ...custPayload,
           assigned_to: null,
           territory_id: null,
-        };
+        });
         const retryRes = await safeTimedQuery(
           supabase.from("customers").upsert(fallbackPayload, { onConflict: "id" }),
           10000,
@@ -626,7 +635,7 @@ export async function pushAllLocalDataToSupabase(
 
       const orderTotal = Number(o.total_amount) || 0;
       const orderPaid = Number(o.paid_amount) || 0;
-      const orderPayload = {
+      const orderPayload = sanitizeOrderPayload({
         id: orderId,
         order_number: o.order_number.trim(),
         customer_id: targetCustId,
@@ -642,7 +651,7 @@ export async function pushAllLocalDataToSupabase(
         payment_status: normalizePaymentStatus(o.payment_status, orderPaid, orderTotal),
         notes: o.notes || null,
         updated_at: new Date().toISOString(),
-      };
+      });
 
       const { error: orderError } = await safeTimedQuery(
         supabase.from("orders").upsert(orderPayload, { onConflict: "order_number" }),
@@ -668,7 +677,7 @@ export async function pushAllLocalDataToSupabase(
             }
 
             if (prodId && validProdIds.has(prodId)) {
-              const itemPayload = {
+              const itemPayload = sanitizeOrderItemPayload({
                 id: isValidUUID(item.id) ? item.id : generateUUID(),
                 order_id: orderId,
                 product_id: prodId,
@@ -676,7 +685,8 @@ export async function pushAllLocalDataToSupabase(
                 unit_price: Number(item.unit_price) || 0,
                 discount: Number(item.discount) || 0,
                 subtotal: Number(item.subtotal) || (Number(item.quantity || 1) * Number(item.unit_price || 0)),
-              };
+                price_tier: item.price_tier || "DP",
+              });
 
               // Attempt insert first to avoid PostgREST RLS UPDATE policy violations on existing items
               const { error: itemError } = await safeTimedQuery(
@@ -740,7 +750,7 @@ export async function pushAllLocalDataToSupabase(
       const colAmount = Number(col.amount) || 0;
       if (colAmount <= 0) continue;
 
-      const colPayload = {
+      const colPayload = sanitizeCollectionPayload({
         id: isValidUUID(col.id) ? col.id : generateUUID(),
         collection_number: col.collection_number.trim(),
         customer_id: custId,
@@ -750,7 +760,7 @@ export async function pushAllLocalDataToSupabase(
         collection_date: col.collection_date || new Date().toISOString().slice(0, 10),
         collected_by: isValidUUID((col as any).collected_by) ? (col as any).collected_by : null,
         notes: col.notes || null,
-      };
+      });
 
       const { error: colError } = await safeTimedQuery(
         supabase.from("collections").upsert(colPayload, { onConflict: "collection_number" }),
@@ -783,7 +793,7 @@ export async function pushAllLocalDataToSupabase(
       const expAmount = Number(exp.amount) || 0;
       if (expAmount <= 0) continue;
 
-      const expPayload = {
+      const expPayload = sanitizeExpensePayload({
         id: isValidUUID(exp.id) ? exp.id : generateUUID(),
         category: exp.category,
         description: exp.description || exp.category,
@@ -791,7 +801,7 @@ export async function pushAllLocalDataToSupabase(
         expense_date: exp.expense_date || exp.date || new Date().toISOString().slice(0, 10),
         recorded_by: isValidUUID(exp.recorded_by) ? exp.recorded_by : null,
         notes: exp.notes || null,
-      };
+      });
 
       const { error: expError } = await safeTimedQuery(
         supabase.from("expenses").upsert(expPayload, { onConflict: "id" }),
@@ -819,12 +829,12 @@ export async function pushAllLocalDataToSupabase(
       if (!inv || !inv.product_id) continue;
 
       if (inv.product_id && validProdIds.has(String(inv.product_id))) {
-        const invPayload = {
+        const invPayload = sanitizeInventoryPayload({
           product_id: inv.product_id,
           warehouse: inv.warehouse === "Main Warehouse" ? "Main" : (inv.warehouse || "Main"),
           quantity: Math.max(0, Math.round(Number(inv.quantity) || 0)),
           updated_at: new Date().toISOString(),
-        };
+        });
 
         const { error: invError } = await safeTimedQuery(
           supabase.from("inventory").upsert(invPayload, { onConflict: "product_id,warehouse" }),

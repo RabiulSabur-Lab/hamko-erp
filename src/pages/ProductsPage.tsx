@@ -36,6 +36,7 @@ import {
   DEFAULT_TIER_NAMES,
   calculateDefaultPriceTiers,
 } from "@/utils/productUtils";
+import { sanitizeProductPayload, executeWithSchemaResilience } from "@/lib/payloadSanitizer";
 
 export interface Category {
   id: string;
@@ -411,42 +412,14 @@ export function ProductsPage() {
 
     console.log("Adding product payload:", payload);
 
-    let res: any = null;
-    const currentPayload: Record<string, any> = { ...payload };
-
-    for (let attempt = 0; attempt < 6; attempt++) {
-      res = await supabase
+    const cleanPayload = sanitizeProductPayload(payload, true);
+    const res = await executeWithSchemaResilience("products", cleanPayload, (p) =>
+      supabase
         .from("products")
-        .insert(currentPayload)
+        .insert(p)
         .select("*, category:categories(*)")
-        .single();
-
-      if (!res.error && res.data) {
-        break;
-      }
-
-      const match = res.error?.message?.match(/Could not find the '([^']+)' column/i);
-      if (match && match[1] && match[1] in currentPayload) {
-        console.warn(`Retrying insert without missing column '${match[1]}' due to schema cache:`, res.error?.message);
-        delete currentPayload[match[1]];
-        continue;
-      }
-
-      if (res.error?.message?.includes("distributor_price") && "distributor_price" in currentPayload) {
-        delete currentPayload.distributor_price;
-        continue;
-      }
-      if (res.error?.message?.includes("brand") && "brand" in currentPayload) {
-        delete currentPayload.brand;
-        continue;
-      }
-      if (res.error?.message?.includes("price_tiers") && "price_tiers" in currentPayload) {
-        delete currentPayload.price_tiers;
-        continue;
-      }
-
-      break;
-    }
+        .single(),
+    );
 
     if (res.error || !res.data) {
       console.error("Supabase product insert error:", res.error);
@@ -501,43 +474,15 @@ export function ProductsPage() {
 
     console.log("Updating product payload:", payload);
 
-    let res: any = null;
-    const currentPayload: Record<string, any> = { ...payload };
-
-    for (let attempt = 0; attempt < 6; attempt++) {
-      res = await supabase
+    const cleanPayload = sanitizeProductPayload(payload);
+    const res = await executeWithSchemaResilience("products", cleanPayload, (p) =>
+      supabase
         .from("products")
-        .update(currentPayload)
+        .update(p)
         .eq("id", id)
         .select("*, category:categories(*)")
-        .single();
-
-      if (!res.error && res.data) {
-        break;
-      }
-
-      const match = res.error?.message?.match(/Could not find the '([^']+)' column/i);
-      if (match && match[1] && match[1] in currentPayload) {
-        console.warn(`Retrying update without missing column '${match[1]}' due to schema cache:`, res.error?.message);
-        delete currentPayload[match[1]];
-        continue;
-      }
-
-      if (res.error?.message?.includes("distributor_price") && "distributor_price" in currentPayload) {
-        delete currentPayload.distributor_price;
-        continue;
-      }
-      if (res.error?.message?.includes("brand") && "brand" in currentPayload) {
-        delete currentPayload.brand;
-        continue;
-      }
-      if (res.error?.message?.includes("price_tiers") && "price_tiers" in currentPayload) {
-        delete currentPayload.price_tiers;
-        continue;
-      }
-
-      break;
-    }
+        .single(),
+    );
 
     if (res.error || !res.data) {
       console.error("Supabase product update error:", res.error);

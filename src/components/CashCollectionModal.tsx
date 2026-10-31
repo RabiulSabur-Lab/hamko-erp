@@ -31,6 +31,13 @@ import {
   generateCollectionNumber,
 } from "@/utils/localStore";
 import { normalizePaymentMethod } from "@/utils/cloudSync";
+import {
+  sanitizeCollectionPayload,
+  sanitizeExpensePayload,
+  sanitizeCustomerPayload,
+  sanitizeOrderPayload,
+  executeWithSchemaResilience,
+} from "@/lib/payloadSanitizer";
 
 export const PAYMENT_METHODS = [
   "Cash",
@@ -358,7 +365,7 @@ export function CashCollectionModal({
         const existingExpenses = getLocalData<Expense[]>(STORAGE_KEYS.EXPENSES, []);
         saveExpenses([discountExpense, ...existingExpenses]);
 
-        supabase.from("expenses").insert({
+        const cleanExpensePayload = sanitizeExpensePayload({
           id: discountExpense.id,
           category: "Settlement Discount",
           description: discountExpense.description,
@@ -366,7 +373,9 @@ export function CashCollectionModal({
           expense_date: discountExpense.expense_date,
           recorded_by: profile?.id || null,
           notes: discountExpense.notes,
-        }).then(undefined, (err) => console.warn("Supabase settlement discount expense insert notice:", err));
+        }, true);
+
+        supabase.from("expenses").insert(cleanExpensePayload).then(undefined, (err) => console.warn("Supabase settlement discount expense insert notice:", err));
       }
 
       // 1. Instant local optimistic mutation
@@ -467,33 +476,29 @@ export function CashCollectionModal({
 
       // 4. Remote Supabase persistence (strictly aligned with physical collections schema)
       try {
-        const normalizedMethod = normalizePaymentMethod(paymentMethod || "Cash");
-        const collectionPayload: Record<string, any> = {
+        const cleanColPayload = sanitizeCollectionPayload({
           collection_number: colNum,
           customer_id: customerId,
           order_id: orderId || null,
           amount: amt,
-          payment_method: normalizedMethod,
+          payment_method: paymentMethod || "Cash",
           collection_date: collectionDate ? new Date(collectionDate).toISOString() : new Date().toISOString(),
           collected_by: profile?.id || null,
           notes: finalNote || null,
-        };
+        }, !isEditing);
 
         if (isEditing) {
-          const { error: updErr } = await supabase
-            .from("collections")
-            .update(collectionPayload)
-            .eq("id", colId);
+          const { error: updErr } = await executeWithSchemaResilience("collections", cleanColPayload, (p) =>
+            supabase.from("collections").update(p).eq("id", colId),
+          );
           if (updErr) {
             toast.error("Cloud collection update error: " + updErr.message);
             return;
           }
         } else {
-          const { data: insertData, error: insErr } = await supabase
-            .from("collections")
-            .insert(collectionPayload)
-            .select()
-            .single();
+          const { data: insertData, error: insErr } = await executeWithSchemaResilience("collections", cleanColPayload, (p) =>
+            supabase.from("collections").insert(p).select().single(),
+          );
 
           if (insErr || !insertData?.id) {
             toast.error("Cloud collection record error: " + (insErr?.message || "Failed to persist collection"));
@@ -502,26 +507,31 @@ export function CashCollectionModal({
 
           const refreshedCols: Collection[] = getLocalData<Collection[]>(STORAGE_KEYS.COLLECTIONS, []);
           const reconciled: Collection[] = refreshedCols.map((item: Collection) =>
-            item.id === colId ? ({ ...item, id: insertData.id, is_offline: false } as Collection) : item
+            item.id === colId ? ({ ...item, id: insertData.id, is_offline: false } as Collection) : item,
           );
           saveCollections(reconciled);
         }
 
         if (targetCustomer) {
+          const cleanCustUpdate = sanitizeCustomerPayload({
+            current_due: updatedCustDue,
+            due_status: updatedCustStatus,
+          });
           await supabase
             .from("customers")
-            .update({ current_due: updatedCustDue, due_status: updatedCustStatus })
+            .update(cleanCustUpdate)
             .eq("id", targetCustomer.id);
         }
 
         if (targetOrder) {
+          const cleanOrdUpdate = sanitizeOrderPayload({
+            paid_amount: updatedOrderPaid,
+            due_amount: updatedOrderDue,
+            payment_status: updatedOrderStatus,
+          });
           await supabase
             .from("orders")
-            .update({
-              paid_amount: updatedOrderPaid,
-              due_amount: updatedOrderDue,
-              payment_status: updatedOrderStatus,
-            })
+            .update(cleanOrdUpdate)
             .eq("id", targetOrder.id);
         }
 

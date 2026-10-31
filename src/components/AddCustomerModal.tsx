@@ -29,6 +29,7 @@ import {
   dispatchGlobalStateUpdate,
 } from "@/utils/localStore";
 import { AreaManagementModal } from "./AreaManagementModal";
+import { sanitizeCustomerPayload, executeWithSchemaResilience } from "@/lib/payloadSanitizer";
 
 export { generatePartyCode };
 
@@ -670,10 +671,10 @@ export function AddCustomerModal({
             updated_at: new Date().toISOString(),
           };
 
-          const res = await supabase
-            .from("customers")
-            .update(supabasePayload)
-            .eq("id", customer.id);
+          const cleanPayload = sanitizeCustomerPayload(supabasePayload);
+          const res = await executeWithSchemaResilience("customers", cleanPayload, (p) =>
+            supabase.from("customers").update(p).eq("id", customer.id),
+          );
 
           if (res.error) {
             toast.error("Failed to update customer: " + res.error.message);
@@ -711,7 +712,7 @@ export function AddCustomerModal({
           ? payload.due_status
           : (Number(payload.current_due || 0) > 0 ? "Partial" : "Clear");
 
-        const supabasePayload: Record<string, any> = {
+        const rawSupabasePayload: Record<string, any> = {
           id: newUuid,
           name: outletName,
           customer_type: validCustType,
@@ -730,21 +731,19 @@ export function AddCustomerModal({
           is_active: finalIsActive,
         };
 
-        let res = await supabase
-          .from("customers")
-          .insert(supabasePayload)
-          .select()
-          .single();
+        const cleanPayload = sanitizeCustomerPayload(rawSupabasePayload, true);
+
+        let res = await executeWithSchemaResilience("customers", cleanPayload, (p) =>
+          supabase.from("customers").insert(p).select().single(),
+        );
 
         // If FK constraint fails on assigned_to, retry with assigned_to: null
         if (res.error && (res.error.code === "23503" || res.error.message?.includes("foreign key"))) {
           console.warn("[AddCustomer] FK violation on assigned_to; retrying with assigned_to: null:", res.error.message);
-          supabasePayload.assigned_to = null;
-          res = await supabase
-            .from("customers")
-            .insert(supabasePayload)
-            .select()
-            .single();
+          cleanPayload.assigned_to = null;
+          res = await executeWithSchemaResilience("customers", cleanPayload, (p) =>
+            supabase.from("customers").insert(p).select().single(),
+          );
         }
 
         if (res.error || !res.data) {

@@ -29,6 +29,13 @@ import {
   type UserLookupInfo,
 } from "@/services/userService";
 import { useUsers } from "@/context/UsersContext";
+import {
+  sanitizeCollectionPayload,
+  sanitizeExpensePayload,
+  sanitizeCustomerPayload,
+  sanitizeOrderPayload,
+  executeWithSchemaResilience,
+} from "@/lib/payloadSanitizer";
 
 import {
   STORAGE_KEYS,
@@ -844,14 +851,13 @@ export function AccountsPage() {
 
           // B. Direct table insert fallback if RPC did not save or is not configured
           if (!savedId) {
-            const { data: insertData, error: insertError } = await supabase
-              .from("collections")
-              .insert(collectionPayload)
-              .select()
-              .single();
+            const cleanCol = sanitizeCollectionPayload(collectionPayload, true);
+            const { data: insertData, error: insertError } = await executeWithSchemaResilience("collections", cleanCol, (p) =>
+              supabase.from("collections").insert(p).select().single(),
+            );
 
             if (insertError) {
-              console.warn("Direct collections insert error (queued offline):", insertError.message);
+              console.warn("Direct collections insert error:", insertError.message);
             } else if (insertData?.id) {
               savedId = insertData.id;
             }
@@ -871,12 +877,13 @@ export function AccountsPage() {
           // D. Requirement 1: Automatically update the corresponding customer's current_due in Supabase
           if (customer) {
             try {
+              const cleanCust = sanitizeCustomerPayload({
+                current_due: updatedCustDue,
+                due_status: updatedCustStatus,
+              });
               const { error: custErr } = await supabase
                 .from("customers")
-                .update({
-                  current_due: updatedCustDue,
-                  due_status: updatedCustStatus,
-                })
+                .update(cleanCust)
                 .eq("id", customer.id);
               if (custErr) console.warn("Supabase customer due update notice:", custErr.message);
             } catch (custEx) {
@@ -887,13 +894,14 @@ export function AccountsPage() {
           // E. Update order in Supabase if linked
           if (order) {
             try {
+              const cleanOrd = sanitizeOrderPayload({
+                paid_amount: updatedOrderPaid,
+                due_amount: updatedOrderDue,
+                payment_status: updatedOrderStatus,
+              });
               const { error: ordErr } = await supabase
                 .from("orders")
-                .update({
-                  paid_amount: updatedOrderPaid,
-                  due_amount: updatedOrderDue,
-                  payment_status: updatedOrderStatus,
-                })
+                .update(cleanOrd)
                 .eq("id", order.id);
               if (ordErr) console.warn("Supabase order paid/due update notice:", ordErr.message);
             } catch (ordEx) {
@@ -932,14 +940,18 @@ export function AccountsPage() {
         window.dispatchEvent(new Event("sales_erp_storage_update"));
 
         // 2. Background persistence
-        supabase.from("expenses").insert({
+        const cleanExpense = sanitizeExpensePayload({
           category: form.category,
           description: form.description,
           amount: amt,
           expense_date: form.expense_date,
           recorded_by: profile?.id,
           notes: form.notes,
-        }).select().single().then(({ data, error }) => {
+        }, true);
+
+        executeWithSchemaResilience("expenses", cleanExpense, (p) =>
+          supabase.from("expenses").insert(p).select().single(),
+        ).then(({ data, error }) => {
           if (!error && data) {
             setExpenses((prev) => {
               const reconciled = prev.map((item) =>

@@ -263,6 +263,7 @@ export function filterProductPayloadForSupabase(payload: Record<string, any>): R
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
+import { sanitizeProductPayload, executeWithSchemaResilience } from "@/lib/payloadSanitizer";
 
 /**
  * React Query mutation hook for updating products in Supabase.
@@ -274,46 +275,17 @@ export function useUpdateProduct() {
 
   return useMutation({
     mutationFn: async ({ id, payload }: { id: string; payload: Record<string, any> }) => {
-      const cleanPayload = filterProductPayloadForSupabase(payload);
+      const cleanPayload = sanitizeProductPayload(payload);
       console.log("Updating product payload:", cleanPayload);
 
-      let res: any = null;
-      const currentPayload: Record<string, any> = { ...cleanPayload };
-
-      for (let attempt = 0; attempt < 6; attempt++) {
-        res = await supabase
+      const res = await executeWithSchemaResilience("products", cleanPayload, (p) =>
+        supabase
           .from("products")
-          .update(currentPayload)
+          .update(p)
           .eq("id", id)
           .select("*, category:categories(*)")
-          .single();
-
-        if (!res.error && res.data) {
-          break;
-        }
-
-        const match = res.error?.message?.match(/Could not find the '([^']+)' column/i);
-        if (match && match[1] && match[1] in currentPayload) {
-          console.warn(`Retrying update without missing column '${match[1]}' due to schema cache:`, res.error?.message);
-          delete currentPayload[match[1]];
-          continue;
-        }
-
-        if (res.error?.message?.includes("distributor_price") && "distributor_price" in currentPayload) {
-          delete currentPayload.distributor_price;
-          continue;
-        }
-        if (res.error?.message?.includes("brand") && "brand" in currentPayload) {
-          delete currentPayload.brand;
-          continue;
-        }
-        if (res.error?.message?.includes("price_tiers") && "price_tiers" in currentPayload) {
-          delete currentPayload.price_tiers;
-          continue;
-        }
-
-        break;
-      }
+          .single(),
+      );
 
       if (res.error || !res.data) {
         console.error("Supabase product update error:", res.error);

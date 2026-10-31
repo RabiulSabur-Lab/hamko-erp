@@ -45,6 +45,14 @@ import {
 } from "@/utils/localStore";
 import { normalizePaymentMethod } from "@/utils/cloudSync";
 import { sanitizeFormulaInput, formatTierLabel, calculateDefaultPriceTiers, DEFAULT_TIER_NAMES } from "@/utils/productUtils";
+import {
+  sanitizeOrderPayload,
+  sanitizeOrderItemPayload,
+  sanitizeCollectionPayload,
+  sanitizeStockTxPayload,
+  sanitizeCustomerPayload,
+  executeWithSchemaResilience,
+} from "@/lib/payloadSanitizer";
 
 export interface OrderItemRow {
   product_id: string;
@@ -869,17 +877,7 @@ export function OrderCreate() {
           setLocalData(STORAGE_KEYS.TRANSACTIONS, [...newTransactions, ...existingTx]);
 
           try {
-            const dbTxPayload = newTransactions.map((tx) => ({
-              product_id: tx.product_id,
-              transaction_type: tx.transaction_type,
-              quantity: tx.quantity,
-              from_warehouse: tx.from_warehouse,
-              to_warehouse: tx.to_warehouse,
-              reference: tx.reference,
-              notes: tx.notes,
-              performed_by: tx.performed_by,
-              transaction_date: tx.transaction_date,
-            }));
+            const dbTxPayload = newTransactions.map((tx) => sanitizeStockTxPayload(tx, true));
             supabase
               .from("stock_transactions")
               .insert(dbTxPayload)
@@ -892,7 +890,7 @@ export function OrderCreate() {
 
       // 5. Direct Supabase Central Database Insert: Order FIRST, then Collection & Order Items SECOND
       try {
-        const { error: ordErr } = await supabase.from("orders").insert({
+        const cleanOrderPayload = sanitizeOrderPayload({
           id: orderId,
           order_number: orderNumber,
           customer_id: customerId,
@@ -908,7 +906,11 @@ export function OrderCreate() {
           payment_status: finalDbPaymentStatus,
           notes: newOrderRecord.notes,
           created_at: nowIso,
-        });
+        }, true);
+
+        const { error: ordErr } = await executeWithSchemaResilience("orders", cleanOrderPayload, (p) =>
+          supabase.from("orders").insert(p),
+        );
 
         if (ordErr) {
           toast.error(`Server order creation failed: ${ordErr.message}`);
@@ -916,33 +918,40 @@ export function OrderCreate() {
         }
 
         if (additionalCashPaid > 0) {
-          const { error: colErr } = await supabase.from("collections").insert({
+          const cleanColPayload = sanitizeCollectionPayload({
             id: colId,
             collection_number: colNumber,
             customer_id: customerId,
             order_id: orderId,
             amount: additionalCashPaid,
-            payment_method: normalizePaymentMethod(paymentMethod),
+            payment_method: paymentMethod,
             collection_date: newOrderRecord.order_date || nowIso,
             collected_by: currentUserId,
             notes: `Payment for order ${orderNumber} (${paymentStatusType})`,
             created_at: colCreatedIso,
-          });
+          }, true);
+
+          const { error: colErr } = await executeWithSchemaResilience("collections", cleanColPayload, (p) =>
+            supabase.from("collections").insert(p),
+          );
           if (colErr) {
             console.warn("Supabase collection insert notice:", colErr.message);
           }
         }
 
-        const { error: itemsErr } = await supabase.from("order_items").insert(
-          sanitizedItems.map((it) => ({
+        const cleanItemsPayload = sanitizedItems.map((it) =>
+          sanitizeOrderItemPayload({
             order_id: orderId,
             product_id: it.product_id,
             quantity: it.quantity,
             unit_price: it.unit_price,
             discount: it.discount,
             subtotal: it.subtotal,
-          })),
+            price_tier: it.price_tier || "DP",
+          }, true),
         );
+
+        const { error: itemsErr } = await supabase.from("order_items").insert(cleanItemsPayload);
         if (itemsErr) {
           console.warn("Supabase order_items insert notice:", itemsErr.message);
         }
@@ -951,9 +960,13 @@ export function OrderCreate() {
         const latestCustDetails = getCustomerLedgerDetails(customerId);
         const nextDue = r2(latestCustDetails.currentDue);
         const nextDueStatus = nextDue <= 0 ? "Clear" : "Partial";
+        const cleanCustUpdate = sanitizeCustomerPayload({
+          current_due: nextDue,
+          due_status: nextDueStatus,
+        });
         supabase
           .from("customers")
-          .update({ current_due: nextDue, due_status: nextDueStatus })
+          .update(cleanCustUpdate)
           .eq("id", customerId)
           .then(undefined, () => {});
       } catch (err: any) {

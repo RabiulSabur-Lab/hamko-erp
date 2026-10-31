@@ -39,6 +39,11 @@ import { SalesTargetModal } from "@/components/SalesTargetModal";
 import { LogVisitModal } from "@/components/LogVisitModal";
 import { EveningHandoverModal } from "@/components/EveningHandoverModal";
 import { useUsers } from "@/context/UsersContext";
+import {
+  sanitizeVisitPayload,
+  sanitizeSalesTargetPayload,
+  executeWithSchemaResilience,
+} from "@/lib/payloadSanitizer";
 
 import {
   STORAGE_KEYS,
@@ -419,11 +424,14 @@ export function SfaPage() {
 
         // 3. Explicitly await Supabase update query with .select()
         try {
-          const { data, error } = await supabase
-            .from("sales_targets")
-            .update(dbPayload)
-            .eq("id", targetId)
-            .select();
+          const cleanTarget = sanitizeSalesTargetPayload(dbPayload);
+          const { data, error } = await executeWithSchemaResilience("sales_targets", cleanTarget, (p) =>
+            supabase
+              .from("sales_targets")
+              .update(p)
+              .eq("id", targetId)
+              .select(),
+          );
 
           if (error) {
             console.error("Supabase sales target update error:", error.message || error);
@@ -474,17 +482,21 @@ export function SfaPage() {
 
         // 3. Supabase insert
         try {
-          const { data, error } = await supabase
-            .from("sales_targets")
-            .insert({
-              user_id: payload.user_id || null,
-              period: payload.period || "Monthly",
-              period_start: sDate,
-              period_end: eDate,
-              target_amount: amt,
-            })
-            .select()
-            .single();
+          const cleanTargetInsert = sanitizeSalesTargetPayload({
+            user_id: payload.user_id || null,
+            period: payload.period || "Monthly",
+            period_start: sDate,
+            period_end: eDate,
+            target_amount: amt,
+          }, true);
+
+          const { data, error } = await executeWithSchemaResilience("sales_targets", cleanTargetInsert, (p) =>
+            supabase
+              .from("sales_targets")
+              .insert(p)
+              .select()
+              .single(),
+          );
 
           if (!error && data) {
             setTargets((prev) => {
@@ -560,7 +572,7 @@ export function SfaPage() {
       setDialogOpen(false);
 
       // 2. Background persistence
-      supabase.from("visits").insert({
+      const cleanVisit = sanitizeVisitPayload({
         customer_id: payload.customer_id,
         visited_by: profile?.id,
         visit_date: payload.visit_date,
@@ -570,7 +582,11 @@ export function SfaPage() {
         purpose: payload.purpose,
         outcome: payload.outcome,
         notes: payload.notes,
-      }).select().single().then(({ data, error }) => {
+      }, true);
+
+      executeWithSchemaResilience("visits", cleanVisit, (p) =>
+        supabase.from("visits").insert(p).select().single(),
+      ).then(({ data, error }) => {
         if (!error && data) {
           setVisits((prev) => {
             const reconciled = prev.map((v) => (v.id === tempId ? (data as Visit) : v));

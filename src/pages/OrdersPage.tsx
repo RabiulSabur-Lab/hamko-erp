@@ -48,6 +48,14 @@ import {
   type UserLookupInfo,
 } from "@/services/userService";
 import { useUsers } from "@/context/UsersContext";
+import {
+  sanitizeOrderPayload,
+  sanitizeOrderItemPayload,
+  sanitizeCollectionPayload,
+  sanitizeStockTxPayload,
+  sanitizeCustomerPayload,
+  executeWithSchemaResilience,
+} from "@/lib/payloadSanitizer";
 
 import {
   STORAGE_KEYS,
@@ -944,23 +952,24 @@ export function OrdersPage() {
 
         // 4. Requirement 1: In Supabase, update order, delete/clear existing order_items, then insert updated items array
         try {
-          const { error: orderUpdateErr } = await supabase
-            .from("orders")
-            .update({
-              customer_id: orderFormData.customer_id,
-              status: orderFormData.status,
-              order_date: orderFormData.order_date || editingOrder.order_date || new Date().toISOString(),
-              delivery_date: orderFormData.delivery_date ? orderFormData.delivery_date : null,
-              notes: orderFormData.notes?.trim() || null,
-              discount: r2(Number(orderFormData.discount || 0)),
-              subtotal: r2(Number(orderFormData.subtotal || 0)),
-              total_amount: r2(Number(newTotal || 0)),
-              due_amount: r2(Number(editDue || 0)),
-              paid_amount: r2(Number(editPaid || 0)),
-              payment_status: editDbPayStatus,
-              updated_at: new Date().toISOString(),
-            })
-            .eq("id", editingOrder.id);
+          const cleanOrderUpdate = sanitizeOrderPayload({
+            customer_id: orderFormData.customer_id,
+            status: orderFormData.status,
+            order_date: orderFormData.order_date || editingOrder.order_date || new Date().toISOString(),
+            delivery_date: orderFormData.delivery_date ? orderFormData.delivery_date : null,
+            notes: orderFormData.notes?.trim() || null,
+            discount: r2(Number(orderFormData.discount || 0)),
+            subtotal: r2(Number(orderFormData.subtotal || 0)),
+            total_amount: r2(Number(newTotal || 0)),
+            due_amount: r2(Number(editDue || 0)),
+            paid_amount: r2(Number(editPaid || 0)),
+            payment_status: editDbPayStatus,
+            updated_at: new Date().toISOString(),
+          });
+
+          const { error: orderUpdateErr } = await executeWithSchemaResilience("orders", cleanOrderUpdate, (p) =>
+            supabase.from("orders").update(p).eq("id", editingOrder.id),
+          );
 
           if (orderUpdateErr) {
             console.warn("Supabase order update notice:", orderUpdateErr.message);
@@ -978,14 +987,17 @@ export function OrdersPage() {
 
           // Then insert the updated items array (strictly matching physical order_items columns)
           if (orderFormData.items.length > 0) {
-            const dbItemsPayload = orderFormData.items.map((it) => ({
-              order_id: editingOrder.id,
-              product_id: it.product_id,
-              quantity: Math.max(1, Math.round(Number(it.quantity) || 1)),
-              unit_price: r2(Number(it.unit_price) || 0),
-              discount: r2(Number(it.discount) || 0),
-              subtotal: r2(Number(it.subtotal) || 0),
-            }));
+            const dbItemsPayload = orderFormData.items.map((it) =>
+              sanitizeOrderItemPayload({
+                order_id: editingOrder.id,
+                product_id: it.product_id,
+                quantity: Math.max(1, Math.round(Number(it.quantity) || 1)),
+                unit_price: r2(Number(it.unit_price) || 0),
+                discount: r2(Number(it.discount) || 0),
+                subtotal: r2(Number(it.subtotal) || 0),
+                price_tier: it.price_tier || "DP",
+              }, true),
+            );
             const { error: itemsErr } = await supabase.from("order_items").insert(dbItemsPayload);
             if (itemsErr) console.warn("Supabase order_items re-insert notice:", itemsErr.message);
           }
@@ -1163,17 +1175,7 @@ export function OrdersPage() {
             setLocalData(STORAGE_KEYS.TRANSACTIONS, [...newTransactions, ...existingTx]);
 
             try {
-              const dbTxPayload = newTransactions.map((tx) => ({
-                product_id: tx.product_id,
-                transaction_type: tx.transaction_type,
-                quantity: tx.quantity,
-                from_warehouse: tx.from_warehouse,
-                to_warehouse: tx.to_warehouse,
-                reference: tx.reference,
-                notes: tx.notes,
-                performed_by: tx.performed_by,
-                transaction_date: tx.transaction_date,
-              }));
+              const dbTxPayload = newTransactions.map((tx) => sanitizeStockTxPayload(tx, true));
               supabase
                 .from("stock_transactions")
                 .insert(dbTxPayload)
@@ -1193,7 +1195,7 @@ export function OrdersPage() {
         setDialogOpen(false);
 
         // 2. Background persistence: Attempt RPC first, fallback to direct table inserts
-        const dbOrderPayload = {
+        const dbOrderPayload = sanitizeOrderPayload({
           id: tempId,
           order_number: orderNumber,
           customer_id: orderFormData.customer_id,
@@ -1208,22 +1210,24 @@ export function OrdersPage() {
           payment_status: dbPayStatus,
           notes: orderFormData.notes?.trim() || null,
           delivery_date: orderFormData.delivery_date ? orderFormData.delivery_date : null,
-        };
+        }, true);
 
         const persistLinkedCollectionRemotely = async (persistedOrderId: string) => {
           if (!pendingRemoteCollectionPayload) return;
           try {
-            const payloadToInsert = {
+            const payloadToInsert = sanitizeCollectionPayload({
               ...pendingRemoteCollectionPayload,
               order_id: persistedOrderId,
-            };
+            }, true);
             if (persistedOrderId !== tempId) {
               const cols = getCollections();
               saveCollections(
                 cols.map((c) => (c.id === pendingRemoteCollectionPayload?.id ? { ...c, order_id: persistedOrderId } : c))
               );
             }
-            const { error: colErr } = await supabase.from("collections").insert(payloadToInsert);
+            const { error: colErr } = await executeWithSchemaResilience("collections", payloadToInsert, (p) =>
+              supabase.from("collections").insert(p)
+            );
             if (colErr) {
               console.warn("Notice inserting collection to Supabase:", colErr.message);
             }
@@ -1248,11 +1252,9 @@ export function OrdersPage() {
 
         const insertDirectly = async () => {
           try {
-            const { data: orderData, error: orderErr } = await supabase
-              .from("orders")
-              .insert(dbOrderPayload)
-              .select("id")
-              .single();
+            const { data: orderData, error: orderErr } = await executeWithSchemaResilience("orders", dbOrderPayload, (p) =>
+              supabase.from("orders").insert(p).select("id").single(),
+            );
 
             if (orderErr) {
               console.warn("Direct Supabase order insert error (persisted locally):", orderErr.message);
@@ -1268,14 +1270,17 @@ export function OrdersPage() {
 
               // Insert line items (strictly matching physical order_items schema)
               if (orderFormData.items.length > 0) {
-                const dbItemsPayload = orderFormData.items.map((it) => ({
-                  order_id: realOrderId,
-                  product_id: it.product_id,
-                  quantity: Math.max(1, Math.round(Number(it.quantity) || 1)),
-                  unit_price: r2(Number(it.unit_price) || 0),
-                  discount: r2(Number(it.discount) || 0),
-                  subtotal: r2(Number(it.subtotal) || 0),
-                }));
+                const dbItemsPayload = orderFormData.items.map((it) =>
+                  sanitizeOrderItemPayload({
+                    order_id: realOrderId,
+                    product_id: it.product_id,
+                    quantity: Math.max(1, Math.round(Number(it.quantity) || 1)),
+                    unit_price: r2(Number(it.unit_price) || 0),
+                    discount: r2(Number(it.discount) || 0),
+                    subtotal: r2(Number(it.subtotal) || 0),
+                    price_tier: it.price_tier || "DP",
+                  }, true),
+                );
 
                 const { error: itemsErr } = await supabase
                   .from("order_items")
@@ -1290,9 +1295,13 @@ export function OrdersPage() {
               if (orderFormData.customer_id) {
                 try {
                   const ledgerRes = recalculateCustomerLedger(orderFormData.customer_id, undefined, undefined, { persist: true });
+                  const cleanCustUpdate = sanitizeCustomerPayload({
+                    current_due: ledgerRes.currentDue,
+                    due_status: ledgerRes.dueStatus,
+                  });
                   await supabase
                     .from("customers")
-                    .update({ current_due: ledgerRes.currentDue, due_status: ledgerRes.dueStatus })
+                    .update(cleanCustUpdate)
                     .eq("id", orderFormData.customer_id);
                 } catch (e) {
                   console.warn("Notice updating remote customer due on direct insert:", e);

@@ -31,6 +31,7 @@ import {
   adjustProductStock,
   getProducts,
 } from "@/utils/localStore";
+import { sanitizeStockTxPayload } from "@/lib/payloadSanitizer";
 
 export type StockType = "Stock In" | "Stock Out" | "Damage";
 const txTypes: readonly StockType[] = ["Stock In", "Stock Out", "Damage"] as const;
@@ -279,19 +280,20 @@ export function InventoryPage() {
         },
       }).then(({ error }) => {
         if (error) {
+          const cleanTx = sanitizeStockTxPayload({
+            product_id: form.product_id,
+            transaction_type: txType,
+            quantity: qty,
+            from_warehouse: "Main Warehouse",
+            to_warehouse: "Main Warehouse",
+            reference: form.reference?.trim() || null,
+            notes: form.notes?.trim() || null,
+            performed_by: profile?.id ?? null,
+            transaction_date: nowIso,
+          }, true);
           supabase
             .from("stock_transactions")
-            .insert({
-              product_id: form.product_id,
-              transaction_type: txType,
-              quantity: qty,
-              from_warehouse: "Main Warehouse",
-              to_warehouse: "Main Warehouse",
-              reference: form.reference?.trim() || null,
-              notes: form.notes?.trim() || null,
-              performed_by: profile?.id ?? null,
-              transaction_date: nowIso,
-            })
+            .insert(cleanTx)
             .then(undefined, (insErr) => console.warn("Direct stock_transactions insert notice:", insErr));
         }
       });
