@@ -30,6 +30,7 @@ import {
   isPendingOfflineRecord,
   adjustProductStock,
   getProducts,
+  dispatchGlobalStateUpdate,
 } from "@/utils/localStore";
 import { sanitizeStockTxPayload } from "@/lib/payloadSanitizer";
 
@@ -105,7 +106,12 @@ export function InventoryPage() {
           purchase_cost: p.purchase_cost ?? p.distributor_price ?? p.purchase_price ?? null,
           category: (p.category_id && catMap.has(p.category_id)) ? catMap.get(p.category_id) : (p.category || null),
         }));
-      setProducts([...refreshed].sort((a, b) => (a.name || "").localeCompare(b.name || "")));
+      if (refreshed.length > 0) {
+        setProducts([...refreshed].sort((a, b) => (a.name || "").localeCompare(b.name || "")));
+      }
+
+      // Always trigger live server fetch so secondary devices converge with cloud
+      void loadData();
     };
 
     const invChannel = supabase
@@ -152,9 +158,9 @@ export function InventoryPage() {
         : getLocalData(STORAGE_KEYS.CATEGORIES, []);
       const catMap = new Map(cachedCategories.map((c) => [c.id, c]));
 
-      let rawProductList: any[] | null = !pRes.error && Array.isArray(pRes.data) ? pRes.data : null;
+      let rawProductList: any[] | null = !pRes.error && Array.isArray(pRes.data) && pRes.data.length > 0 ? pRes.data : null;
       if (!rawProductList) {
-        console.warn("Inventory products joined select notice, attempting fallback query:", pRes?.error?.message);
+        console.warn("Inventory products joined select notice, attempting flat query fallback:", pRes?.error?.message);
         const fbRes = await supabase.from("products").select("*").order("name", { ascending: true });
         if (!fbRes.error && Array.isArray(fbRes.data)) {
           rawProductList = fbRes.data;
@@ -279,6 +285,8 @@ export function InventoryPage() {
 
       toast.success(`${txType} updated successfully`);
       setDialogOpen(false);
+      window.dispatchEvent(new Event("sales_erp_storage_update"));
+      dispatchGlobalStateUpdate({ type: "inventory_adjusted", recordId: form.product_id });
 
       // 3. Record stock transaction in Supabase via RPC or direct table insert fallback
       supabase.rpc("record_stock_transaction", {

@@ -389,33 +389,28 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
                   .limit(1000) as unknown as PromiseLike<{ data: Product[] | null; error: any }>,
               "Products query",
             );
-            if (!fullRes.error) return fullRes;
+            if (!fullRes.error && Array.isArray(fullRes.data) && fullRes.data.length > 0) return fullRes;
 
-            if (isSchemaOrRelationErr(fullRes.error)) {
-              const coreRes = await executeTimedQuery<Product>(
-                () =>
-                  supabase
-                    .from("products")
-                    .select(SUPABASE_TABLE_SELECTS.productsCoreFallback)
-                    .order("name", { ascending: true })
-                    .limit(1000) as unknown as PromiseLike<{ data: Product[] | null; error: any }>,
-                "Products fallback query",
-              );
-              if (!coreRes.error) return coreRes;
-              if (isSchemaOrRelationErr(coreRes.error)) {
-                return executeTimedQuery<Product>(
-                  () =>
-                    supabase
-                      .from("products")
-                      .select(SUPABASE_TABLE_SELECTS.productsFlatFallback)
-                      .order("name", { ascending: true })
-                      .limit(1000) as unknown as PromiseLike<{ data: Product[] | null; error: any }>,
-                  "Products flat fallback query",
-                );
-              }
-              return coreRes;
-            }
-            return fullRes;
+            const coreRes = await executeTimedQuery<Product>(
+              () =>
+                supabase
+                  .from("products")
+                  .select(SUPABASE_TABLE_SELECTS.productsCoreFallback)
+                  .order("name", { ascending: true })
+                  .limit(1000) as unknown as PromiseLike<{ data: Product[] | null; error: any }>,
+              "Products fallback query",
+            );
+            if (!coreRes.error && Array.isArray(coreRes.data) && coreRes.data.length > 0) return coreRes;
+
+            return executeTimedQuery<Product>(
+              () =>
+                supabase
+                  .from("products")
+                  .select(SUPABASE_TABLE_SELECTS.productsFlatFallback)
+                  .order("name", { ascending: true })
+                  .limit(1000) as unknown as PromiseLike<{ data: Product[] | null; error: any }>,
+              "Products flat fallback query",
+            );
           };
 
           const fetchOrdersSafe = async (): Promise<SafeQueryResult<Order>> => {
@@ -428,33 +423,28 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
                   .limit(1000) as unknown as PromiseLike<{ data: Order[] | null; error: any }>,
               "Orders query",
             );
-            if (!fullRes.error) return fullRes;
+            if (!fullRes.error && Array.isArray(fullRes.data) && fullRes.data.length > 0) return fullRes;
 
-            if (isSchemaOrRelationErr(fullRes.error)) {
-              const coreRes = await executeTimedQuery<Order>(
-                () =>
-                  supabase
-                    .from("orders")
-                    .select(SUPABASE_TABLE_SELECTS.ordersCoreFallback)
-                    .order("order_date", { ascending: false })
-                    .limit(1000) as unknown as PromiseLike<{ data: Order[] | null; error: any }>,
-                "Orders fallback query",
-              );
-              if (!coreRes.error) return coreRes;
-              if (isSchemaOrRelationErr(coreRes.error)) {
-                return executeTimedQuery<Order>(
-                  () =>
-                    supabase
-                      .from("orders")
-                      .select(SUPABASE_TABLE_SELECTS.ordersFlatFallback)
-                      .order("order_date", { ascending: false })
-                      .limit(1000) as unknown as PromiseLike<{ data: Order[] | null; error: any }>,
-                  "Orders flat fallback query",
-                );
-              }
-              return coreRes;
-            }
-            return fullRes;
+            const coreRes = await executeTimedQuery<Order>(
+              () =>
+                supabase
+                  .from("orders")
+                  .select(SUPABASE_TABLE_SELECTS.ordersCoreFallback)
+                  .order("order_date", { ascending: false })
+                  .limit(1000) as unknown as PromiseLike<{ data: Order[] | null; error: any }>,
+              "Orders fallback query",
+            );
+            if (!coreRes.error && Array.isArray(coreRes.data) && coreRes.data.length > 0) return coreRes;
+
+            return executeTimedQuery<Order>(
+              () =>
+                supabase
+                  .from("orders")
+                  .select(SUPABASE_TABLE_SELECTS.ordersFlatFallback)
+                  .order("order_date", { ascending: false })
+                  .limit(1000) as unknown as PromiseLike<{ data: Order[] | null; error: any }>,
+              "Orders flat fallback query",
+            );
           };
 
           const [oRes, colRes, custRes, prodRes] = await Promise.all([

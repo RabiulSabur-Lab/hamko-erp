@@ -377,15 +377,32 @@ export function OrdersPage() {
         ]);
         if (!isMountedRef.current) return;
 
-        let resolvedOrderData: any[] | null = !oRes.error && Array.isArray(oRes.data) ? oRes.data : null;
+        let resolvedOrderData: any[] | null = !oRes.error && Array.isArray(oRes.data) && oRes.data.length > 0 ? oRes.data : null;
         if (!resolvedOrderData) {
-          console.warn("Orders primary join query notice, attempting fallback query:", oRes?.error?.message);
+          console.warn("Orders primary join query notice, attempting fallback queries:", oRes?.error?.message);
           const fallbackRes = await supabase
             .from("orders")
             .select("*, order_items(*), customer:customers(name, current_due, phone)")
             .order("order_date", { ascending: false });
-          if (!fallbackRes.error && Array.isArray(fallbackRes.data)) {
+          if (!fallbackRes.error && Array.isArray(fallbackRes.data) && fallbackRes.data.length > 0) {
             resolvedOrderData = fallbackRes.data;
+          } else {
+            // Robust flat query fallbacks: eliminate PostgREST relationship dependency
+            const flatRes = await supabase
+              .from("orders")
+              .select("*, order_items(*)")
+              .order("order_date", { ascending: false });
+            if (!flatRes.error && Array.isArray(flatRes.data)) {
+              resolvedOrderData = flatRes.data;
+            } else {
+              const bareRes = await supabase
+                .from("orders")
+                .select("*")
+                .order("order_date", { ascending: false });
+              if (!bareRes.error && Array.isArray(bareRes.data)) {
+                resolvedOrderData = bareRes.data;
+              }
+            }
           }
         }
 
@@ -473,8 +490,10 @@ export function OrdersPage() {
               const newDue = ord.due_amount !== undefined && ord.due_amount !== null
                 ? Number(ord.due_amount)
                 : r2(Math.max(0, newTotal - paid));
+              const resolvedCustomer = ord.customer || (Array.isArray(cRes.data) ? cRes.data.find((c: any) => c.id === ord.customer_id) : undefined);
               return {
                 ...ord,
+                customer: resolvedCustomer || ord.customer,
                 sales_rep_name: repName || ord.sales_rep_name || null,
                 created_by_name: repName || (ord as any).created_by_name || null,
                 order_items: cleanItems,
@@ -487,8 +506,10 @@ export function OrdersPage() {
                 dueAmount: newDue,
               } as Order;
             }
+            const resolvedCustomer = ord.customer || (Array.isArray(cRes.data) ? cRes.data.find((c: any) => c.id === ord.customer_id) : undefined);
             return {
               ...ord,
+              customer: resolvedCustomer || ord.customer,
               sales_rep_name: repName || ord.sales_rep_name || null,
               created_by_name: repName || (ord as any).created_by_name || null,
             } as Order;
@@ -636,12 +657,17 @@ export function OrdersPage() {
       const cleaned = cleanCorruptedStoredOrders();
       const deletedIds = getDeletedIds(STORAGE_KEYS.DELETED_ORDERS);
       const updated = cleaned.filter((o: Order) => !deletedIds.has(o.id));
-      setOrders([...updated]);
+      if (updated.length > 0) {
+        setOrders([...updated]);
+      }
       const custs = getCustomers();
-      setCustomers(Array.isArray(custs) ? [...custs] : []);
+      if (Array.isArray(custs) && custs.length > 0) setCustomers([...custs]);
       const prods = getProducts();
-      setProducts(Array.isArray(prods) ? [...prods] : []);
+      if (Array.isArray(prods) && prods.length > 0) setProducts([...prods]);
       setAreas(getAreas());
+
+      // Trigger live network fetch so secondary devices converge with cloud
+      load(false);
     };
 
     window.addEventListener("storage", handleStorageUpdate);
@@ -1510,8 +1536,8 @@ export function OrdersPage() {
     setProducts(getProducts());
     if (o?.customer_id) {
       recalculateCustomerLedger(o.customer_id, updated, undefined, { persist: true });
-      dispatchGlobalStateUpdate({ customerId: o.customer_id, type: "customer_ledger_updated" });
     }
+    dispatchGlobalStateUpdate({ customerId: o?.customer_id, type: "order_deleted", recordId: id });
     window.dispatchEvent(new Event("sales_erp_storage_update"));
     window.dispatchEvent(new Event("storage"));
     toast.success(t("deleted"));

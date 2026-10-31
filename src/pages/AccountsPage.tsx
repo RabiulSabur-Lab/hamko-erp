@@ -397,7 +397,7 @@ export function AccountsPage() {
       const deletedColIds = getDeletedIds(STORAGE_KEYS.DELETED_COLLECTIONS);
       let remoteCols: Collection[] | null = null;
 
-      if (!colRes.error && Array.isArray(colRes.data)) {
+      if (!colRes.error && Array.isArray(colRes.data) && colRes.data.length > 0) {
         remoteCols = (colRes.data as Collection[]).filter((c: any) => !deletedColIds.has(c.id));
       } else {
         try {
@@ -414,12 +414,17 @@ export function AccountsPage() {
         ? mergeAndEnrichCustomers(cRes.data as Customer[], { persist: true })
         : getCustomers();
 
-      let resolvedOrdersData = !oRes.error && Array.isArray(oRes.data) ? oRes.data : null;
-      if (!resolvedOrdersData && oRes.error) {
+      let resolvedOrdersData = !oRes.error && Array.isArray(oRes.data) && oRes.data.length > 0 ? oRes.data : null;
+      if (!resolvedOrdersData) {
         try {
           const fallbackOrdersRes = await supabase.from("orders").select("id, order_number, customer_id, total_amount, paid_amount, due_amount").limit(1000);
-          if (!fallbackOrdersRes.error && Array.isArray(fallbackOrdersRes.data)) {
+          if (!fallbackOrdersRes.error && Array.isArray(fallbackOrdersRes.data) && fallbackOrdersRes.data.length > 0) {
             resolvedOrdersData = fallbackOrdersRes.data as any;
+          } else {
+            const bareOrdersRes = await supabase.from("orders").select("*").limit(1000);
+            if (!bareOrdersRes.error && Array.isArray(bareOrdersRes.data)) {
+              resolvedOrdersData = bareOrdersRes.data as any;
+            }
           }
         } catch {}
       }
@@ -517,17 +522,28 @@ export function AccountsPage() {
       setSalesOfficers(getLocalSalesOfficers());
       const deletedColIds = getDeletedIds(STORAGE_KEYS.DELETED_COLLECTIONS);
       const updatedCols = getCollections().filter((c) => !deletedColIds.has(c.id));
-      setCollections([...updatedCols]);
+      if (updatedCols.length > 0) {
+        setCollections([...updatedCols]);
+      }
 
       const deletedExpIds = getDeletedIds(STORAGE_KEYS.DELETED_EXPENSES);
       const updatedExps = syncSupplierPaymentsToExpenses(getExpenses().filter((e) => !deletedExpIds.has(e.id)));
-      setExpenses([...updatedExps]);
+      if (updatedExps.length > 0) {
+        setExpenses([...updatedExps]);
+      }
 
       const updatedCusts: Customer[] = getCustomers();
-      setCustomers([...updatedCusts]);
+      if (updatedCusts.length > 0) {
+        setCustomers([...updatedCusts]);
+      }
 
       const updatedOrds: Order[] = getOrders();
-      setOrders([...updatedOrds]);
+      if (updatedOrds.length > 0) {
+        setOrders([...updatedOrds]);
+      }
+
+      // Trigger live network fetch so secondary devices converge with cloud
+      void loadAccountsData();
     };
 
     window.addEventListener("storage", handleStorageUpdate);
@@ -820,6 +836,7 @@ export function AccountsPage() {
         setDialogOpen(false);
         // Trigger Real-Time Sync & Storage Event immediately after saving
         window.dispatchEvent(new Event("sales_erp_storage_update"));
+        dispatchGlobalStateUpdate({ type: "expense_created" });
         dispatchGlobalStateUpdate({ customerId: form.customer_id, type: "collection_created" });
 
         // 2. Requirement 1: Background Supabase persistence (strictly aligned with physical collections schema)
@@ -921,6 +938,8 @@ export function AccountsPage() {
           }
 
           window.dispatchEvent(new Event("sales_erp_storage_update"));
+        dispatchGlobalStateUpdate({ type: "expense_created" });
+          dispatchGlobalStateUpdate({ customerId: form.customer_id, type: "collection_updated" });
         } catch (syncErr: any) {
           console.warn("Supabase collection persistence exception (persisted locally):", syncErr?.message || syncErr);
         }
@@ -949,6 +968,7 @@ export function AccountsPage() {
         toast.success(t("created"));
         setDialogOpen(false);
         window.dispatchEvent(new Event("sales_erp_storage_update"));
+        dispatchGlobalStateUpdate({ type: "expense_created" });
 
         // 2. Background persistence
         const cleanExpense = sanitizeExpensePayload({

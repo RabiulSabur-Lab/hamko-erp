@@ -954,36 +954,30 @@ export async function pullFreshCloudStateToLocalStore(options?: {
           "Cloud pull products",
           1,
         );
-        if (!full.error) return full;
-        if (isSchemaOrRelationError(full.error)) {
-          const core = await safeTimedQuery(
-            () =>
-              supabase
-                .from("products")
-                .select(SUPABASE_TABLE_SELECTS.productsCoreFallback)
-                .order("name", { ascending: true })
-                .limit(1000),
-            10000,
-            "Cloud pull products fallback",
-            1,
-          );
-          if (!core.error) return core;
-          if (isSchemaOrRelationError(core.error)) {
-            return safeTimedQuery(
-              () =>
-                supabase
-                  .from("products")
-                  .select(SUPABASE_TABLE_SELECTS.productsFlatFallback)
-                  .order("name", { ascending: true })
-                  .limit(1000),
-              10000,
-              "Cloud pull products flat fallback",
-              1,
-            );
-          }
-          return core;
-        }
-        return full;
+        if (!full.error && Array.isArray(full.data) && full.data.length > 0) return full;
+        const core = await safeTimedQuery(
+          () =>
+            supabase
+              .from("products")
+              .select(SUPABASE_TABLE_SELECTS.productsCoreFallback)
+              .order("name", { ascending: true })
+              .limit(1000),
+          10000,
+          "Cloud pull products fallback",
+          1,
+        );
+        if (!core.error && Array.isArray(core.data) && core.data.length > 0) return core;
+        return safeTimedQuery(
+          () =>
+            supabase
+              .from("products")
+              .select(SUPABASE_TABLE_SELECTS.productsFlatFallback)
+              .order("name", { ascending: true })
+              .limit(1000),
+          10000,
+          "Cloud pull products flat fallback",
+          1,
+        );
       };
 
       const fetchOrdersSafe = async () => {
@@ -998,36 +992,30 @@ export async function pullFreshCloudStateToLocalStore(options?: {
           "Cloud pull orders",
           1,
         );
-        if (!full.error) return full;
-        if (isSchemaOrRelationError(full.error)) {
-          const core = await safeTimedQuery(
-            () =>
-              supabase
-                .from("orders")
-                .select(SUPABASE_TABLE_SELECTS.ordersCoreFallback)
-                .order("order_date", { ascending: false })
-                .limit(1000),
-            10000,
-            "Cloud pull orders fallback",
-            1,
-          );
-          if (!core.error) return core;
-          if (isSchemaOrRelationError(core.error)) {
-            return safeTimedQuery(
-              () =>
-                supabase
-                  .from("orders")
-                  .select(SUPABASE_TABLE_SELECTS.ordersFlatFallback)
-                  .order("order_date", { ascending: false })
-                  .limit(1000),
-              10000,
-              "Cloud pull orders flat fallback",
-              1,
-            );
-          }
-          return core;
-        }
-        return full;
+        if (!full.error && Array.isArray(full.data) && full.data.length > 0) return full;
+        const core = await safeTimedQuery(
+          () =>
+            supabase
+              .from("orders")
+              .select(SUPABASE_TABLE_SELECTS.ordersCoreFallback)
+              .order("order_date", { ascending: false })
+              .limit(1000),
+          10000,
+          "Cloud pull orders fallback",
+          1,
+        );
+        if (!core.error && Array.isArray(core.data) && core.data.length > 0) return core;
+        return safeTimedQuery(
+          () =>
+            supabase
+              .from("orders")
+              .select(SUPABASE_TABLE_SELECTS.ordersFlatFallback)
+              .order("order_date", { ascending: false })
+              .limit(1000),
+          10000,
+          "Cloud pull orders flat fallback",
+          1,
+        );
       };
 
       const fetchCollectionsSafe = async () => {
@@ -1042,21 +1030,18 @@ export async function pullFreshCloudStateToLocalStore(options?: {
           "Cloud pull collections",
           1,
         );
-        if (!full.error) return full;
-        if (isSchemaOrRelationError(full.error)) {
-          return safeTimedQuery(
-            () =>
-              supabase
-                .from("collections")
-                .select(SUPABASE_TABLE_SELECTS.collectionsCoreFallback)
-                .order("collection_date", { ascending: false })
-                .limit(2000),
-            10000,
-            "Cloud pull collections fallback",
-            1,
-          );
-        }
-        return full;
+        if (!full.error && Array.isArray(full.data) && full.data.length > 0) return full;
+        return safeTimedQuery(
+          () =>
+            supabase
+              .from("collections")
+              .select(SUPABASE_TABLE_SELECTS.collectionsCoreFallback)
+              .order("collection_date", { ascending: false })
+              .limit(2000),
+          10000,
+          "Cloud pull collections fallback",
+          1,
+        );
       };
 
       const fetchCustomersSafe = async () => {

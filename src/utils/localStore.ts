@@ -3251,7 +3251,9 @@ export interface TransactionLedgerDetail {
   invoiceId?: string;
   paymentId?: string;
   logId?: string;
+  recordId?: string;
   type?: string;
+  [key: string]: any;
 }
 
 export type GlobalStateUpdateDetail = TransactionLedgerDetail;

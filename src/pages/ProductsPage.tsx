@@ -27,6 +27,7 @@ import {
   r2,
   getOrders,
   isPendingOfflineRecord,
+  dispatchGlobalStateUpdate,
 } from "@/utils/localStore";
 import {
   sanitizeFormulaInput,
@@ -133,9 +134,14 @@ export function ProductsPage() {
       const deletedIds = getDeletedIds(STORAGE_KEYS.DELETED_PRODUCTS);
       const storedProds = getLocalData<Product[]>(STORAGE_KEYS.PRODUCTS, []);
       const refreshed = (Array.isArray(storedProds) ? storedProds : []).filter((p: Product) => !deletedIds.has(p.id));
-      setProducts([...refreshed].sort((a: Product, b: Product) => (a.name || "").localeCompare(b.name || "")));
+      if (refreshed.length > 0) {
+        setProducts([...refreshed].sort((a: Product, b: Product) => (a.name || "").localeCompare(b.name || "")));
+      }
       const refreshedCats = getLocalData<Category[]>(STORAGE_KEYS.CATEGORIES, []);
       if (Array.isArray(refreshedCats) && refreshedCats.length > 0) setCategories(refreshedCats);
+
+      // Trigger live network fetch so secondary devices converge with cloud
+      void loadData(false);
     };
 
     const prodChannel = supabase
@@ -187,9 +193,9 @@ export function ProductsPage() {
 
       const deletedIds = getDeletedIds(STORAGE_KEYS.DELETED_PRODUCTS);
 
-      let rawProductList: any[] | null = !pRes.error && Array.isArray(pRes.data) ? pRes.data : null;
+      let rawProductList: any[] | null = !pRes.error && Array.isArray(pRes.data) && pRes.data.length > 0 ? pRes.data : null;
       if (!rawProductList) {
-        console.warn("Products joined select notice, attempting fallback query:", pRes?.error?.message);
+        console.warn("Products joined select notice, attempting flat query fallback:", pRes?.error?.message);
         const fbRes = await supabase.from("products").select("*").order("name", { ascending: true });
         if (!fbRes.error && Array.isArray(fbRes.data)) {
           rawProductList = fbRes.data;
@@ -458,6 +464,7 @@ export function ProductsPage() {
 
     await queryClient.invalidateQueries({ queryKey: ["products"] });
     window.dispatchEvent(new Event("sales_erp_storage_update"));
+    dispatchGlobalStateUpdate({ type: "product_created", recordId: createdProduct.id });
 
     toast.success(t("created"));
     handleCloseModal();
@@ -524,6 +531,7 @@ export function ProductsPage() {
 
     await queryClient.invalidateQueries({ queryKey: ["products"] });
     window.dispatchEvent(new Event("sales_erp_storage_update"));
+    dispatchGlobalStateUpdate({ type: "product_updated", recordId: id });
 
     toast.success(t("updated"));
     handleCloseModal();
@@ -591,6 +599,7 @@ export function ProductsPage() {
     }
 
     window.dispatchEvent(new Event("sales_erp_storage_update"));
+    dispatchGlobalStateUpdate({ type: "product_deleted", recordId: p.id });
 
     toast.success(t("deleted"));
   }
@@ -741,6 +750,7 @@ export function ProductsPage() {
       setCategories(updatedCats);
       setLocalData(STORAGE_KEYS.CATEGORIES, updatedCats);
       window.dispatchEvent(new Event("sales_erp_storage_update"));
+      dispatchGlobalStateUpdate({ type: "category_created", recordId: createdCat.id });
 
       // 3. Set newly created category as active selection in product form
       setForm((prev: any) => ({ ...prev, category_id: createdCat.id }));
@@ -785,6 +795,7 @@ export function ProductsPage() {
       });
 
       window.dispatchEvent(new Event("sales_erp_storage_update"));
+      dispatchGlobalStateUpdate({ type: "category_updated", recordId: editingCat.id });
 
       toast.success("Category updated");
       setEditingCat(null);
@@ -813,6 +824,7 @@ export function ProductsPage() {
       setCategories(updatedCats);
       setLocalData(STORAGE_KEYS.CATEGORIES, updatedCats);
       window.dispatchEvent(new Event("sales_erp_storage_update"));
+      dispatchGlobalStateUpdate({ type: "category_deleted", recordId: catId });
 
       if (form.category_id === catId) {
         setForm((prev: any) => ({ ...prev, category_id: null }));
