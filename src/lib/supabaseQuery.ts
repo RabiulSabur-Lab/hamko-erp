@@ -49,6 +49,37 @@ export function nullIfEmpty(value: string | null | undefined): string | null {
 }
 
 /**
+ * Detects whether an error thrown or returned by Supabase PostgREST was caused by
+ * Row-Level Security (RLS), permission restrictions, expired JWT, or authorization policies.
+ */
+export function isRlsOrPermissionError(err: unknown): boolean {
+  if (!err) return false;
+  const anyErr = err as Record<string, any>;
+  const code = String(anyErr.code || "");
+  const status = Number(anyErr.status || 0);
+  const msg = String(anyErr.message || "").toLowerCase();
+  const details = String(anyErr.details || "").toLowerCase();
+  const hint = String(anyErr.hint || "").toLowerCase();
+  const combined = `${msg} ${details} ${hint}`;
+  return (
+    code === "42501" ||
+    code === "PGRST301" ||
+    code === "PGRST302" ||
+    status === 401 ||
+    status === 403 ||
+    combined.includes("permission denied") ||
+    combined.includes("row-level security") ||
+    combined.includes("violates row level security") ||
+    combined.includes("row level security") ||
+    combined.includes("policy") ||
+    combined.includes("insufficient_privilege") ||
+    combined.includes("not authorized") ||
+    combined.includes("jwt expired") ||
+    combined.includes("invalid jwt")
+  );
+}
+
+/**
  * Default timeout limit (in ms) for Dashboard and mobile-sensitive Supabase queries (8–10s window).
  */
 export const DASHBOARD_QUERY_TIMEOUT_MS = 9000;

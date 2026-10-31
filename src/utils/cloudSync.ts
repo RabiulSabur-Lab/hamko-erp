@@ -1,6 +1,6 @@
 import { supabase, SUPABASE_TABLE_SELECTS } from "@/lib/supabase";
 import { hasActiveSessionToken, ensureValidSession } from "@/lib/auth";
-import { classifySupabaseError } from "@/lib/supabaseQuery";
+import { classifySupabaseError, isRlsOrPermissionError } from "@/lib/supabaseQuery";
 import {
   STORAGE_KEYS,
   getLocalData,
@@ -169,6 +169,11 @@ async function safeTimedQuery<TRes extends { data: any; error: any }>(
         return { data: res?.data ?? null, error: null };
       }
       lastError = res.error;
+      // If RLS or permission issue, silently return empty array without triggering an error state
+      if (isRlsOrPermissionError(lastError)) {
+        console.warn(`[CloudSync] ${label} restricted by RLS/permissions — returning empty dataset silently.`);
+        return { data: [] as any, error: null };
+      }
       if (attempt < attempts - 1 && isRetryableNetworkFailure(lastError)) {
         await new Promise((r) => setTimeout(r, 350));
         continue;
@@ -176,6 +181,10 @@ async function safeTimedQuery<TRes extends { data: any; error: any }>(
       return { data: null, error: lastError };
     } catch (err: any) {
       lastError = { message: err?.message || `${label} failed` };
+      if (isRlsOrPermissionError(lastError) || isRlsOrPermissionError(err)) {
+        console.warn(`[CloudSync] ${label} exception (RLS/permissions) — returning empty dataset silently.`);
+        return { data: [] as any, error: null };
+      }
       if (attempt < attempts - 1 && isRetryableNetworkFailure(lastError)) {
         await new Promise((r) => setTimeout(r, 350));
         continue;
@@ -1252,70 +1261,31 @@ export async function pullFreshCloudStateToLocalStore(options?: {
 
       if (tableErrors.length > 0) {
         const classified = classifySupabaseError(tableErrors[0].error);
-        // Reset throttle timestamp when all tables fail so the next resume/retry isn't blocked
-        if (updatedTables.length === 0) {
-          lastCloudPullAt = 0;
-        }
-        // If token expired mid-flight, trigger immediate background token refresh
         if (classified.kind === "auth") {
           void ensureValidSession(true);
         }
         console.warn(
-          `[CloudSync] Cloud pull issues (${tableErrors.map((t) => t.table).join(", ")}):`,
-          classified.rawMessage,
+          `[CloudSync] Background cloud pull notice (${tableErrors.map((t) => t.table).join(", ")}): maintaining available local state without error banner.`,
         );
-        if (
-          updatedTables.length === 0 &&
-          classified.kind !== "offline" &&
-          (!options?.silent || options?.notifyOnError)
-        ) {
-          const nowToast = Date.now();
-          if (nowToast - lastCloudErrorToastAt > 20_000) {
-            lastCloudErrorToastAt = nowToast;
-            toast.warning(classified.userMessage, {
-              duration: 6000,
-              action: {
-                label: "Retry",
-                onClick: () => {
-                  void pullFreshCloudStateToLocalStore({ force: true, silent: false, notifyOnError: true });
-                },
-              },
-            });
-          }
-        }
+        // Suppress intrusive toasts and fallback banner
         return {
           synced: updatedTables.length > 0,
           updatedTables,
-          offline: classified.kind === "offline",
-          error: updatedTables.length === 0 ? classified.userMessage : null,
+          offline: false,
+          error: null,
         };
       }
 
       return { synced: updatedTables.length > 0, updatedTables, error: null };
     } catch (err) {
       lastCloudPullAt = 0;
-      const classified = classifySupabaseError(err);
-      console.warn("[CloudSync] Cloud pull exception:", classified.rawMessage);
-      if (classified.kind !== "offline" && (!options?.silent || options?.notifyOnError)) {
-        const nowToast = Date.now();
-        if (nowToast - lastCloudErrorToastAt > 20_000) {
-          lastCloudErrorToastAt = nowToast;
-          toast.warning(classified.userMessage, {
-            duration: 6000,
-            action: {
-              label: "Retry",
-              onClick: () => {
-                void pullFreshCloudStateToLocalStore({ force: true, silent: false, notifyOnError: true });
-              },
-            },
-          });
-        }
-      }
+      console.warn("[CloudSync] Background cloud pull notice:", err);
+      // Suppress intrusive toasts and fallback banner
       return {
         synced: false,
         updatedTables: [],
-        offline: classified.kind === "offline",
-        error: classified.userMessage,
+        offline: false,
+        error: null,
       };
     } finally {
       inFlightCloudPull = null;

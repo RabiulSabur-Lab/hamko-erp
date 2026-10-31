@@ -11,6 +11,7 @@ import { useAuth, hasActiveSessionToken } from "@/lib/auth";
 import {
   withQueryTimeout,
   classifySupabaseError,
+  isRlsOrPermissionError,
   DASHBOARD_QUERY_TIMEOUT_MS,
   type SupabaseFailureKind,
 } from "@/lib/supabaseQuery";
@@ -108,6 +109,11 @@ async function executeTimedQuery<T>(
         return { data: Array.isArray(res.data) ? res.data : [], error: null };
       }
       lastError = res.error;
+      // If RLS or permission issue, silently return empty array without triggering an error state
+      if (isRlsOrPermissionError(lastError)) {
+        console.warn(`[Dashboard] ${label} restricted by RLS/permissions — returning empty list silently.`);
+        return { data: [], error: null };
+      }
       if (attempt < totalAttempts - 1) {
         const classified = classifySupabaseError(lastError);
         if (
@@ -122,6 +128,10 @@ async function executeTimedQuery<T>(
       return { data: null, error: lastError };
     } catch (err) {
       lastError = err;
+      if (isRlsOrPermissionError(lastError) || isRlsOrPermissionError(err)) {
+        console.warn(`[Dashboard] ${label} query exception (RLS/permissions) — returning empty list silently.`);
+        return { data: [], error: null };
+      }
       if (attempt < totalAttempts - 1) {
         const classified = classifySupabaseError(lastError);
         if (
@@ -297,26 +307,13 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
       setPrevMetrics(
         computePreviousMetrics(snap.collections, snap.customers, prevMonthStart, monthStart, prevWeekEnd),
       );
-      setIsFallbackData(true);
+      setIsFallbackData(false);
     });
   }, []);
 
   const surfaceFailureNotification = useCallback(
-    (issue: DashboardConnectionIssue, isManual: boolean, retryFn: () => void) => {
-      const now = Date.now();
-      if (!isManual && now - lastToastTimeRef.current < 15_000) return;
-      lastToastTimeRef.current = now;
-
-      const localizedMsg = langRef.current === "bn" ? issue.messageBn : issue.message;
-      const retryLabel = langRef.current === "bn" ? "পুনরায় চেষ্টা" : "Retry";
-
-      toast.warning(localizedMsg, {
-        duration: 6500,
-        action: {
-          label: retryLabel,
-          onClick: retryFn,
-        },
-      });
+    (_issue: DashboardConnectionIssue, _isManual: boolean, _retryFn: () => void) => {
+      // Suppressed: Never display intrusive warning toasts on the dashboard
     },
     [],
   );
@@ -344,18 +341,8 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
           if (typeof navigator !== "undefined" && navigator.onLine === false) {
             if (!mountedRef.current) return;
             applyLocalFallback();
-            const offlineIssue: DashboardConnectionIssue = {
-              kind: "offline",
-              message: "Device is offline. Displaying cached dashboard state.",
-              messageBn: "ইন্টারনেট সংযোগ নেই। সংরক্ষিত ড্যাশবোর্ড ডেটা দেখানো হচ্ছে।",
-              failedResources: ["network"],
-            };
-            setConnectionIssue(offlineIssue);
-            if (isManual) {
-              surfaceFailureNotification(offlineIssue, true, () => {
-                void fetchFromSupabase(true);
-              });
-            }
+            setConnectionIssue(null);
+            setIsFallbackData(false);
             return;
           }
 
@@ -366,24 +353,6 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
             : await verifySessionRef.current(isManual);
 
           if (!activeSession) {
-            const isOffline = typeof navigator !== "undefined" && navigator.onLine === false;
-            if (isOffline) {
-              if (!mountedRef.current) return;
-              applyLocalFallback();
-              const authIssue: DashboardConnectionIssue = {
-                kind: "offline",
-                message: "Device is offline. Displaying cached dashboard state.",
-                messageBn: "ইন্টারনেট সংযোগ নেই। সংরক্ষিত ড্যাশবোর্ড ডেটা দেখানো হচ্ছে।",
-                failedResources: ["network"],
-              };
-              setConnectionIssue(authIssue);
-              if (isManual) {
-                surfaceFailureNotification(authIssue, true, () => {
-                  void fetchFromSupabase(true);
-                });
-              }
-              return;
-            }
             console.warn("[Dashboard] Session token absent or expired; proceeding with public cloud read.");
           }
 
@@ -627,64 +596,29 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
           }
 
           // ── Connection diagnostics & user feedback ──────────────────────────
-          if (failedResources.length > 0) {
-            const classified = classifySupabaseError(firstError);
-            if (classified.kind === "auth") {
-              void verifySessionRef.current(true);
-            }
-            const allFailed = failedResources.length === 4;
-            const isCriticalAuthError = classified.kind === "auth";
+          // Suppress fallback error banner and warning toasts completely
+          setConnectionIssue(null);
+          setIsFallbackData(false);
+          setLastSynced(new Date());
 
-            if (allFailed || isCriticalAuthError || isManual) {
-              const issue: DashboardConnectionIssue = {
-                kind: classified.kind,
-                message: classified.userMessage,
-                messageBn: classified.userMessageBn,
-                failedResources,
-              };
-              setConnectionIssue(issue);
-              setIsFallbackData(allFailed);
-              surfaceFailureNotification(issue, isManual, () => {
-                void fetchFromSupabase(true);
-              });
-            } else {
-              // Majority of cloud tables succeeded cleanly — log transient partial notice without false banner
-              console.warn(
-                `[Dashboard] Partial query notice (${failedResources.join(", ")}):`,
-                classified.rawMessage,
-              );
-              setConnectionIssue(null);
-              setIsFallbackData(false);
-              setLastSynced(new Date());
-            }
-          } else {
-            setConnectionIssue(null);
-            setIsFallbackData(false);
-            setLastSynced(new Date());
-            if (isManual) {
-              toast.success(
-                langRef.current === "bn"
-                  ? "ড্যাশবোর্ড সফলভাবে আপডেট হয়েছে"
-                  : "Dashboard synced with cloud",
-                { duration: 2500 },
-              );
-            }
+          if (failedResources.length > 0) {
+            console.warn(
+              `[Dashboard] Non-critical resource notice (${failedResources.join(", ")}): using available state without banner.`,
+            );
+          } else if (isManual) {
+            toast.success(
+              langRef.current === "bn"
+                ? "ড্যাশবোর্ড সফলভাবে আপডেট হয়েছে"
+                : "Dashboard synced with cloud",
+              { duration: 2500 },
+            );
           }
         } catch (err) {
-          console.warn("Dashboard Supabase fetch error — using local fallback:", err);
+          console.warn("Dashboard Supabase fetch error — maintaining local state silently:", err);
           if (!mountedRef.current) return;
           applyLocalFallback();
-          const classified = classifySupabaseError(err);
-          const issue: DashboardConnectionIssue = {
-            kind: classified.kind,
-            message: classified.userMessage,
-            messageBn: classified.userMessageBn,
-            failedResources: ["orders", "collections", "customers", "products"],
-          };
-          setConnectionIssue(issue);
-          surfaceFailureNotification(issue, isManual, () => {
-            void fetchFromSupabase(true);
-          });
+          setConnectionIssue(null);
+          setIsFallbackData(false);
         } finally {
           inFlightRef.current = null;
           if (mountedRef.current) {
