@@ -751,7 +751,7 @@ export function AddCustomerModal({
           return;
         }
 
-        const remoteCustomer = res.data;
+        const remoteCustomer: any = res.data;
         const newRecord: Customer = {
           id: remoteCustomer.id,
           ...payload,

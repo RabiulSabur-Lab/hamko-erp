@@ -1252,9 +1252,10 @@ export function OrdersPage() {
 
         const insertDirectly = async () => {
           try {
-            const { data: orderData, error: orderErr } = await executeWithSchemaResilience("orders", dbOrderPayload, (p) =>
+            const { data, error: orderErr } = await executeWithSchemaResilience("orders", dbOrderPayload, (p) =>
               supabase.from("orders").insert(p).select("id").single(),
             );
+            const orderData: any = data;
 
             if (orderErr) {
               console.warn("Direct Supabase order insert error (persisted locally):", orderErr.message);

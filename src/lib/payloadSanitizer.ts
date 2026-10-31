@@ -516,12 +516,12 @@ export function sanitizeSalesTargetPayload<T extends Record<string, any>>(raw: T
  * Executes a Supabase query factory. If PostgREST returns PGRST204 ("Could not find column... in schema cache"),
  * it automatically identifies and strips the missing column from the payload and retries up to 4 times.
  */
-export async function executeWithSchemaResilience<R>(
+export async function executeWithSchemaResilience<R = any>(
   tableName: SupabaseTableName,
   payload: Record<string, any>,
-  operation: (cleanPayload: Record<string, any>) => PromiseLike<{ data: R | null; error: any }>,
+  operation: (cleanPayload: Record<string, any>) => PromiseLike<any>,
   maxRetries = 4,
-): Promise<{ data: R | null; error: any }> {
+): Promise<{ data: any; error: any }> {
   let currentPayload = sanitizePayload(tableName, payload);
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {

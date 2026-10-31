@@ -496,9 +496,10 @@ export function CashCollectionModal({
             return;
           }
         } else {
-          const { data: insertData, error: insErr } = await executeWithSchemaResilience("collections", cleanColPayload, (p) =>
+          const { data, error: insErr } = await executeWithSchemaResilience("collections", cleanColPayload, (p) =>
             supabase.from("collections").insert(p).select().single(),
           );
+          const insertData: any = data;
 
           if (insErr || !insertData?.id) {
             toast.error("Cloud collection record error: " + (insErr?.message || "Failed to persist collection"));

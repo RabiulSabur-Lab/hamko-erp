@@ -852,9 +852,10 @@ export function AccountsPage() {
           // B. Direct table insert fallback if RPC did not save or is not configured
           if (!savedId) {
             const cleanCol = sanitizeCollectionPayload(collectionPayload, true);
-            const { data: insertData, error: insertError } = await executeWithSchemaResilience("collections", cleanCol, (p) =>
+            const { data, error: insertError } = await executeWithSchemaResilience("collections", cleanCol, (p) =>
               supabase.from("collections").insert(p).select().single(),
             );
+            const insertData: any = data;
 
             if (insertError) {
               console.warn("Direct collections insert error:", insertError.message);
