@@ -183,7 +183,7 @@ class RealtimeSyncManager {
       };
       if (typeof window !== "undefined") {
         window.dispatchEvent(new CustomEvent("sales_erp_storage_update", { detail }));
-        if (table === "customers" || table === "orders" || table === "collections") {
+        if (table === "customers" || table === "orders" || table === "collections" || table === "order_items") {
           const custId = record?.customer_id || record?.customerId || record?.id;
           if (custId) {
             window.dispatchEvent(new CustomEvent("customer_ledger_updated", { detail: { customerId: custId } }));

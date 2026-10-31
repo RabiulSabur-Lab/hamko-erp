@@ -2285,6 +2285,24 @@ export function applyRealtimeTablePatch(
         setLocalData(STORAGE_KEYS.TARGETS, current, null, true);
         break;
       }
+      case "order_items": {
+        const orders = getOrders();
+        let changed = false;
+        orders.forEach((ord) => {
+          if (Array.isArray(ord.order_items)) {
+            const filtered = ord.order_items.filter((it) => String(it.id) !== id);
+            if (filtered.length !== ord.order_items.length) {
+              ord.order_items = filtered;
+              (ord as any).items = filtered;
+              changed = true;
+            }
+          }
+        });
+        if (changed) {
+          setLocalData(STORAGE_KEYS.ORDERS, orders, null, true);
+        }
+        break;
+      }
       default:
         return false;
     }
@@ -2295,6 +2313,26 @@ export function applyRealtimeTablePatch(
   switch (table) {
     case "orders": {
       reconcileOrdersWithRemote([payloadRecord], { incremental: true, persist: true });
+      break;
+    }
+    case "order_items": {
+      const orderId = payloadRecord.order_id;
+      if (orderId) {
+        const orders = getOrders();
+        const oIdx = orders.findIndex((o) => String(o.id) === String(orderId));
+        if (oIdx >= 0) {
+          const ord = orders[oIdx];
+          const rawItems = Array.isArray(ord.order_items) ? [...ord.order_items] : [];
+          const itIdx = rawItems.findIndex((it) => String(it.id) === String(payloadRecord.id));
+          if (itIdx >= 0) {
+            rawItems[itIdx] = { ...rawItems[itIdx], ...payloadRecord };
+          } else {
+            rawItems.push(payloadRecord);
+          }
+          orders[oIdx] = { ...ord, order_items: rawItems, items: rawItems };
+          setLocalData(STORAGE_KEYS.ORDERS, orders, null, true);
+        }
+      }
       break;
     }
     case "customers": {

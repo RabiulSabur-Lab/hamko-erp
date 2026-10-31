@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo, useRef } from "react";
-import { supabase, type Product } from "@/lib/supabase";
+import { supabase, SUPABASE_TABLE_SELECTS, type Product } from "@/lib/supabase";
 import { useI18n } from "@/lib/i18n";
 import { useAuth } from "@/lib/auth";
 import { Card, CardContent } from "@/components/ui/card";
@@ -111,7 +111,9 @@ export function InventoryPage() {
     const invChannel = supabase
       .channel("inventory-page-realtime")
       .on("postgres_changes", { event: "*", schema: "public", table: "products" }, () => loadData())
+      .on("postgres_changes", { event: "*", schema: "public", table: "inventory" }, () => loadData())
       .on("postgres_changes", { event: "*", schema: "public", table: "stock_transactions" }, () => loadData())
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => loadData())
       .subscribe();
 
     window.addEventListener("storage", handleStorage);
@@ -131,13 +133,18 @@ export function InventoryPage() {
 
   async function loadData() {
     try {
-      const [pRes, cRes] = await Promise.all([
+      const [pRes, cRes, invRes] = await Promise.all([
         supabase.from("products").select("*, category:categories(*)").order("name", { ascending: true }),
         supabase.from("categories").select("*").order("name"),
+        supabase.from("inventory").select(SUPABASE_TABLE_SELECTS.inventory).limit(1000),
       ]);
 
       if (!cRes.error && Array.isArray(cRes.data)) {
         setLocalData(STORAGE_KEYS.CATEGORIES, cRes.data, null, true);
+      }
+
+      if (!invRes.error && Array.isArray(invRes.data)) {
+        setLocalData(STORAGE_KEYS.INVENTORY, invRes.data, null, true);
       }
 
       const cachedCategories: any[] = !cRes.error && Array.isArray(cRes.data)

@@ -370,7 +370,7 @@ export function OrdersPage() {
     try {
         const [usersQueryRes, oRes, cRes, pRes, officersData] = await Promise.all([
           supabase.from("users").select("id, full_name, email, role_name"),
-          supabase.from("orders").select("*, customer:customers(name, current_due, address, city, phone, trade_license_number), sales_rep:users(id, full_name, email), order_items(*, product:products(name, sku_code, unit_price))").order("order_date", { ascending: false }),
+          supabase.from("orders").select("*, order_items(*), customer:customers(name, current_due, address, city, phone, trade_license_number)").order("order_date", { ascending: false }),
           supabase.from("customers").select("*").order("name"),
           supabase.from("products").select("*").order("name"),
           fetchActiveSalesOfficers(),

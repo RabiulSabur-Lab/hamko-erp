@@ -140,28 +140,37 @@ export function syncCachedAccessToken(accessToken: string | null | undefined, ex
   if (!accessToken) {
     cachedAccessToken = null;
     cachedAccessTokenExpiresAtMs = 0;
+    if (typeof supabase !== "undefined" && (supabase as any)?.realtime?.setAuth) {
+      void (supabase as any).realtime.setAuth(null).catch(() => {});
+    }
     return;
   }
   cachedAccessToken = accessToken;
   if (typeof expiresAtSec === "number" && expiresAtSec > 0) {
     cachedAccessTokenExpiresAtMs = expiresAtSec * 1000;
-    return;
-  }
-  try {
-    const parts = accessToken.split(".");
-    if (parts.length === 3) {
-      let b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
-      while (b64.length % 4) b64 += "=";
-      const payload = JSON.parse(atob(b64));
-      if (typeof payload.exp === "number") {
-        cachedAccessTokenExpiresAtMs = payload.exp * 1000;
-        return;
+  } else {
+    try {
+      const parts = accessToken.split(".");
+      if (parts.length === 3) {
+        let b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+        while (b64.length % 4) b64 += "=";
+        const payload = JSON.parse(atob(b64));
+        if (typeof payload.exp === "number") {
+          cachedAccessTokenExpiresAtMs = payload.exp * 1000;
+        } else {
+          cachedAccessTokenExpiresAtMs = Date.now() + 55 * 60 * 1000;
+        }
+      } else {
+        cachedAccessTokenExpiresAtMs = Date.now() + 55 * 60 * 1000;
       }
+    } catch {
+      cachedAccessTokenExpiresAtMs = Date.now() + 55 * 60 * 1000;
     }
-  } catch {
-    // ignore decode issues
   }
-  cachedAccessTokenExpiresAtMs = Date.now() + 55 * 60 * 1000;
+
+  if (typeof supabase !== "undefined" && (supabase as any)?.realtime?.setAuth) {
+    void (supabase as any).realtime.setAuth(accessToken).catch(() => {});
+  }
 }
 
 function hydrateCachedTokenFromSessionJson(raw: string | null | undefined): void {
@@ -177,7 +186,7 @@ function hydrateCachedTokenFromSessionJson(raw: string | null | undefined): void
   }
 }
 
-function getFreshCachedAccessToken(): string | null {
+export function getFreshCachedAccessToken(): string | null {
   if (!cachedAccessToken) return null;
   if (cachedAccessTokenExpiresAtMs > 0 && cachedAccessTokenExpiresAtMs <= Date.now() + 5_000) {
     return null;
@@ -443,7 +452,10 @@ function initSupabase() {
       },
       realtime: {
         params: {
-          eventsPerSecond: 10,
+          eventsPerSecond: 20,
+        },
+        accessToken: async () => {
+          return getFreshCachedAccessToken() || null;
         },
       },
     });

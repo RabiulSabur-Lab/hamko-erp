@@ -142,6 +142,8 @@ export function ProductsPage() {
       .channel("products-page-realtime")
       .on("postgres_changes", { event: "*", schema: "public", table: "products" }, () => loadData())
       .on("postgres_changes", { event: "*", schema: "public", table: "categories" }, () => loadData())
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => loadData())
+      .on("postgres_changes", { event: "*", schema: "public", table: "stock_transactions" }, () => loadData())
       .subscribe();
 
     window.addEventListener("storage", handleStorage);

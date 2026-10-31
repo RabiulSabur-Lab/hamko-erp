@@ -11,11 +11,13 @@ import { RouterProvider } from "./router";
 import { App } from "./App";
 import { cleanupLocalStorage } from "./lib/storageManager";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { initRealtimeSync } from "./services/realtimeSync";
 
 // Run lightweight storage cleanup on boot to purge expired entries and prune tombstones
 if (typeof window !== "undefined") {
   try {
     cleanupLocalStorage();
+    void initRealtimeSync();
   } catch (e) {
     console.warn("[app] Auto cleanup error:", e);
   }

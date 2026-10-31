@@ -342,7 +342,7 @@ export function AccountsPage() {
     try {
       const [usersRes, colRes, expRes, cRes, oRes, officersData] = await Promise.all([
         supabase.from("users").select("id, full_name, email, role_name"),
-        supabase.from("collections").select("*, customer:customers(name), order:orders(order_number), collector:users(id, full_name, email)").order("collection_date", { ascending: false }),
+        supabase.from("collections").select(SUPABASE_TABLE_SELECTS.collections).order("collection_date", { ascending: false }),
         supabase.from("expenses").select("*").order("expense_date", { ascending: false }),
         supabase.from("customers").select("*").order("name"),
         supabase.from("orders").select(SUPABASE_TABLE_SELECTS.ordersWithItemsAndCustomer).order("order_date", { ascending: false }).limit(1000),
