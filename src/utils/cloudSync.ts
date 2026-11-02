@@ -448,6 +448,8 @@ export async function pushAllLocalDataToSupabase(
 
         if (!error) {
           syncSuccess = true;
+          p._unsynced = false;
+          p.is_offline = false;
           lastError = null;
           break;
         }
@@ -572,6 +574,8 @@ export async function pushAllLocalDataToSupabase(
         summary.errors.push(`Customer "${c.name}": ${error.message}`);
       } else {
         summary.customers++;
+        c._unsynced = false;
+        c.is_offline = false;
       }
       if (i % 5 === 0) await yieldToUI();
       report("Synchronizing Customers", i + 1, localCustomers.length);
@@ -663,6 +667,8 @@ export async function pushAllLocalDataToSupabase(
         summary.errors.push(`Order ${o.order_number}: ${orderError.message}`);
       } else {
         summary.orders++;
+        o._unsynced = false;
+        o.is_offline = false;
 
         // Sync order items
         const rawItems = (o as any).items || (o as any).order_items || [];
@@ -772,6 +778,8 @@ export async function pushAllLocalDataToSupabase(
         summary.errors.push(`Collection ${col.collection_number}: ${colError.message}`);
       } else {
         summary.collections++;
+        col._unsynced = false;
+        col.is_offline = false;
       }
       if (i % 5 === 0) await yieldToUI();
       report("Synchronizing Collections", i + 1, localCollections.length);
@@ -813,6 +821,8 @@ export async function pushAllLocalDataToSupabase(
         summary.errors.push(`Expense "${exp.category}": ${expError.message}`);
       } else {
         summary.expenses++;
+        exp._unsynced = false;
+        exp.is_offline = false;
       }
       if (i % 5 === 0) await yieldToUI();
       report("Synchronizing Expenses", i + 1, localExpenses.length);

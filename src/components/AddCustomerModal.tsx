@@ -536,6 +536,9 @@ export function AddCustomerModal({
           status: finalStatus,
           is_active: finalIsActive,
           updated_at: new Date().toISOString(),
+          _unsynced: true,
+          _modifiedAt: Date.now(),
+          is_offline: true,
         } as Customer;
 
         // 1. Optimistic Local Store update
@@ -677,13 +680,16 @@ export function AddCustomerModal({
           );
 
           if (res.error) {
-            toast.error("Failed to update customer: " + res.error.message);
+            console.warn("Failed to update customer remotely (retained with unsynced protection):", res.error.message);
+            saveCustomer({ id: customer.id, is_offline: true, _unsynced: true, _modifiedAt: Date.now() });
+            toast.error("Failed to update customer remotely: " + res.error.message);
             return;
           }
 
-          saveCustomer({ id: customer.id, is_offline: false, _unsynced: false });
+          saveCustomer({ id: customer.id, is_offline: false, _unsynced: false, _modifiedAt: Date.now() });
         } catch (err: any) {
-          toast.error("Failed to update customer: " + (err?.message || "Network error"));
+          saveCustomer({ id: customer.id, is_offline: true, _unsynced: true, _modifiedAt: Date.now() });
+          toast.error("Failed to update customer remotely: " + (err?.message || "Network error"));
           return;
         }
       } else {
@@ -765,6 +771,9 @@ export function AddCustomerModal({
           due_status: payload.due_status ?? "Clear",
           created_at: remoteCustomer.created_at || new Date().toISOString(),
           updated_at: remoteCustomer.updated_at || new Date().toISOString(),
+          _unsynced: false,
+          is_offline: false,
+          _modifiedAt: Date.now(),
         } as Customer;
 
         saveCustomer(newRecord);

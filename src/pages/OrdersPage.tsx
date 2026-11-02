@@ -912,11 +912,14 @@ export function OrdersPage() {
             notes: `Payment for order ${editingOrder.order_number} (${editPayStatus})`,
             created_at: colCreatedIso,
             customer: customer ? { ...customer } : undefined,
+            _unsynced: true,
+            _modifiedAt: Date.now(),
+            is_offline: true,
           };
           nextCollections = deduplicateCollections([newCollection, ...nextCollections]);
           saveCollections(nextCollections);
 
-          supabase.from("collections").insert({
+          const { error: colErr } = await supabase.from("collections").insert({
             id: colId,
             collection_number: colNumber,
             customer_id: orderFormData.customer_id,
@@ -927,9 +930,13 @@ export function OrdersPage() {
             collected_by: profile?.id ?? null,
             notes: `Payment for order ${editingOrder.order_number} (${editPayStatus})`,
             created_at: colCreatedIso,
-          }).then(({ error: colErr }) => {
-            if (colErr) console.warn("Supabase collection insert on edit notice:", colErr.message);
           });
+          if (colErr) {
+            console.warn("Supabase collection insert on edit notice (retaining unsynced flag):", colErr.message);
+          } else {
+            const currentCols = getCollections();
+            saveCollections(currentCols.map((c) => (c.id === colId ? { ...c, _unsynced: false, is_offline: false } : c)));
+          }
         }
 
         // 2b. If order is marked as Cancelled, void any associated collections to prevent orphaned credits
@@ -1004,7 +1011,12 @@ export function OrdersPage() {
           );
 
           if (orderUpdateErr) {
-            console.warn("Supabase order update notice:", orderUpdateErr.message);
+            console.warn("Supabase order update notice (retaining unsynced protection):", orderUpdateErr.message);
+            const currentOrders = getOrders();
+            saveOrders(currentOrders.map((o) => (o.id === editingOrder.id ? { ...o, _unsynced: true, is_offline: true, _modifiedAt: Date.now() } : o)));
+          } else {
+            const currentOrders = getOrders();
+            saveOrders(currentOrders.map((o) => (o.id === editingOrder.id ? { ...o, _unsynced: false, is_offline: false, _modifiedAt: Date.now() } : o)));
           }
 
           // First delete/clear existing order_items for order_id in Supabase
@@ -1091,6 +1103,9 @@ export function OrdersPage() {
           notes: sanitizeFormulaInput(orderFormData.notes) || null,
           created_at: orderFormData.order_date || new Date().toISOString(),
           updated_at: new Date().toISOString(),
+          _unsynced: true,
+          _modifiedAt: Date.now(),
+          is_offline: true,
           customer: customer || undefined,
           order_items: orderFormData.items.map((it, i) => {
             const prodInfo = resolveOrderProduct(undefined, it.product_id, Array.isArray(products) ? products : []);
@@ -1148,6 +1163,9 @@ export function OrdersPage() {
             notes: `Order ${orderNumber} payment (${payStatus})`,
             created_at: colCreatedIso,
             customer: customer ? { ...customer } : undefined,
+            _unsynced: true,
+            _modifiedAt: Date.now(),
+            is_offline: true,
           };
           nextCollections = deduplicateCollections([newCollection, ...nextCollections]);
           saveCollections(nextCollections);
@@ -1261,7 +1279,12 @@ export function OrdersPage() {
               supabase.from("collections").insert(p)
             );
             if (colErr) {
-              console.warn("Notice inserting collection to Supabase:", colErr.message);
+              console.warn("Notice inserting collection to Supabase (retained with unsynced protection):", colErr.message);
+            } else {
+              const cols = getCollections();
+              saveCollections(
+                cols.map((c) => (c.id === pendingRemoteCollectionPayload?.id ? { ...c, order_id: persistedOrderId, _unsynced: false, is_offline: false, _modifiedAt: Date.now() } : c))
+              );
             }
           } catch (colEx) {
             console.warn("Exception inserting linked collection to Supabase:", colEx);
@@ -1271,13 +1294,13 @@ export function OrdersPage() {
         const handleReconcileOrder = (createdServerId: string) => {
           setOrders((prev) => {
             const reconciled = prev.map((item) =>
-              item.id === tempId ? { ...item, id: createdServerId } : item
+              item.id === tempId ? { ...item, id: createdServerId, _unsynced: false, is_offline: false, _modifiedAt: Date.now() } : item
             );
             return reconciled;
           });
           const stored = getOrders();
           const reconciledStored = stored.map((item) =>
-            item.id === tempId ? { ...item, id: createdServerId } : item
+            item.id === tempId ? { ...item, id: createdServerId, _unsynced: false, is_offline: false, _modifiedAt: Date.now() } : item
           );
           saveOrders(reconciledStored);
         };
@@ -1290,7 +1313,9 @@ export function OrdersPage() {
             const orderData: any = data;
 
             if (orderErr) {
-              console.warn("Direct Supabase order insert error (persisted locally):", orderErr.message);
+              console.warn("Direct Supabase order insert error (retained in local store with unsynced flag):", orderErr.message);
+              const currentOrders = getOrders();
+              saveOrders(currentOrders.map((o) => (o.id === tempId ? { ...o, _unsynced: true, is_offline: true, _modifiedAt: Date.now() } : o)));
               return;
             }
 
@@ -1385,7 +1410,7 @@ export function OrdersPage() {
           }
         };
 
-        invokeRpcOrFallback();
+        await invokeRpcOrFallback();
       }
     } catch (e: any) {
       toast.error(e.message || "Failed to save order");
@@ -1514,7 +1539,7 @@ export function OrdersPage() {
         transaction_date: tx.transaction_date,
       }));
 
-      supabase.from("stock_transactions").insert(dbTxPayload).then(undefined, (err) => {
+      await supabase.from("stock_transactions").insert(dbTxPayload).then(undefined, (err) => {
         console.warn("Supabase stock_transactions insert error:", err);
       });
     }

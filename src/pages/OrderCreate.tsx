@@ -814,6 +814,9 @@ export function OrderCreate() {
         notes: sanitizeFormulaInput(notes) || null,
         created_at: nowIso,
         updated_at: nowIso,
+        _unsynced: true,
+        _modifiedAt: Date.now(),
+        is_offline: true,
         customer: selectedCustomer,
         order_items: sanitizedItems,
         items: Array.from(sanitizedItems),
@@ -854,6 +857,9 @@ export function OrderCreate() {
           remainingDue: remDueCalc,
           notes: `Payment for order ${orderNumber} (${paymentStatusType})`,
           created_at: colCreatedIso,
+          _unsynced: true,
+          _modifiedAt: Date.now(),
+          is_offline: true,
           customer: selectedCustomer ? { ...selectedCustomer } : undefined,
         };
         nextCollections = deduplicateCollections([newCollection, ...nextCollections]);
@@ -897,7 +903,7 @@ export function OrderCreate() {
 
           try {
             const dbTxPayload = newTransactions.map((tx) => sanitizeStockTxPayload(tx, true));
-            supabase
+            await supabase
               .from("stock_transactions")
               .insert(dbTxPayload)
               .then(undefined, (err) => console.warn("Supabase stock_transactions insert notice:", err));
@@ -933,7 +939,14 @@ export function OrderCreate() {
 
         if (ordErr) {
           toast.error(`Server order creation failed: ${ordErr.message}`);
+          // Retain order with unsynced protection in local store
+          const currentOrders = getOrders();
+          saveOrders(currentOrders.map((o) => (o.id === orderId ? { ...o, _unsynced: true, is_offline: true, _modifiedAt: Date.now() } : o)));
           return;
+        } else {
+          // Clear unsynced flag upon successful persistence
+          const currentOrders = getOrders();
+          saveOrders(currentOrders.map((o) => (o.id === orderId ? { ...o, _unsynced: false, is_offline: false, _modifiedAt: Date.now() } : o)));
         }
 
         if (additionalCashPaid > 0) {
@@ -954,7 +967,10 @@ export function OrderCreate() {
             supabase.from("collections").insert(p),
           );
           if (colErr) {
-            console.warn("Supabase collection insert notice:", colErr.message);
+            console.warn("Supabase collection insert notice (retaining unsynced flag):", colErr.message);
+          } else {
+            const currentCols = getCollections();
+            saveCollections(currentCols.map((c) => (c.id === colId ? { ...c, _unsynced: false, is_offline: false, _modifiedAt: Date.now() } : c)));
           }
         }
 

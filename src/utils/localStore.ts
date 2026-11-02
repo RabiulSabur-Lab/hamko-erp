@@ -190,6 +190,8 @@ export const OPTIMISTIC_LOCK_GRACE_PERIOD_MS = 25000;
  */
 export function isPendingOfflineRecord(record?: any): boolean {
   if (!record || typeof record !== "object") return false;
+  // If explicitly flagged as unsynced, offline, or pending mutation, protect indefinitely
+  if (record._unsynced === true || record.is_offline === true || record._isPending === true) return true;
   if (record._unsynced || record.is_offline || record._isPending) return true;
 
   const localTs = parseRecordTimestamp(record);
@@ -1820,7 +1822,8 @@ export function reconcileOrdersWithRemote(
         dueAmount: resolvedDue,
         ...(resolvedItems !== undefined ? { order_items: resolvedItems, items: resolvedItems } : {}),
         customer: (ro as any).customer || (matchLocal as any)?.customer || undefined,
-        is_offline: false,
+        is_offline: locIsPending ? (matchLocal?.is_offline ?? true) : false,
+        _unsynced: locIsPending ? (matchLocal?._unsynced ?? true) : false,
       } as Order;
     });
 
@@ -1830,7 +1833,12 @@ export function reconcileOrdersWithRemote(
       if (o && o.id) map.set(String(o.id), o);
     });
     validRemote.forEach((o) => {
-      if (o && o.id) map.set(String(o.id), o);
+      if (o && o.id) {
+        const existing = map.get(String(o.id));
+        if (!existing || isRemoteAuthoritative(o, existing)) {
+          map.set(String(o.id), o);
+        }
+      }
     });
     const result = deduplicateOrders(Array.from(map.values()), {
       excludeDrafts: false,
@@ -1904,7 +1912,8 @@ export function reconcileCollectionsWithRemote(
         settlement_discount: (rc as any).settlement_discount ?? matchLocal.settlement_discount ?? null,
         previous_due: (rc as any).previous_due ?? matchLocal.previous_due ?? null,
         remaining_due: (rc as any).remaining_due ?? matchLocal.remaining_due ?? null,
-        is_offline: false,
+        is_offline: locIsPending ? (matchLocal.is_offline ?? true) : false,
+        _unsynced: locIsPending ? (matchLocal._unsynced ?? true) : false,
       } as Collection;
     });
 
@@ -1914,7 +1923,12 @@ export function reconcileCollectionsWithRemote(
       if (c && c.id) map.set(String(c.id), c);
     });
     validRemote.forEach((c) => {
-      if (c && c.id) map.set(String(c.id), c);
+      if (c && c.id) {
+        const existing = map.get(String(c.id));
+        if (!existing || isRemoteAuthoritative(c, existing)) {
+          map.set(String(c.id), c);
+        }
+      }
     });
     const result = deduplicateCollections(Array.from(map.values()));
     if (options?.persist !== false) {
@@ -2225,30 +2239,23 @@ export function reconcileInventoryWithRemote(
   const currentLocal = getLocalData<any[]>(STORAGE_KEYS.INVENTORY, []);
   const validRemote = (Array.isArray(remoteInv) ? remoteInv : []).filter((i) => Boolean(i && (i.id || i.product_id)));
 
-  if (options?.incremental) {
-    const map = new Map<string, any>();
-    (Array.isArray(currentLocal) ? currentLocal : []).forEach((item) => {
-      const key = String(item.product_id || item.id);
-      if (key) map.set(key, item);
-    });
-    for (const ri of validRemote) {
-      const key = String(ri.product_id || ri.id);
-      const existing = map.get(key);
-      if (!existing || isRemoteAuthoritative(ri, existing)) {
-        map.set(key, { ...(existing || {}), ...ri });
-      }
+  const map = new Map<string, any>();
+  (Array.isArray(currentLocal) ? currentLocal : []).forEach((item) => {
+    const key = String(item.product_id || item.id);
+    if (key) map.set(key, item);
+  });
+  for (const ri of validRemote) {
+    const key = String(ri.product_id || ri.id);
+    const existing = map.get(key);
+    if (!existing || isRemoteAuthoritative(ri, existing)) {
+      map.set(key, { ...(existing || {}), ...ri });
     }
-    const result = Array.from(map.values());
-    if (options?.persist !== false) {
-      setLocalData(STORAGE_KEYS.INVENTORY, result, null, true);
-    }
-    return result;
   }
-
+  const result = Array.from(map.values());
   if (options?.persist !== false) {
-    setLocalData(STORAGE_KEYS.INVENTORY, validRemote, null, true);
+    setLocalData(STORAGE_KEYS.INVENTORY, result, null, true);
   }
-  return validRemote;
+  return result;
 }
 
 /**
@@ -2465,6 +2472,7 @@ export function saveCustomer(customer: Customer | (Partial<Customer> & { id: str
     is_active,
     updated_at: new Date().toISOString(),
     _modifiedAt: Date.now(),
+    _unsynced: customer._unsynced !== undefined ? customer._unsynced : (existing?._unsynced ?? true),
   } as Customer;
 
   let updated: Customer[];
@@ -2512,6 +2520,7 @@ export function saveProduct(product: Product | (Partial<Product> & { id: string 
     ...product,
     updated_at: new Date().toISOString(),
     _modifiedAt: Date.now(),
+    _unsynced: product._unsynced !== undefined ? product._unsynced : (existing?._unsynced ?? true),
   } as Product;
 
   let updated: Product[];
@@ -2542,6 +2551,47 @@ export const getOrders = (): Order[] => {
 export const saveOrders = (orders: Order[]): void => {
   setLocalData(STORAGE_KEYS.ORDERS, orders);
 };
+
+/**
+ * Saves or updates a single order in localStore, stamping _modifiedAt and _unsynced protection.
+ */
+export function saveOrder(order: Order | (Partial<Order> & { id: string })): Order[] {
+  const current = getOrders();
+  const index = current.findIndex((o: Order) => String(o.id) === String(order.id));
+  const existing = index >= 0 ? current[index] : null;
+  const now = new Date().toISOString();
+  const orderToSave: Order = {
+    ...(existing || {}),
+    ...order,
+    updated_at: now,
+    _modifiedAt: Date.now(),
+    _unsynced: order._unsynced !== undefined ? order._unsynced : (existing?._unsynced ?? true),
+  } as Order;
+
+  let updated: Order[];
+  if (index >= 0) {
+    updated = [...current];
+    updated[index] = orderToSave;
+  } else {
+    updated = [orderToSave, ...current];
+  }
+  setLocalData(STORAGE_KEYS.ORDERS, updated);
+  return updated;
+}
+
+/**
+ * Marks a record's sync state in a specific storage key.
+ */
+export function markRecordSyncState(storageKey: string, id: string, unsynced: boolean = false): void {
+  const list = getLocalData<any[]>(storageKey, []);
+  if (!Array.isArray(list)) return;
+  const next = list.map((item) =>
+    String(item.id) === String(id)
+      ? { ...item, _unsynced: unsynced, is_offline: unsynced, _modifiedAt: Date.now() }
+      : item
+  );
+  setLocalData(storageKey, next, null, true);
+}
 
 export const getNotifications = (): Notification[] => {
   try {
@@ -2594,6 +2644,33 @@ export const getVisits = (): Visit[] => {
 export const saveVisits = (visits: Visit[]): void => {
   setLocalData(STORAGE_KEYS.VISITS, visits);
 };
+
+/**
+ * Saves or updates a single visit in localStore with unsynced protection.
+ */
+export function saveVisit(visit: Visit | (Partial<Visit> & { id: string })): Visit[] {
+  const current = getVisits();
+  const index = current.findIndex((v: Visit) => String(v.id) === String(visit.id));
+  const existing = index >= 0 ? current[index] : null;
+  const now = new Date().toISOString();
+  const visitToSave: Visit = {
+    ...(existing || {}),
+    ...visit,
+    created_at: existing?.created_at || visit.created_at || now,
+    _modifiedAt: Date.now(),
+    _unsynced: visit._unsynced !== undefined ? visit._unsynced : (existing?._unsynced ?? true),
+  } as Visit;
+
+  let updated: Visit[];
+  if (index >= 0) {
+    updated = [...current];
+    updated[index] = visitToSave;
+  } else {
+    updated = [visitToSave, ...current];
+  }
+  setLocalData(STORAGE_KEYS.VISITS, updated);
+  return updated;
+}
 
 export const getRoutePlan = (): any[] => {
   try {
@@ -2655,6 +2732,9 @@ export const saveCollection = (
   const colNumber = collectionData.collection_number || generateCollectionNumber(collections);
   const now = new Date().toISOString();
 
+  const isExisting = collections.some((c) => c.id === colId);
+  const existingCol = collections.find((c) => c.id === colId);
+
   const record: Collection = {
     ...collectionData,
     id: colId,
@@ -2671,9 +2751,11 @@ export const saveCollection = (
     previousDue: prevDueCalc,
     remainingDue: remDueCalc,
     created_at: collectionData.created_at || now,
+    updated_at: now,
+    _modifiedAt: Date.now(),
+    _unsynced: collectionData._unsynced !== undefined ? collectionData._unsynced : (existingCol?._unsynced ?? true),
   };
 
-  const isExisting = collections.some((c) => c.id === colId);
   const updatedList = isExisting
     ? collections.map((c) => (c.id === colId ? record : c))
     : deduplicateCollections([record, ...collections]);
@@ -2803,6 +2885,33 @@ export const getExpenses = (): Expense[] => {
 export const saveExpenses = (expenses: Expense[]): void => {
   setLocalData(STORAGE_KEYS.EXPENSES, expenses);
 };
+
+/**
+ * Saves or updates a single expense in localStore with unsynced protection.
+ */
+export function saveExpense(expense: Expense | (Partial<Expense> & { id: string })): Expense[] {
+  const current = getExpenses();
+  const index = current.findIndex((e: Expense) => String(e.id) === String(expense.id));
+  const existing = index >= 0 ? current[index] : null;
+  const now = new Date().toISOString();
+  const expenseToSave: Expense = {
+    ...(existing || {}),
+    ...expense,
+    created_at: existing?.created_at || expense.created_at || now,
+    _modifiedAt: Date.now(),
+    _unsynced: expense._unsynced !== undefined ? expense._unsynced : (existing?._unsynced ?? true),
+  } as Expense;
+
+  let updated: Expense[];
+  if (index >= 0) {
+    updated = [...current];
+    updated[index] = expenseToSave;
+  } else {
+    updated = [expenseToSave, ...current];
+  }
+  setLocalData(STORAGE_KEYS.EXPENSES, updated);
+  return updated;
+}
 
 export const deleteExpense = (id: string, currentItems?: Expense[]): Expense[] => {
   const current = getExpenses();

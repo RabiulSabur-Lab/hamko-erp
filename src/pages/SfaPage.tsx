@@ -547,6 +547,9 @@ export function SfaPage() {
         outcome: payload.outcome?.trim() || null,
         notes: payload.notes?.trim() || null,
         created_at: new Date().toISOString(),
+        _unsynced: true,
+        _modifiedAt: Date.now(),
+        is_offline: true,
         customer: targetCustomer,
       };
 
@@ -563,7 +566,7 @@ export function SfaPage() {
       toast.success(t("created"));
       setDialogOpen(false);
 
-      // 2. Background persistence
+      // 2. Remote persistence
       const cleanVisit = sanitizeVisitPayload({
         customer_id: payload.customer_id,
         visited_by: profile?.id,
@@ -576,17 +579,19 @@ export function SfaPage() {
         notes: payload.notes,
       }, true);
 
-      executeWithSchemaResilience("visits", cleanVisit, (p) =>
+      const { data, error } = await executeWithSchemaResilience("visits", cleanVisit, (p) =>
         supabase.from("visits").insert(p).select().single(),
-      ).then(({ data, error }) => {
-        if (!error && data) {
-          setVisits((prev) => {
-            const reconciled = prev.map((v) => (v.id === tempId ? (data as Visit) : v));
-            saveVisits(reconciled);
-            return reconciled;
-          });
-        }
-      });
+      );
+
+      if (!error && data) {
+        setVisits((prev) => {
+          const reconciled = prev.map((v) => (v.id === tempId ? ({ ...(data as Visit), is_offline: false, _unsynced: false, _modifiedAt: Date.now() }) : v));
+          saveVisits(reconciled);
+          return reconciled;
+        });
+      } else if (error) {
+        console.warn("Notice: visit saved locally with unsynced protection, Supabase error:", error.message);
+      }
     } catch (e: any) { toast.error(e.message); } finally { setSaving(false); }
   }
 

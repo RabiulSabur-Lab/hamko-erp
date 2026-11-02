@@ -797,6 +797,9 @@ export function AccountsPage() {
           remainingDue: remDueCalc,
           customer,
           order,
+          _unsynced: true,
+          _modifiedAt: Date.now(),
+          is_offline: true,
         };
 
         setCollections((prev) => optimisticAdd(prev, newCollection, STORAGE_KEYS.COLLECTIONS));
@@ -895,7 +898,7 @@ export function AccountsPage() {
           if (savedId) {
             setCollections((prev) => {
               const reconciled = prev.map((item) =>
-                item.id === tempId ? ({ ...item, id: savedId!, is_offline: false } as Collection) : item
+                item.id === tempId ? ({ ...item, id: savedId!, is_offline: false, _unsynced: false, _modifiedAt: Date.now() } as Collection) : item
               );
               saveCollections(reconciled);
               return reconciled;
@@ -961,6 +964,9 @@ export function AccountsPage() {
           recorded_by_name: getUserName(profile?.id) || null,
           notes: form.notes?.trim() || null,
           created_at: new Date().toISOString(),
+          _unsynced: true,
+          _modifiedAt: Date.now(),
+          is_offline: true,
         };
 
         // 1. Instant local mutation
@@ -970,7 +976,7 @@ export function AccountsPage() {
         window.dispatchEvent(new Event("sales_erp_storage_update"));
         dispatchGlobalStateUpdate({ type: "expense_created" });
 
-        // 2. Background persistence
+        // 2. Remote persistence
         const cleanExpense = sanitizeExpensePayload({
           category: form.category,
           description: form.description,
@@ -980,21 +986,21 @@ export function AccountsPage() {
           notes: form.notes,
         }, true);
 
-        executeWithSchemaResilience("expenses", cleanExpense, (p) =>
+        const { data, error } = await executeWithSchemaResilience("expenses", cleanExpense, (p) =>
           supabase.from("expenses").insert(p).select().single(),
-        ).then(({ data, error }) => {
-          if (!error && data) {
-            setExpenses((prev) => {
-              const reconciled = prev.map((item) =>
-                item.id === tempId ? (data as Expense) : item
-              );
-              saveExpenses(reconciled);
-              return reconciled;
-            });
-          } else if (error) {
-            console.warn("Supabase expense insert error:", error.message);
-          }
-        });
+        );
+
+        if (!error && data) {
+          setExpenses((prev) => {
+            const reconciled = prev.map((item) =>
+              item.id === tempId ? ({ ...(data as Expense), is_offline: false, _unsynced: false, _modifiedAt: Date.now() }) : item
+            );
+            saveExpenses(reconciled);
+            return reconciled;
+          });
+        } else if (error) {
+          console.warn("Notice: expense saved locally with unsynced protection, Supabase error:", error.message);
+        }
       } catch (e: any) { toast.error(e.message); } finally { setSaving(false); }
     }
   }

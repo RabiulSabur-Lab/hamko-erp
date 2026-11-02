@@ -748,6 +748,9 @@ export interface Order extends DbOrderRow {
   sales_rep_name?: string | null;
   created_by_name?: string | null;
   order_items?: OrderItem[];
+  _unsynced?: boolean;
+  _modifiedAt?: number;
+  [key: string]: any;
 }
 
 export interface OrderItem extends DbOrderItemRow {
@@ -761,6 +764,9 @@ export interface Inventory {
   quantity: number;
   updated_at: string;
   product?: Product;
+  _unsynced?: boolean;
+  _modifiedAt?: number;
+  [key: string]: any;
 }
 
 export interface StockTransaction {
@@ -775,6 +781,9 @@ export interface StockTransaction {
   performed_by: string | null;
   transaction_date: string;
   product?: Product;
+  _unsynced?: boolean;
+  _modifiedAt?: number;
+  [key: string]: any;
 }
 
 export interface Collection extends DbCollectionRow {
@@ -807,6 +816,9 @@ export interface Expense {
   recorded_by_name?: string | null;
   notes: string | null;
   created_at: string;
+  _unsynced?: boolean;
+  _modifiedAt?: number;
+  [key: string]: any;
 }
 
 export interface Visit {
@@ -825,6 +837,9 @@ export interface Visit {
   notes: string | null;
   created_at: string;
   customer?: Customer;
+  _unsynced?: boolean;
+  _modifiedAt?: number;
+  [key: string]: any;
 }
 
 export interface SalesTarget {

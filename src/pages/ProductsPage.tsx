@@ -454,6 +454,8 @@ export function ProductsPage() {
       price_tiers: baseDbPayload.price_tiers || [],
       updated_at: new Date().toISOString(),
       _modifiedAt: Date.now(),
+      _unsynced: false,
+      is_offline: false,
     };
 
     // Update state and localStorage
@@ -523,6 +525,8 @@ export function ProductsPage() {
       price_tiers: baseDbPayload.price_tiers,
       updated_at: new Date().toISOString(),
       _modifiedAt: Date.now(),
+      _unsynced: false,
+      is_offline: false,
     };
 
     // Update state and localStorage

@@ -348,6 +348,9 @@ export function CashCollectionModal({
         ...(finalBank ? { bankName: finalBank } : {}),
         ...(finalBranch ? { branchName: finalBranch } : {}),
         ...(finalChequeDate ? { chequeDate: finalChequeDate } : {}),
+        _unsynced: true,
+        _modifiedAt: Date.now(),
+        is_offline: true,
       };
 
       // BUG-015: If an Admin authorized a settlement discount, record it separately as an audited Expense
@@ -361,6 +364,9 @@ export function CashCollectionModal({
           recorded_by: profile?.full_name || "Admin",
           notes: `Settlement waiver approved for Collection ${colNum}`,
           created_at: new Date().toISOString(),
+          _unsynced: true,
+          _modifiedAt: Date.now(),
+          is_offline: true,
         };
         const existingExpenses = getLocalData<Expense[]>(STORAGE_KEYS.EXPENSES, []);
         saveExpenses([discountExpense, ...existingExpenses]);
@@ -375,7 +381,7 @@ export function CashCollectionModal({
           notes: discountExpense.notes,
         }, true);
 
-        supabase.from("expenses").insert(cleanExpensePayload).then(undefined, (err) => console.warn("Supabase settlement discount expense insert notice:", err));
+        await supabase.from("expenses").insert(cleanExpensePayload).then(undefined, (err) => console.warn("Supabase settlement discount expense insert notice:", err));
       }
 
       // 1. Instant local optimistic mutation
@@ -426,8 +432,8 @@ export function CashCollectionModal({
               ? { ...o, paid_amount: revertedPaid, due_amount: revertedDue, payment_status: revertedStatus as any }
               : o
           );
-          // Sync former order to Supabase in background
-          supabase
+          // Sync former order to Supabase
+          await supabase
             .from("orders")
             .update({
               paid_amount: revertedPaid,
@@ -495,6 +501,11 @@ export function CashCollectionModal({
             toast.error("Cloud collection update error: " + updErr.message);
             return;
           }
+          const refreshedCols: Collection[] = getLocalData<Collection[]>(STORAGE_KEYS.COLLECTIONS, []);
+          const reconciled: Collection[] = refreshedCols.map((item: Collection) =>
+            item.id === colId ? ({ ...item, is_offline: false, _unsynced: false, _modifiedAt: Date.now() } as Collection) : item,
+          );
+          saveCollections(reconciled);
         } else {
           const { data, error: insErr } = await executeWithSchemaResilience("collections", cleanColPayload, (p) =>
             supabase.from("collections").insert(p).select().single(),
@@ -508,7 +519,7 @@ export function CashCollectionModal({
 
           const refreshedCols: Collection[] = getLocalData<Collection[]>(STORAGE_KEYS.COLLECTIONS, []);
           const reconciled: Collection[] = refreshedCols.map((item: Collection) =>
-            item.id === colId ? ({ ...item, id: insertData.id, is_offline: false } as Collection) : item,
+            item.id === colId ? ({ ...item, id: insertData.id, is_offline: false, _unsynced: false, _modifiedAt: Date.now() } as Collection) : item,
           );
           saveCollections(reconciled);
         }
