@@ -452,6 +452,8 @@ export function ProductsPage() {
       category_id: baseDbPayload.category_id,
       category: category || (res.data as any)?.category,
       price_tiers: baseDbPayload.price_tiers || [],
+      updated_at: new Date().toISOString(),
+      _modifiedAt: Date.now(),
     };
 
     // Update state and localStorage
@@ -519,6 +521,8 @@ export function ProductsPage() {
       category_id: baseDbPayload.category_id,
       category: category || (res.data as any)?.category,
       price_tiers: baseDbPayload.price_tiers,
+      updated_at: new Date().toISOString(),
+      _modifiedAt: Date.now(),
     };
 
     // Update state and localStorage

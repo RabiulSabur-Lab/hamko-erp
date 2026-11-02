@@ -1020,7 +1020,15 @@ export function AccountsPage() {
           nextOrderPaid = newPaid;
           nextOrderDue = newDue;
           nextOrderStatus = newStatus;
-          return { ...ord, paid_amount: newPaid, due_amount: newDue, payment_status: newStatus as any };
+          const nowIso = new Date().toISOString();
+          return {
+            ...ord,
+            paid_amount: newPaid,
+            due_amount: newDue,
+            payment_status: newStatus as any,
+            updated_at: nowIso,
+            _modifiedAt: Date.now(),
+          };
         });
         saveOrders(updated);
         return updated;
@@ -1031,6 +1039,7 @@ export function AccountsPage() {
           paid_amount: nextOrderPaid,
           due_amount: nextOrderDue,
           payment_status: nextOrderStatus,
+          updated_at: new Date().toISOString(),
         })
         .eq("id", target.order_id)
         .then(undefined, (err) => console.warn("Supabase order paid/due revert notice:", err));

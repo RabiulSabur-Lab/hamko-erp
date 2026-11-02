@@ -511,6 +511,7 @@ export function ProductEditModal({
       sku_code: sanitizedSku,
       brand: sanitizedBrand || null,
       id: activeProduct?.id || form.id,
+      is_active: form.is_active !== false,
       unit_price: finalDp,
       dp_price: finalDp,
       selling_price: finalDp,
@@ -691,6 +692,18 @@ export function ProductEditModal({
               onChange={(e) => setForm({ ...form, unit: e.target.value })}
               placeholder="e.g. pcs, set, box"
             />
+          </div>
+
+          {/* Status (Active / Inactive) */}
+          <div className="space-y-1.5 sm:col-span-2">
+            <Label>{t("status") || "Status"}</Label>
+            <Select
+              value={form.is_active !== false ? "Active" : "Inactive"}
+              onChange={(e) => setForm({ ...form, is_active: e.target.value === "Active" })}
+            >
+              <option value="Active">{lang === "bn" ? "সক্রিয় (Active)" : "Active"}</option>
+              <option value="Inactive">{lang === "bn" ? "নিষ্ক্রিয় (Inactive)" : "Inactive"}</option>
+            </Select>
           </div>
 
           {/* Dynamic 2-Box Key-Value Price Tiers */}

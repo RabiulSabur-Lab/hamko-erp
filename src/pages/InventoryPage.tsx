@@ -261,7 +261,7 @@ export function InventoryPage() {
     setSaving(true);
     try {
       const delta = txType === "Stock In" ? qty : -qty;
-      adjustProductStock(form.product_id, delta, "Main Warehouse");
+      adjustProductStock(form.product_id, delta, "Main Warehouse", { skipRemoteProductUpdate: true });
       const sorted = [...getProducts()].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
       setProducts(sorted);
 
@@ -302,6 +302,7 @@ export function InventoryPage() {
         },
       }).then(({ error }) => {
         if (error) {
+          console.warn("RPC record_stock_transaction notice, using direct table fallback:", error.message);
           const cleanTx = sanitizeStockTxPayload({
             product_id: form.product_id,
             transaction_type: txType,
@@ -317,6 +318,15 @@ export function InventoryPage() {
             .from("stock_transactions")
             .insert(cleanTx)
             .then(undefined, (insErr) => console.warn("Direct stock_transactions insert notice:", insErr));
+
+          // Also ensure remote product stock is updated in fallback
+          const curStock = Math.max(0, Number(targetProduct.stock_quantity ?? 0));
+          const nextStock = Math.max(0, curStock + delta);
+          supabase
+            .from("products")
+            .update({ stock_quantity: nextStock, updated_at: nowIso })
+            .eq("id", form.product_id)
+            .then(undefined, (prodErr) => console.warn("Direct product stock fallback notice:", prodErr));
         }
       });
     } catch (e: any) {

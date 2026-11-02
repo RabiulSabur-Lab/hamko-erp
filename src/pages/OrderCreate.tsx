@@ -983,11 +983,16 @@ export function OrderCreate() {
           current_due: nextDue,
           due_status: nextDueStatus,
         });
-        supabase
+        const { error: custErr } = await supabase
           .from("customers")
-          .update(cleanCustUpdate)
-          .eq("id", customerId)
-          .then(undefined, () => {});
+          .update({
+            ...cleanCustUpdate,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", customerId);
+        if (custErr) {
+          console.warn("Notice updating remote customer due on order creation:", custErr.message);
+        }
       } catch (err: any) {
         toast.error(`Order submission error: ${err?.message || err}`);
         return;

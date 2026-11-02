@@ -1403,10 +1403,13 @@ export function OrdersPage() {
       return;
     }
 
-    // 1. Instant local mutation
-    setOrders((prev) => prev.map((item) => (item.id === o.id ? { ...item, status, updated_at: new Date().toISOString() } : item)));
+    const nowIso = new Date().toISOString();
+    const nowTs = Date.now();
+
+    // 1. Instant local mutation with timestamp protection
+    setOrders((prev) => prev.map((item) => (item.id === o.id ? { ...item, status, updated_at: nowIso, _modifiedAt: nowTs } : item)));
     const currentOrders = getOrders();
-    const nextOrders = currentOrders.map((item) => (item.id === o.id ? { ...item, status, updated_at: new Date().toISOString() } : item));
+    const nextOrders = currentOrders.map((item) => (item.id === o.id ? { ...item, status, updated_at: nowIso, _modifiedAt: nowTs } : item));
     saveOrders(nextOrders);
 
     // If order is cancelled, revert customer due, restore product stock, and void linked collections
@@ -1517,11 +1520,24 @@ export function OrdersPage() {
     }
 
     dispatchGlobalStateUpdate({ customerId: o.customer_id, type: "order_status_changed" });
-    toast.success(t("updated"));
 
-    // 2. Background persistence
-    const { error } = await supabase.from("orders").update({ status }).eq("id", o.id);
-    if (error) console.warn("Supabase order status update notice:", error.message);
+    // 2. Explicitly verify Supabase database persistence
+    try {
+      const { error } = await supabase.from("orders").update({ status, updated_at: nowIso }).eq("id", o.id);
+      if (error) {
+        console.error("Supabase order status update error:", error.message);
+        toast.error(`Database order status update failed: ${error.message}`);
+        // Rollback local optimistic update
+        const reverted = currentOrders.map((item) => (item.id === o.id ? { ...item, status: oldStatus } : item));
+        setOrders(reverted);
+        saveOrders(reverted);
+        return;
+      }
+      toast.success(t("updated"));
+    } catch (err: any) {
+      console.error("Supabase order update exception:", err);
+      toast.error(`Order status update failed: ${err?.message || "Server error"}`);
+    }
   }
 
   const proceedDeleteOrder = (id: string) => {

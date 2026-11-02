@@ -119,6 +119,8 @@ export interface Customer {
   _syncStripped?: boolean;
   _syncStrippedReason?: string;
   _syncStrippedAt?: string;
+  _modifiedAt?: number;
+  [key: string]: any;
 }
 
 export const STORAGE_KEYS = {
@@ -177,10 +179,23 @@ export function generateUUID(): string {
 }
 
 /**
- * Online-First Architecture: Offline pending mutation checks are disabled.
- * All mutations execute directly against the Supabase central database.
+ * Optimistic Locking Grace Period (25 seconds).
+ * Protects recently modified local records from being prematurely overwritten
+ * by stale incoming cloud polling loops or asynchronous replication delays.
  */
-export function isPendingOfflineRecord(_record?: any): boolean {
+export const OPTIMISTIC_LOCK_GRACE_PERIOD_MS = 25000;
+
+/**
+ * Checks whether a record has an active, recently modified local state or pending mutation.
+ */
+export function isPendingOfflineRecord(record?: any): boolean {
+  if (!record || typeof record !== "object") return false;
+  if (record._unsynced || record.is_offline || record._isPending) return true;
+
+  const localTs = parseRecordTimestamp(record);
+  if (localTs > 0 && Date.now() - localTs < OPTIMISTIC_LOCK_GRACE_PERIOD_MS) {
+    return true;
+  }
   return false;
 }
 
@@ -190,10 +205,10 @@ export function isPendingOfflineRecord(_record?: any): boolean {
 export function parseRecordTimestamp(record: any): number {
   if (!record || typeof record !== "object") return 0;
   const candidates = [
+    record._modifiedAt,
+    record._queuedAt,
     record.updated_at,
     record.updatedAt,
-    record._queuedAt,
-    record._modifiedAt,
     record.created_at,
     record.createdAt,
     record.order_date,
@@ -212,24 +227,40 @@ export function parseRecordTimestamp(record: any): number {
 }
 
 /**
- * Server-Authoritative / Last-Modified-Wins conflict resolver.
- * 1. If the local record is NOT a pending offline mutation, remote is always authoritative.
- * 2. If the local record IS a pending offline mutation:
- *    - If remote has a strictly newer timestamp, remote overrides the stale local change.
- *    - Otherwise, local pending mutation is retained until offlineSync completes.
+ * Server-Authoritative / Last-Modified-Wins conflict resolver with Optimistic Locking protection.
+ * 1. If localRecord is absent or has no timestamp, remote is authoritative.
+ * 2. If localRecord was modified within the grace period (or has a pending flag):
+ *    - Remote is ONLY authoritative if remoteTs is strictly newer than localTs (allowing 1000ms clock skew).
+ *    - Otherwise, local optimistic state is protected from being clobbered by stale background poll reads.
+ * 3. Outside the grace period, remote with a newer or equal timestamp wins.
  */
 export function isRemoteAuthoritative(remoteRecord: any, localRecord: any): boolean {
   if (!localRecord) return true;
   if (!remoteRecord) return false;
-  if (!isPendingOfflineRecord(localRecord)) return true;
 
   const remoteTs = parseRecordTimestamp(remoteRecord);
   const localTs = parseRecordTimestamp(localRecord);
 
-  if (remoteTs > 0 && localTs > 0 && remoteTs > localTs) {
-    return true;
+  // If local record has no detectable timestamp, defer to remote
+  if (localTs <= 0) return true;
+
+  const now = Date.now();
+  const isRecentlyModified = (now - localTs < OPTIMISTIC_LOCK_GRACE_PERIOD_MS) || isPendingOfflineRecord(localRecord);
+
+  if (isRecentlyModified) {
+    // Strictly protect local change unless remote has an explicitly newer timestamp
+    if (remoteTs > 0 && remoteTs > (localTs + 1000)) {
+      return true;
+    }
+    return false;
   }
-  return false;
+
+  // Normal convergence outside grace period
+  if (remoteTs > 0 && localTs > 0) {
+    return remoteTs >= localTs;
+  }
+
+  return true;
 }
 
 /**
@@ -560,7 +591,8 @@ export function optimisticDelete<T extends { id: string }>(
 export function adjustProductStock(
   productId: string,
   deltaQty: number,
-  warehouseName?: string
+  warehouseName?: string,
+  options?: { skipRemoteProductUpdate?: boolean }
 ): void {
   const products = getLocalData<any>(STORAGE_KEYS.PRODUCTS, []);
   let updatedStock = 0;
@@ -576,6 +608,7 @@ export function adjustProductStock(
       stock_quantity: newStock,
       stock: newStock,
       updated_at: now,
+      _modifiedAt: Date.now(),
     };
   });
   setLocalData(STORAGE_KEYS.PRODUCTS, updated);
@@ -595,6 +628,7 @@ export function adjustProductStock(
         ...inventoryList[invIdx],
         quantity: Math.max(0, Math.round(curInvQty + deltaQty)),
         updated_at: now,
+        _modifiedAt: Date.now(),
       };
     } else {
       inventoryList.push({
@@ -603,16 +637,19 @@ export function adjustProductStock(
         warehouse: wh,
         quantity: updatedStock,
         updated_at: now,
+        _modifiedAt: Date.now(),
       });
     }
     setLocalData(STORAGE_KEYS.INVENTORY, inventoryList);
 
     // Sync remote Supabase products table & inventory table
-    supabase
-      .from("products")
-      .update({ stock_quantity: updatedStock })
-      .eq("id", productId)
-      .then(undefined, (err) => console.warn("Supabase product stock sync notice:", err));
+    if (!options?.skipRemoteProductUpdate) {
+      supabase
+        .from("products")
+        .update({ stock_quantity: updatedStock, updated_at: now })
+        .eq("id", productId)
+        .then(undefined, (err) => console.warn("Supabase product stock sync notice:", err));
+    }
 
     supabase
       .from("inventory")
@@ -621,6 +658,7 @@ export function adjustProductStock(
           product_id: productId,
           warehouse: wh === "Main Warehouse" ? "Main" : wh,
           quantity: updatedStock,
+          updated_at: now,
         },
         { onConflict: "product_id,warehouse" }
       )
@@ -1595,16 +1633,17 @@ export function mergeAndEnrichCustomers(
     const remoteWins = !locIsPending || isRemoteAuthoritative(rc, loc);
     const parsed = parseCustomerNotes(rc.notes);
 
-    // Cloud-Authoritative status resolution (only defer to local if local has an unsynced offline mutation with newer timestamp)
+    // Status resolution: Local modification is protected if within optimistic grace period;
+    // Database column `rc.is_active === false` takes strict precedence over legacy notes tags.
     let resolvedStatus: string = "Active";
     if (!remoteWins && loc?.status !== undefined && loc.status !== null) {
       resolvedStatus = loc.status;
     } else if (!remoteWins && loc?.is_active !== undefined && loc.is_active !== null) {
       resolvedStatus = loc.is_active ? "Active" : "Inactive";
-    } else if (parsed.status) {
-      resolvedStatus = parsed.status;
     } else if (rc.is_active === false || (rc as any).status === "Inactive") {
       resolvedStatus = "Inactive";
+    } else if (parsed.status) {
+      resolvedStatus = parsed.status;
     } else if ((rc as any).status) {
       resolvedStatus = (rc as any).status;
     } else {
@@ -2425,6 +2464,7 @@ export function saveCustomer(customer: Customer | (Partial<Customer> & { id: str
     status,
     is_active,
     updated_at: new Date().toISOString(),
+    _modifiedAt: Date.now(),
   } as Customer;
 
   let updated: Customer[];
@@ -2471,6 +2511,7 @@ export function saveProduct(product: Product | (Partial<Product> & { id: string 
     ...(existing || {}),
     ...product,
     updated_at: new Date().toISOString(),
+    _modifiedAt: Date.now(),
   } as Product;
 
   let updated: Product[];

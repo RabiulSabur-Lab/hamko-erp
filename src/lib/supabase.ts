@@ -697,6 +697,8 @@ export interface Customer extends DbCustomerRow {
   security_notes?: string | null;
   hasSecurityCheque?: boolean | null;
   security_cheque_status?: string | null;
+  _modifiedAt?: number;
+  [key: string]: any;
 }
 
 export interface Territory {

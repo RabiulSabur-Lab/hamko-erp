@@ -19,6 +19,7 @@ import { useRouter } from "@/router";
 import { CustomerLedgerModal } from "@/components/CustomerLedgerModal";
 import { AddCustomerModal, parseCustomerNotes } from "@/components/AddCustomerModal";
 import { PaymentReminderModal } from "@/components/PaymentReminderModal";
+import { encodeCustomerNotes } from "@/utils/cloudSync";
 
 const customerTypes = ["Dealer", "Retailer", "Wholesale"] as const;
 const dueStatuses = ["Clear", "Overdue", "Partial"] as const;
@@ -43,6 +44,7 @@ import {
   r2,
   deduplicateCollections,
   isPendingOfflineRecord,
+  dispatchGlobalStateUpdate,
 } from "@/utils/localStore";
 
 export function CustomersPage() {
@@ -296,11 +298,20 @@ export function CustomersPage() {
       return;
     }
     const is_active = newStatus === "Active";
+    const nowIso = new Date().toISOString();
+    const updatedNotes = encodeCustomerNotes({
+      ...c,
+      status: newStatus,
+      is_active,
+    });
+
     const updatedCustomer: Customer = {
       ...c,
       status: newStatus,
       is_active,
-      updated_at: new Date().toISOString(),
+      notes: updatedNotes,
+      updated_at: nowIso,
+      _modifiedAt: Date.now(),
     };
 
     // 1. Immediately update store & write full array to localStorage & dispatch storage update
@@ -310,17 +321,28 @@ export function CustomersPage() {
     setCustomers((prev) =>
       prev.map((item) => (item.id === c.id ? updatedCustomer : item))
     );
+    dispatchGlobalStateUpdate({ customerId: c.id, type: "customer_updated" });
 
-    toast.success(`Customer "${c.outlet_name || c.name}" marked as ${newStatus}`);
-
-    // 3. Sync to Supabase in background
+    // 3. Sync to Supabase and explicitly verify error status
     try {
-      await supabase
+      const { error } = await supabase
         .from("customers")
-        .update({ is_active })
+        .update({
+          is_active,
+          notes: updatedNotes,
+          updated_at: nowIso,
+        })
         .eq("id", c.id);
-    } catch (err) {
+
+      if (error) {
+        console.error("Supabase customer status update error:", error);
+        toast.error(`Database sync error: ${error.message}`);
+        return;
+      }
+      toast.success(`Customer "${c.outlet_name || c.name}" marked as ${newStatus}`);
+    } catch (err: any) {
       console.warn("Supabase customer status sync exception (persisted locally):", err);
+      toast.error(`Sync error: ${err?.message || "Failed to update status on server"}`);
     }
   }
 

@@ -517,6 +517,7 @@ export function CashCollectionModal({
           const cleanCustUpdate = sanitizeCustomerPayload({
             current_due: updatedCustDue,
             due_status: updatedCustStatus,
+            updated_at: new Date().toISOString(),
           });
           await supabase
             .from("customers")
@@ -529,6 +530,7 @@ export function CashCollectionModal({
             paid_amount: updatedOrderPaid,
             due_amount: updatedOrderDue,
             payment_status: updatedOrderStatus,
+            updated_at: new Date().toISOString(),
           });
           await supabase
             .from("orders")
