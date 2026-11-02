@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, type ReactNode } from "react";
 import {
   Menu, X, Moon, Sun, Globe, Bell, LogOut, ChevronDown,
   LayoutDashboard, Users, Package, ShoppingCart, Truck, Warehouse,
-  Wallet, MapPin, BarChart3, UserCog,
+  Wallet, MapPin, BarChart3, UserCog, Download,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { withQueryTimeout } from "@/lib/supabaseQuery";
@@ -250,6 +250,17 @@ export function AppLayout({ children }: { children: ReactNode }) {
                     <p className="text-xs text-muted-foreground truncate">{profile?.email ?? user?.email ?? ""}</p>
                     <Badge variant="secondary" className="mt-1 text-[10px]">{profile?.role_name ?? "Staff"}</Badge>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUserMenuOpen(false);
+                      window.dispatchEvent(new CustomEvent("hamko_check_app_update", { detail: { manual: true } }));
+                    }}
+                    className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-foreground hover:bg-accent transition-colors"
+                  >
+                    <Download className="h-4 w-4 text-primary" />
+                    <span>{lang === "bn" ? "অ্যাপ আপডেট চেক করুন" : "Check for Updates"}</span>
+                  </button>
                   <button
                     onClick={async () => {
                       setUserMenuOpen(false);

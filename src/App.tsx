@@ -20,9 +20,13 @@ import { NotificationsPage } from "./pages/NotificationsPage";
 import { UserManagement } from "./pages/UserManagement";
 import { ResetPassword } from "./pages/ResetPassword";
 import { Loader2 } from "lucide-react";
+import { App as CapacitorApp } from "@capacitor/app";
+import { Capacitor } from "@capacitor/core";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { initRealtimeSync, cleanupRealtimeSync } from "./services/realtimeSync";
 import { pullFreshCloudStateToLocalStore } from "./utils/cloudSync";
+import { AppUpdateModal } from "./components/AppUpdateModal";
+import { checkForAppUpdate, type AppUpdateCheckResult } from "./services/appUpdateService";
 
 function ProtectedRoute({
   allowed,
@@ -85,6 +89,73 @@ export function App() {
   const { session, user, profile, loading: authLoading } = useAuth();
   const { path, navigate } = useRouter();
   const [initTimeout, setInitTimeout] = useState(false);
+  const [updateInfo, setUpdateInfo] = useState<AppUpdateCheckResult | null>(null);
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
+
+  // In-App Mobile Update Checker (on startup, app resume, and manual trigger)
+  useEffect(() => {
+    let isMounted = true;
+
+    const performUpdateCheck = async (isManual = false) => {
+      try {
+        const result = await checkForAppUpdate();
+        if (!isMounted) return;
+
+        if (result.hasUpdate) {
+          // If not forced and not a manual trigger, respect user's previous dismissal
+          if (!result.isForced && !isManual) {
+            try {
+              const dismissed = localStorage.getItem("hamko_app_update_dismissed_version");
+              if (dismissed === result.latestVersion) {
+                return;
+              }
+            } catch {
+              // Ignore localStorage exception
+            }
+          }
+          setUpdateInfo(result);
+          setShowUpdateModal(true);
+        } else if (isManual) {
+          toast.success(`You are using the latest version (v${result.currentVersion})`);
+        }
+      } catch (err) {
+        console.warn("[AppUpdate] Version check background notice:", err);
+      }
+    };
+
+    // 1. Initial startup check
+    const timer = setTimeout(() => {
+      void performUpdateCheck(false);
+    }, 1500);
+
+    // 2. Mobile app resume listener via Capacitor App plugin
+    let listenerHandle: any = null;
+    if (Capacitor.isNativePlatform()) {
+      CapacitorApp.addListener("appStateChange", (state) => {
+        if (state.isActive) {
+          void performUpdateCheck(false);
+        }
+      }).then((handle) => {
+        listenerHandle = handle;
+      }).catch(() => null);
+    }
+
+    // 3. Custom event listener for manual check from UI
+    const handleManualCheck = (e: Event) => {
+      const isManual = (e as CustomEvent)?.detail?.manual ?? true;
+      void performUpdateCheck(isManual);
+    };
+    window.addEventListener("hamko_check_app_update", handleManualCheck);
+
+    return () => {
+      isMounted = false;
+      clearTimeout(timer);
+      if (listenerHandle?.remove) {
+        listenerHandle.remove();
+      }
+      window.removeEventListener("hamko_check_app_update", handleManualCheck);
+    };
+  }, []);
 
   // Centralized Global Realtime & Cross-Device Cloud Sync
   useEffect(() => {
@@ -140,52 +211,6 @@ export function App() {
       }
     }
   }, [session, loading, route, isRoot, navigate]);
-
-  if (loading) {
-    return (
-      <div className="flex h-screen items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
-  }
-
-  if (cleanPath === "/reset-password" || cleanPath.startsWith("/reset-password") || route === "reset-password") {
-    return (
-      <ErrorBoundary name="ResetPassword">
-        <ResetPassword />
-      </ErrorBoundary>
-    );
-  }
-
-  if (!session) {
-    if (route === "signup" || cleanPath === "/signup" || cleanPath.startsWith("/signup")) {
-      return (
-        <ErrorBoundary name="AuthPage:SignUp">
-          <AuthPage />
-        </ErrorBoundary>
-      );
-    }
-    if (route === "signin" || route === "auth" || route === "login" || cleanPath === "/login" || cleanPath === "/signin") {
-      return (
-        <ErrorBoundary name="AuthPage:SignIn">
-          <AuthPage />
-        </ErrorBoundary>
-      );
-    }
-    if (isRoot || route === "landing" || cleanPath === "/landing" || route === "about" || cleanPath === "/about" || route === "welcome" || cleanPath === "/welcome") {
-      return (
-        <ErrorBoundary name="LandingPage">
-          <LandingPage />
-        </ErrorBoundary>
-      );
-    }
-    // Protected routes fallback: Unauthenticated users visiting any protected route see the Login Page
-    return (
-      <ErrorBoundary name="AuthPage:ProtectedLogin">
-        <AuthPage />
-      </ErrorBoundary>
-    );
-  }
 
   // Role-based access control (RBAC): inspect exact user role structure
   const rawRole = (
@@ -291,13 +316,72 @@ export function App() {
     }
   })();
 
-  return (
-    <ErrorBoundary name="AppLayout">
-      <AppLayout>
-        <ErrorBoundary name={`Page:${route}`}>
-          {page}
+  const view = (() => {
+    if (loading) {
+      return (
+        <div className="flex h-screen items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      );
+    }
+
+    if (cleanPath === "/reset-password" || cleanPath.startsWith("/reset-password") || route === "reset-password") {
+      return (
+        <ErrorBoundary name="ResetPassword">
+          <ResetPassword />
         </ErrorBoundary>
-      </AppLayout>
-    </ErrorBoundary>
+      );
+    }
+
+    if (!session) {
+      if (route === "signup" || cleanPath === "/signup" || cleanPath.startsWith("/signup")) {
+        return (
+          <ErrorBoundary name="AuthPage:SignUp">
+            <AuthPage />
+          </ErrorBoundary>
+        );
+      }
+      if (route === "signin" || route === "auth" || route === "login" || cleanPath === "/login" || cleanPath === "/signin") {
+        return (
+          <ErrorBoundary name="AuthPage:SignIn">
+            <AuthPage />
+          </ErrorBoundary>
+        );
+      }
+      if (isRoot || route === "landing" || cleanPath === "/landing" || route === "about" || cleanPath === "/about" || route === "welcome" || cleanPath === "/welcome") {
+        return (
+          <ErrorBoundary name="LandingPage">
+            <LandingPage />
+          </ErrorBoundary>
+        );
+      }
+      // Protected routes fallback: Unauthenticated users visiting any protected route see the Login Page
+      return (
+        <ErrorBoundary name="AuthPage:ProtectedLogin">
+          <AuthPage />
+        </ErrorBoundary>
+      );
+    }
+
+    return (
+      <ErrorBoundary name="AppLayout">
+        <AppLayout>
+          <ErrorBoundary name={`Page:${route}`}>
+            {page}
+          </ErrorBoundary>
+        </AppLayout>
+      </ErrorBoundary>
+    );
+  })();
+
+  return (
+    <>
+      {view}
+      <AppUpdateModal
+        open={showUpdateModal}
+        updateInfo={updateInfo}
+        onClose={() => setShowUpdateModal(false)}
+      />
+    </>
   );
 }
