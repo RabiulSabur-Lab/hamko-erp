@@ -300,17 +300,15 @@ export function ensureCrossPlatformCacheConsistency(): boolean {
       if (Array.isArray(existing) && existing.length > 0) {
         const sanitized = existing.map((item) => {
           if (!item || typeof item !== "object") return item;
+          // Strictly PRESERVE is_offline, _unsynced, and _modifiedAt flags.
+          // Only remove transient failure/attempt metadata to allow fresh sync retries without losing offline protection.
           if (
-            item.is_offline ||
-            item._unsynced ||
             item._syncStripped ||
             item._localPendingUntil ||
             item._syncAttempts ||
             item._lastSyncError
           ) {
             const cleaned = { ...item };
-            delete cleaned.is_offline;
-            delete cleaned._unsynced;
             delete cleaned._syncStripped;
             delete cleaned._syncStrippedReason;
             delete cleaned._syncStrippedAt;
@@ -1740,7 +1738,9 @@ export function mergeAndEnrichCustomers(
       currentDue: resolvedDue,
       due_status: resolvedDueStatus,
       updated_at: (!remoteWins ? loc?.updated_at : undefined) || rc.updated_at || new Date().toISOString(),
-      is_offline: false,
+      is_offline: !remoteWins ? (loc?.is_offline ?? true) : false,
+      _unsynced: !remoteWins ? (loc?._unsynced ?? true) : false,
+      _modifiedAt: !remoteWins ? (loc?._modifiedAt ?? Date.now()) : parseRecordTimestamp(rc),
     } as Customer;
   });
 
@@ -1993,7 +1993,7 @@ export function reconcileProductsWithRemote(
         } as Product;
       }
       const lpPending = isPendingOfflineRecord(lp);
-      const remoteWins = !lpPending || isRemoteAuthoritative(rp, lp);
+      const remoteWins = !lpPending && isRemoteAuthoritative(rp, lp);
       const resolvedStock = remoteWins
         ? remoteStock
         : Math.max(0, Math.round(Number(lp.stock_quantity ?? (lp as any).stock ?? remoteStock)));
@@ -2006,7 +2006,9 @@ export function reconcileProductsWithRemote(
         purchase_price: rp.purchase_price ?? lp.purchase_price ?? null,
         purchase_cost: rp.purchase_cost ?? lp.purchase_cost ?? null,
         cost_price: rp.cost_price ?? lp.cost_price ?? null,
-        is_offline: false,
+        is_offline: !remoteWins ? (lp.is_offline ?? true) : false,
+        _unsynced: !remoteWins ? (lp._unsynced ?? true) : false,
+        _modifiedAt: !remoteWins ? (lp._modifiedAt ?? Date.now()) : parseRecordTimestamp(rp),
       } as Product;
     });
 
@@ -2016,7 +2018,12 @@ export function reconcileProductsWithRemote(
       if (p && p.id) map.set(String(p.id), p);
     });
     validRemote.forEach((p) => {
-      if (p && p.id) map.set(String(p.id), p);
+      if (p && p.id) {
+        const existing = map.get(String(p.id));
+        if (!existing || isRemoteAuthoritative(p, existing)) {
+          map.set(String(p.id), p);
+        }
+      }
     });
     const result = Array.from(map.values()).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
     if (options?.persist !== false) {
