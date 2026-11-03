@@ -279,6 +279,9 @@ export function InventoryPage() {
         transaction_date: nowIso,
         created_at: nowIso,
         product: targetProduct,
+        _unsynced: true,
+        _modifiedAt: Date.now(),
+        is_offline: true,
       };
       const existingTx = getLocalData<any[]>(STORAGE_KEYS.TRANSACTIONS, []);
       setLocalData(STORAGE_KEYS.TRANSACTIONS, [newTxRecord, ...(Array.isArray(existingTx) ? existingTx : [])]);
@@ -289,18 +292,20 @@ export function InventoryPage() {
       dispatchGlobalStateUpdate({ type: "inventory_adjusted", recordId: form.product_id });
 
       // 3. Record stock transaction in Supabase via RPC or direct table insert fallback
-      supabase.rpc("record_stock_transaction", {
-        p_tx: {
-          product_id: form.product_id,
-          transaction_type: txType,
-          quantity: qty,
-          from_warehouse: "Main Warehouse",
-          to_warehouse: "Main Warehouse",
-          reference: form.reference?.trim() ?? "",
-          notes: form.notes?.trim() ?? "",
-          performed_by: profile?.id ?? "",
-        },
-      }).then(({ error }) => {
+      try {
+        const { error } = await supabase.rpc("record_stock_transaction", {
+          p_tx: {
+            product_id: form.product_id,
+            transaction_type: txType,
+            quantity: qty,
+            from_warehouse: "Main Warehouse",
+            to_warehouse: "Main Warehouse",
+            reference: form.reference?.trim() ?? "",
+            notes: form.notes?.trim() ?? "",
+            performed_by: profile?.id ?? "",
+          },
+        });
+
         if (error) {
           console.warn("RPC record_stock_transaction notice, using direct table fallback:", error.message);
           const cleanTx = sanitizeStockTxPayload({
@@ -314,7 +319,7 @@ export function InventoryPage() {
             performed_by: profile?.id ?? null,
             transaction_date: nowIso,
           }, true);
-          supabase
+          await supabase
             .from("stock_transactions")
             .insert(cleanTx)
             .then(undefined, (insErr) => console.warn("Direct stock_transactions insert notice:", insErr));
@@ -322,13 +327,24 @@ export function InventoryPage() {
           // Also ensure remote product stock is updated in fallback
           const curStock = Math.max(0, Number(targetProduct.stock_quantity ?? 0));
           const nextStock = Math.max(0, curStock + delta);
-          supabase
+          await supabase
             .from("products")
             .update({ stock_quantity: nextStock, updated_at: nowIso })
             .eq("id", form.product_id)
             .then(undefined, (prodErr) => console.warn("Direct product stock fallback notice:", prodErr));
         }
-      });
+
+        // Mark local transaction record as synced
+        const storedTx = getLocalData<any[]>(STORAGE_KEYS.TRANSACTIONS, []);
+        if (Array.isArray(storedTx)) {
+          setLocalData(
+            STORAGE_KEYS.TRANSACTIONS,
+            storedTx.map((tx: any) => (tx.id === newTxRecord.id ? { ...tx, _unsynced: false, is_offline: false } : tx))
+          );
+        }
+      } catch (rpcErr) {
+        console.warn("Stock transaction remote sync notice (persisted locally with unsynced protection):", rpcErr);
+      }
     } catch (e: any) {
       toast.error(e.message);
     } finally {
