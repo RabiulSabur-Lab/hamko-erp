@@ -91,6 +91,7 @@ export function ReportsPage() {
   const [salesOfficers, setSalesOfficers] = useState<ManagedUser[]>(() => getLocalSalesOfficers());
   const [officerFilter, setOfficerFilter] = useState("");
   const [refreshing, setRefreshing] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   // Date Range Inversion Auto-Swap & Notification Validation
   const handleStartDateChange = (val: string) => {
@@ -148,12 +149,13 @@ export function ReportsPage() {
   // 2. Read-only remote sync function: NEVER mutates LocalStore or emits storage events (prevents infinite loop)
   const syncRemoteData = useCallback(async () => {
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      setLoading(false);
       return;
     }
 
     try {
       const sessionCheck = await ensureValidSession();
-      if (sessionCheck.offline || !sessionCheck.session || !hasActiveSessionToken(sessionCheck.session)) {
+      if (sessionCheck.offline) {
         return;
       }
 
@@ -312,6 +314,9 @@ export function ReportsPage() {
       }
     } catch (err) {
       console.warn("Reports remote sync notice:", err);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
@@ -849,6 +854,15 @@ export function ReportsPage() {
   ];
 
   const pieColors = ["#0ea5e9", "#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#14b8a6"];
+
+  if (loading && orders.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[350px] space-y-3">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <p className="text-sm text-muted-foreground">Loading report data from cloud...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">

@@ -20,6 +20,7 @@ import {
   type PurchaseInvoice,
   type SupplierPayment,
 } from "@/utils/localStore";
+import { pullFreshCloudStateToLocalStore } from "@/utils/cloudSync";
 
 import {
   Building2,
@@ -39,6 +40,7 @@ import {
   Database,
   Download,
   Trash2,
+  Loader2,
 } from "lucide-react";
 
 import * as XLSX from "xlsx";
@@ -91,14 +93,47 @@ export function SupplierLedger() {
   // Date Range Filters
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
+  const [loading, setLoading] = useState<boolean>(() => {
+    const list = getSuppliers();
+    const invs = getPurchaseInvoices();
+    return list.length <= 1 && invs.length === 0;
+  });
 
   useEffect(() => {
+    let mounted = true;
     const list = getSuppliers();
     setSuppliers(list);
     const hamko = list.find((s) => s.name.toLowerCase().includes("hamko")) || list[0];
     if (hamko && (!selectedSupplierId || !list.some((s) => s.id === selectedSupplierId))) {
       setSelectedSupplierId(hamko.id);
     }
+
+    const fetchRemoteData = async () => {
+      try {
+        await pullFreshCloudStateToLocalStore({ force: true, silent: true });
+        if (mounted) {
+          const freshList = getSuppliers();
+          setSuppliers(freshList);
+          const freshHamko = freshList.find((s) => s.name.toLowerCase().includes("hamko")) || freshList[0];
+          if (freshHamko && (!selectedSupplierId || !freshList.some((s) => s.id === selectedSupplierId))) {
+            setSelectedSupplierId(freshHamko.id);
+          }
+          setDataVersion((v) => v + 1);
+        }
+      } catch (err) {
+        console.warn("[SupplierLedger] Remote pull notice:", err);
+      } finally {
+        if (mounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    void fetchRemoteData();
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   // Synchronize query parameter
@@ -422,6 +457,15 @@ export function SupplierLedger() {
     type: e.type,
   }));
 
+
+  if (loading && suppliers.length <= 1 && getPurchaseInvoices().length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[350px] space-y-3">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <p className="text-sm text-muted-foreground">Loading supplier ledgers from cloud...</p>
+      </div>
+    );
+  }
 
   return (
     <>

@@ -25,6 +25,7 @@ import {
   type PurchaseInvoiceItem,
   generatePurchaseInvoiceNumber,
 } from "@/utils/localStore";
+import { pullFreshCloudStateToLocalStore } from "@/utils/cloudSync";
 import {
   ArrowLeft,
   Plus,
@@ -86,13 +87,44 @@ export function PurchaseInvoice() {
   ]);
 
   useEffect(() => {
+    let mounted = true;
     const supList = getSuppliers();
     setSuppliers(supList);
     const hamko = supList.find((s) => s.name.toLowerCase().includes("hamko")) || supList[0];
     if (hamko && (!supplierId || !supList.some((s) => s.id === supplierId))) {
       setSupplierId(hamko.id);
     }
-    setProducts(getProducts());
+    const currentProds = getProducts();
+    setProducts(currentProds);
+
+    if (currentProds.length === 0 || supList.length <= 1) {
+      void pullFreshCloudStateToLocalStore({ force: true, silent: true }).then(() => {
+        if (mounted) {
+          const freshSuppliers = getSuppliers();
+          setSuppliers(freshSuppliers);
+          const freshHamko = freshSuppliers.find((s) => s.name.toLowerCase().includes("hamko")) || freshSuppliers[0];
+          if (freshHamko && (!supplierId || !freshSuppliers.some((s) => s.id === supplierId))) {
+            setSupplierId(freshHamko.id);
+          }
+          setProducts(getProducts());
+        }
+      });
+    }
+
+    const handleStorage = () => {
+      if (!mounted) return;
+      setSuppliers(getSuppliers());
+      setProducts(getProducts());
+    };
+
+    window.addEventListener("storage", handleStorage);
+    window.addEventListener("sales_erp_storage_update", handleStorage);
+
+    return () => {
+      mounted = false;
+      window.removeEventListener("storage", handleStorage);
+      window.removeEventListener("sales_erp_storage_update", handleStorage);
+    };
   }, []);
 
   const selectedSupplier = useMemo(() => {

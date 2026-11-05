@@ -16,6 +16,10 @@ import {
   reconcileVisitsWithRemote,
   reconcileAreasWithRemote,
   reconcileInventoryWithRemote,
+  reconcileSuppliersWithRemote,
+  reconcilePurchaseInvoicesWithRemote,
+  reconcileSupplierPaymentsWithRemote,
+  reconcileSalesTargetsWithRemote,
   broadcastCrossTabSync,
   getProducts,
   getCustomers,
@@ -1182,7 +1186,63 @@ export async function pullFreshCloudStateToLocalStore(options?: {
         );
       };
 
-      const [ordersRes, colsRes, custRes, prodRes, catRes, expRes, visitsRes, terrRes, invRes] = await Promise.allSettled([
+      const fetchSuppliersSafe = async () => {
+        return safeTimedQuery(
+          () =>
+            supabase
+              .from("suppliers")
+              .select("*")
+              .order("name", { ascending: true })
+              .limit(500),
+          10000,
+          "Cloud pull suppliers",
+          1,
+        );
+      };
+
+      const fetchPurchaseInvoicesSafe = async () => {
+        return safeTimedQuery(
+          () =>
+            supabase
+              .from("purchase_invoices")
+              .select("*")
+              .order("invoice_date", { ascending: false })
+              .limit(500),
+          10000,
+          "Cloud pull purchase invoices",
+          1,
+        );
+      };
+
+      const fetchSupplierPaymentsSafe = async () => {
+        return safeTimedQuery(
+          () =>
+            supabase
+              .from("supplier_payments")
+              .select("*")
+              .order("payment_date", { ascending: false })
+              .limit(500),
+          10000,
+          "Cloud pull supplier payments",
+          1,
+        );
+      };
+
+      const fetchSalesTargetsSafe = async () => {
+        return safeTimedQuery(
+          () =>
+            supabase
+              .from("sales_targets")
+              .select("*")
+              .order("created_at", { ascending: false })
+              .limit(500),
+          10000,
+          "Cloud pull targets",
+          1,
+        );
+      };
+
+      const [ordersRes, colsRes, custRes, prodRes, catRes, expRes, visitsRes, terrRes, invRes, supRes, piRes, spRes, targetsRes] = await Promise.allSettled([
         fetchOrdersSafe(),
         fetchCollectionsSafe(),
         fetchCustomersSafe(),
@@ -1192,6 +1252,10 @@ export async function pullFreshCloudStateToLocalStore(options?: {
         fetchVisitsSafe(),
         fetchTerritoriesSafe(),
         fetchInventorySafe(),
+        fetchSuppliersSafe(),
+        fetchPurchaseInvoicesSafe(),
+        fetchSupplierPaymentsSafe(),
+        fetchSalesTargetsSafe(),
       ]);
 
       await yieldToUI();
@@ -1322,6 +1386,53 @@ export async function pullFreshCloudStateToLocalStore(options?: {
       } catch (e) {
         tableErrors.push({ table: "inventory", error: e });
         console.warn("[CloudSync] Inventory reconcile notice:", e);
+      }
+
+      // 10. SUPPLIERS
+      try {
+        const res = supRes.status === "fulfilled" ? supRes.value : { data: null, error: supRes.reason };
+        if (!res.error && Array.isArray(res.data)) {
+          reconcileSuppliersWithRemote(res.data as any, { persist: true });
+          updatedTables.push("suppliers");
+        }
+      } catch (e) {
+        console.warn("[CloudSync] Suppliers reconcile notice:", e);
+      }
+
+      // 11. PURCHASE INVOICES
+      try {
+        const res = piRes.status === "fulfilled" ? piRes.value : { data: null, error: piRes.reason };
+        if (!res.error && Array.isArray(res.data)) {
+          reconcilePurchaseInvoicesWithRemote(res.data as any, { persist: true });
+          updatedTables.push("purchase_invoices");
+        }
+      } catch (e) {
+        console.warn("[CloudSync] Purchase invoices reconcile notice:", e);
+      }
+
+      // 12. SUPPLIER PAYMENTS
+      try {
+        const res = spRes.status === "fulfilled" ? spRes.value : { data: null, error: spRes.reason };
+        if (!res.error && Array.isArray(res.data)) {
+          reconcileSupplierPaymentsWithRemote(res.data as any, { persist: true });
+          updatedTables.push("supplier_payments");
+        }
+      } catch (e) {
+        console.warn("[CloudSync] Supplier payments reconcile notice:", e);
+      }
+
+      // 13. SALES TARGETS
+      try {
+        const res = targetsRes.status === "fulfilled" ? targetsRes.value : { data: null, error: targetsRes.reason };
+        if (!res.error && Array.isArray(res.data)) {
+          reconcileSalesTargetsWithRemote(res.data as any, { persist: true });
+          updatedTables.push("sales_targets");
+        } else if (res.error) {
+          tableErrors.push({ table: "sales_targets", error: res.error });
+        }
+      } catch (e) {
+        tableErrors.push({ table: "sales_targets", error: e });
+        console.warn("[CloudSync] Targets reconcile notice:", e);
       }
 
       if (updatedTables.length > 0) {

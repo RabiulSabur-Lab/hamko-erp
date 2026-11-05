@@ -2266,6 +2266,186 @@ export function reconcileInventoryWithRemote(
 }
 
 /**
+ * Cloud-Authoritative reconciler for Suppliers.
+ */
+export function reconcileSuppliersWithRemote(
+  remoteSuppliers: Supplier[],
+  options?: { persist?: boolean; incremental?: boolean },
+): Supplier[] {
+  const currentLocal = getSuppliers();
+  const validRemote = (Array.isArray(remoteSuppliers) ? remoteSuppliers : []).filter(
+    (s) => Boolean(s && s.id && s.name && s.name.trim().length > 0 && !s.name.toLowerCase().includes("swarna")),
+  );
+
+  if (validRemote.length === 0 && currentLocal.length > 0) {
+    return currentLocal;
+  }
+
+  if (options?.incremental) {
+    const map = new Map<string, Supplier>();
+    currentLocal.forEach((s) => {
+      if (s && s.id) map.set(String(s.id), s);
+    });
+    for (const rs of validRemote) {
+      const existing = map.get(String(rs.id));
+      if (!existing || isRemoteAuthoritative(rs, existing)) {
+        map.set(String(rs.id), { ...(existing || {}), ...rs });
+      }
+    }
+    const result = Array.from(map.values());
+    if (options?.persist !== false) {
+      setLocalData(STORAGE_KEYS.SUPPLIERS, result, null, true);
+    }
+    return result;
+  }
+
+  const remoteIdSet = new Set(validRemote.map((s) => String(s.id)));
+  const pendingSuppliers = currentLocal.filter(
+    (ls) => ls && !remoteIdSet.has(String(ls.id)) && isPendingOfflineRecord(ls),
+  );
+  const reconciled = [...pendingSuppliers, ...validRemote];
+  const finalResult = reconciled.length > 0 ? reconciled : DEFAULT_SUPPLIERS;
+  if (options?.persist !== false) {
+    setLocalData(STORAGE_KEYS.SUPPLIERS, finalResult, null, true);
+  }
+  return finalResult;
+}
+
+/**
+ * Cloud-Authoritative reconciler for Purchase Invoices.
+ */
+export function reconcilePurchaseInvoicesWithRemote(
+  remoteInvoices: PurchaseInvoice[],
+  options?: { persist?: boolean; incremental?: boolean },
+): PurchaseInvoice[] {
+  const currentLocal = getLocalData<PurchaseInvoice[]>(STORAGE_KEYS.PURCHASE_INVOICES, []);
+  const validRemote = (Array.isArray(remoteInvoices) ? remoteInvoices : []).filter(
+    (i) => Boolean(i && i.id),
+  );
+
+  if (options?.incremental) {
+    const map = new Map<string, PurchaseInvoice>();
+    currentLocal.forEach((inv) => {
+      if (inv && inv.id) map.set(String(inv.id), inv);
+    });
+    for (const ri of validRemote) {
+      const existing = map.get(String(ri.id));
+      if (!existing || isRemoteAuthoritative(ri, existing)) {
+        map.set(String(ri.id), { ...(existing || {}), ...ri });
+      }
+    }
+    const result = Array.from(map.values()).sort(
+      (a, b) => new Date(b.invoice_date || b.created_at || 0).getTime() - new Date(a.invoice_date || a.created_at || 0).getTime(),
+    );
+    if (options?.persist !== false) {
+      setLocalData(STORAGE_KEYS.PURCHASE_INVOICES, result, null, true);
+    }
+    return result;
+  }
+
+  const remoteIdSet = new Set(validRemote.map((i) => String(i.id)));
+  const pendingInvoices = currentLocal.filter(
+    (li) => li && !remoteIdSet.has(String(li.id)) && isPendingOfflineRecord(li),
+  );
+  const reconciled = [...pendingInvoices, ...validRemote].sort(
+    (a, b) => new Date(b.invoice_date || b.created_at || 0).getTime() - new Date(a.invoice_date || a.created_at || 0).getTime(),
+  );
+  if (options?.persist !== false) {
+    setLocalData(STORAGE_KEYS.PURCHASE_INVOICES, reconciled, null, true);
+  }
+  return reconciled;
+}
+
+/**
+ * Cloud-Authoritative reconciler for Supplier Payments.
+ */
+export function reconcileSupplierPaymentsWithRemote(
+  remotePayments: SupplierPayment[],
+  options?: { persist?: boolean; incremental?: boolean },
+): SupplierPayment[] {
+  const currentLocal = getLocalData<SupplierPayment[]>(STORAGE_KEYS.SUPPLIER_PAYMENTS, []);
+  const validRemote = (Array.isArray(remotePayments) ? remotePayments : []).filter(
+    (p) => Boolean(p && p.id),
+  );
+
+  if (options?.incremental) {
+    const map = new Map<string, SupplierPayment>();
+    currentLocal.forEach((p) => {
+      if (p && p.id) map.set(String(p.id), p);
+    });
+    for (const rp of validRemote) {
+      const existing = map.get(String(rp.id));
+      if (!existing || isRemoteAuthoritative(rp, existing)) {
+        map.set(String(rp.id), { ...(existing || {}), ...rp });
+      }
+    }
+    const result = Array.from(map.values()).sort(
+      (a, b) => new Date(b.payment_date || b.created_at || 0).getTime() - new Date(a.payment_date || a.created_at || 0).getTime(),
+    );
+    if (options?.persist !== false) {
+      setLocalData(STORAGE_KEYS.SUPPLIER_PAYMENTS, result, null, true);
+    }
+    return result;
+  }
+
+  const remoteIdSet = new Set(validRemote.map((p) => String(p.id)));
+  const pendingPayments = currentLocal.filter(
+    (lp) => lp && !remoteIdSet.has(String(lp.id)) && isPendingOfflineRecord(lp),
+  );
+  const reconciled = [...pendingPayments, ...validRemote].sort(
+    (a, b) => new Date(b.payment_date || b.created_at || 0).getTime() - new Date(a.payment_date || a.created_at || 0).getTime(),
+  );
+  if (options?.persist !== false) {
+    setLocalData(STORAGE_KEYS.SUPPLIER_PAYMENTS, reconciled, null, true);
+  }
+  return reconciled;
+}
+
+/**
+ * Cloud-Authoritative reconciler for Sales Targets.
+ */
+export function reconcileSalesTargetsWithRemote(
+  remoteTargets: any[],
+  options?: { persist?: boolean; incremental?: boolean },
+): any[] {
+  const deletedTargetIds = getDeletedIds(STORAGE_KEYS.DELETED_TARGETS);
+  const currentLocal = getLocalData<any[]>(STORAGE_KEYS.TARGETS, []).filter(
+    (t) => Boolean(t && t.id) && !deletedTargetIds.has(String(t.id)),
+  );
+  const validRemote = (Array.isArray(remoteTargets) ? remoteTargets : []).filter(
+    (t) => Boolean(t && t.id) && !deletedTargetIds.has(String(t.id)),
+  );
+
+  if (options?.incremental) {
+    const map = new Map<string, any>();
+    currentLocal.forEach((t) => {
+      if (t && t.id) map.set(String(t.id), t);
+    });
+    for (const rt of validRemote) {
+      const existing = map.get(String(rt.id));
+      if (!existing || isRemoteAuthoritative(rt, existing)) {
+        map.set(String(rt.id), { ...(existing || {}), ...rt });
+      }
+    }
+    const result = Array.from(map.values());
+    if (options?.persist !== false) {
+      setLocalData(STORAGE_KEYS.TARGETS, result, null, true);
+    }
+    return result;
+  }
+
+  const remoteIdSet = new Set(validRemote.map((t) => String(t.id)));
+  const pendingTargets = currentLocal.filter(
+    (lt) => lt && !remoteIdSet.has(String(lt.id)) && isPendingOfflineRecord(lt),
+  );
+  const reconciled = [...pendingTargets, ...validRemote];
+  if (options?.persist !== false) {
+    setLocalData(STORAGE_KEYS.TARGETS, reconciled, null, true);
+  }
+  return reconciled;
+}
+
+/**
  * Applies a granular zero-lag Realtime table patch directly into the local state.
  */
 export function applyRealtimeTablePatch(
@@ -2336,6 +2516,21 @@ export function applyRealtimeTablePatch(
         if (id) saveDeletedId(STORAGE_KEYS.DELETED_TARGETS, id);
         const current = getLocalData<any[]>(STORAGE_KEYS.TARGETS, []).filter((t) => String(t.id) !== id);
         setLocalData(STORAGE_KEYS.TARGETS, current, null, true);
+        break;
+      }
+      case "suppliers": {
+        const current = getSuppliers().filter((s) => String(s.id) !== id);
+        setLocalData(STORAGE_KEYS.SUPPLIERS, current, null, true);
+        break;
+      }
+      case "purchase_invoices": {
+        const current = getLocalData<PurchaseInvoice[]>(STORAGE_KEYS.PURCHASE_INVOICES, []).filter((i) => String(i.id) !== id);
+        setLocalData(STORAGE_KEYS.PURCHASE_INVOICES, current, null, true);
+        break;
+      }
+      case "supplier_payments": {
+        const current = getLocalData<SupplierPayment[]>(STORAGE_KEYS.SUPPLIER_PAYMENTS, []).filter((p) => String(p.id) !== id);
+        setLocalData(STORAGE_KEYS.SUPPLIER_PAYMENTS, current, null, true);
         break;
       }
       case "order_items": {
@@ -2421,14 +2616,19 @@ export function applyRealtimeTablePatch(
       break;
     }
     case "sales_targets": {
-      const current = getLocalData<any[]>(STORAGE_KEYS.TARGETS, []);
-      const idx = current.findIndex((t) => String(t.id) === id);
-      if (idx >= 0) {
-        current[idx] = { ...current[idx], ...payloadRecord };
-      } else {
-        current.unshift(payloadRecord);
-      }
-      setLocalData(STORAGE_KEYS.TARGETS, current, null, true);
+      reconcileSalesTargetsWithRemote([payloadRecord], { incremental: true, persist: true });
+      break;
+    }
+    case "suppliers": {
+      reconcileSuppliersWithRemote([payloadRecord], { incremental: true, persist: true });
+      break;
+    }
+    case "purchase_invoices": {
+      reconcilePurchaseInvoicesWithRemote([payloadRecord], { incremental: true, persist: true });
+      break;
+    }
+    case "supplier_payments": {
+      reconcileSupplierPaymentsWithRemote([payloadRecord], { incremental: true, persist: true });
       break;
     }
     default:

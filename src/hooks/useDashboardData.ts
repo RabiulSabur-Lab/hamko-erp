@@ -109,11 +109,8 @@ async function executeTimedQuery<T>(
         return { data: Array.isArray(res.data) ? res.data : [], error: null };
       }
       lastError = res.error;
-      // If RLS or permission issue, silently return empty array without triggering an error state
-      if (isRlsOrPermissionError(lastError)) {
-        console.warn(`[Dashboard] ${label} restricted by RLS/permissions — returning empty list silently.`);
-        return { data: [], error: null };
-      }
+      // Do not mask 401/403 or RLS errors as empty successful datasets!
+      // Treating authorization or JWT errors as empty datasets wipes local state and renders false zeros.
       if (attempt < totalAttempts - 1) {
         const classified = classifySupabaseError(lastError);
         if (
@@ -128,10 +125,6 @@ async function executeTimedQuery<T>(
       return { data: null, error: lastError };
     } catch (err) {
       lastError = err;
-      if (isRlsOrPermissionError(lastError) || isRlsOrPermissionError(err)) {
-        console.warn(`[Dashboard] ${label} query exception (RLS/permissions) — returning empty list silently.`);
-        return { data: [], error: null };
-      }
       if (attempt < totalAttempts - 1) {
         const classified = classifySupabaseError(lastError);
         if (
@@ -646,15 +639,16 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
     };
   }, [applyLocalFallback]);
 
-  // Initial cloud fetch from Supabase SSOT (executes immediately on client mount, guarantees 100% parity across mobile & desktop)
+  // Initial cloud fetch from Supabase SSOT (waits for auth session resolution, guarantees 100% parity across incognito/mobile & desktop)
   useEffect(() => {
+    if (authLoading) return;
     const targetKey = userId ?? "__public__";
     if (initialFetchedForUserRef.current === targetKey) return;
     initialFetchedForUserRef.current = targetKey;
 
     lastAutoFetchAtRef.current = 0; // Allow initial fetch immediately
     void fetchFromSupabase(false);
-  }, [userId, fetchFromSupabase]);
+  }, [authLoading, userId, fetchFromSupabase]);
 
   // Single multiplexed Realtime channel for instant zero-lag dashboard invalidation
   useEffect(() => {

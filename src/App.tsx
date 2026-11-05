@@ -41,7 +41,7 @@ function ProtectedRoute({
   message?: string;
   children: ReactNode;
 }) {
-  const { user, profile } = useAuth();
+  const { user, profile, loading: authLoading } = useAuth();
   const { navigate } = useRouter();
 
   const rawRole = (
@@ -68,13 +68,14 @@ function ProtectedRoute({
   const isAllowed = requireAdmin !== undefined ? (requireAdmin ? isAdmin : true) : (allowed ?? true);
 
   useEffect(() => {
-    if (!isAllowed) {
+    // Never redirect while auth is still loading during initial session resolution
+    if (!authLoading && !isAllowed) {
       toast.error(message);
       navigate(redirectTo);
     }
-  }, [isAllowed, navigate, redirectTo, message]);
+  }, [authLoading, isAllowed, navigate, redirectTo, message]);
 
-  if (!isAllowed) {
+  if (authLoading || !isAllowed) {
     return (
       <div className="flex h-64 items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
