@@ -20,6 +20,8 @@ import {
   reconcilePurchaseInvoicesWithRemote,
   reconcileSupplierPaymentsWithRemote,
   reconcileSalesTargetsWithRemote,
+  reconcileNotificationsWithRemote,
+  reconcileUsersWithRemote,
   broadcastCrossTabSync,
   getProducts,
   getCustomers,
@@ -56,6 +58,9 @@ export interface SyncSummary {
   collections: number;
   expenses: number;
   inventory: number;
+  suppliers?: number;
+  purchaseInvoices?: number;
+  supplierPayments?: number;
   errors: string[];
 }
 
@@ -866,6 +871,72 @@ export async function pushAllLocalDataToSupabase(
       report("Synchronizing Inventory", i + 1, localInventory.length);
     }
 
+    // ---------------------------------------------------------
+    // 8. SYNC SUPPLIERS
+    // ---------------------------------------------------------
+    const localSuppliers = getLocalData<any[]>(STORAGE_KEYS.SUPPLIERS, []);
+    summary.suppliers = 0;
+    if (localSuppliers.length > 0) {
+      report("Synchronizing Suppliers", 0, localSuppliers.length);
+      for (let i = 0; i < localSuppliers.length; i++) {
+        const sup = localSuppliers[i];
+        if (!sup || !sup.name) continue;
+        try {
+          const { error: supErr } = await supabase.from("suppliers").upsert(sup);
+          if (!supErr) {
+            summary.suppliers++;
+          }
+        } catch {
+          // Non-critical if table not yet migrated
+        }
+        report("Synchronizing Suppliers", i + 1, localSuppliers.length);
+      }
+    }
+
+    // ---------------------------------------------------------
+    // 9. SYNC PURCHASE INVOICES
+    // ---------------------------------------------------------
+    const localInvoices = getLocalData<any[]>(STORAGE_KEYS.PURCHASE_INVOICES, []);
+    summary.purchaseInvoices = 0;
+    if (localInvoices.length > 0) {
+      report("Synchronizing Purchase Invoices", 0, localInvoices.length);
+      for (let i = 0; i < localInvoices.length; i++) {
+        const inv = localInvoices[i];
+        if (!inv || !inv.id) continue;
+        try {
+          const { error: invErr } = await supabase.from("purchase_invoices").upsert(inv);
+          if (!invErr) {
+            summary.purchaseInvoices++;
+          }
+        } catch {
+          // Non-critical if table not yet migrated
+        }
+        report("Synchronizing Purchase Invoices", i + 1, localInvoices.length);
+      }
+    }
+
+    // ---------------------------------------------------------
+    // 10. SYNC SUPPLIER PAYMENTS
+    // ---------------------------------------------------------
+    const localPayments = getLocalData<any[]>(STORAGE_KEYS.SUPPLIER_PAYMENTS, []);
+    summary.supplierPayments = 0;
+    if (localPayments.length > 0) {
+      report("Synchronizing Supplier Payments", 0, localPayments.length);
+      for (let i = 0; i < localPayments.length; i++) {
+        const pay = localPayments[i];
+        if (!pay || !pay.id) continue;
+        try {
+          const { error: payErr } = await supabase.from("supplier_payments").upsert(pay);
+          if (!payErr) {
+            summary.supplierPayments++;
+          }
+        } catch {
+          // Non-critical if table not yet migrated
+        }
+        report("Synchronizing Supplier Payments", i + 1, localPayments.length);
+      }
+    }
+
     // Pull authoritative cloud state back so local IDs/flags converge 100% with Supabase
     await pullFreshCloudStateToLocalStore({ force: true, silent: true });
 
@@ -1242,7 +1313,35 @@ export async function pullFreshCloudStateToLocalStore(options?: {
         );
       };
 
-      const [ordersRes, colsRes, custRes, prodRes, catRes, expRes, visitsRes, terrRes, invRes, supRes, piRes, spRes, targetsRes] = await Promise.allSettled([
+      const fetchUsersSafe = async () => {
+        return safeTimedQuery(
+          () =>
+            supabase
+              .from("users")
+              .select("id, email, full_name, role, role_name, phone, is_active, created_at, updated_at")
+              .order("full_name", { ascending: true })
+              .limit(500),
+          10000,
+          "Cloud pull users",
+          1,
+        );
+      };
+
+      const fetchNotificationsSafe = async () => {
+        return safeTimedQuery(
+          () =>
+            supabase
+              .from("notifications")
+              .select("*")
+              .order("created_at", { ascending: false })
+              .limit(200),
+          10000,
+          "Cloud pull notifications",
+          1,
+        );
+      };
+
+      const [ordersRes, colsRes, custRes, prodRes, catRes, expRes, visitsRes, terrRes, invRes, supRes, piRes, spRes, targetsRes, usersRes, notifsRes] = await Promise.allSettled([
         fetchOrdersSafe(),
         fetchCollectionsSafe(),
         fetchCustomersSafe(),
@@ -1256,6 +1355,8 @@ export async function pullFreshCloudStateToLocalStore(options?: {
         fetchPurchaseInvoicesSafe(),
         fetchSupplierPaymentsSafe(),
         fetchSalesTargetsSafe(),
+        fetchUsersSafe(),
+        fetchNotificationsSafe(),
       ]);
 
       await yieldToUI();
@@ -1433,6 +1534,28 @@ export async function pullFreshCloudStateToLocalStore(options?: {
       } catch (e) {
         tableErrors.push({ table: "sales_targets", error: e });
         console.warn("[CloudSync] Targets reconcile notice:", e);
+      }
+
+      // 14. USERS
+      try {
+        const res = usersRes.status === "fulfilled" ? usersRes.value : { data: null, error: usersRes.reason };
+        if (!res.error && Array.isArray(res.data)) {
+          reconcileUsersWithRemote(res.data as any, { persist: true });
+          updatedTables.push("users");
+        }
+      } catch (e) {
+        console.warn("[CloudSync] Users reconcile notice:", e);
+      }
+
+      // 15. NOTIFICATIONS
+      try {
+        const res = notifsRes.status === "fulfilled" ? notifsRes.value : { data: null, error: notifsRes.reason };
+        if (!res.error && Array.isArray(res.data)) {
+          reconcileNotificationsWithRemote(res.data as any, { persist: true });
+          updatedTables.push("notifications");
+        }
+      } catch (e) {
+        console.warn("[CloudSync] Notifications reconcile notice:", e);
       }
 
       if (updatedTables.length > 0) {

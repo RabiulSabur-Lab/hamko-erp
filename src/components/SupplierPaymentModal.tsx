@@ -16,6 +16,7 @@ import {
   type PurchaseInvoice,
   r2,
 } from "@/utils/localStore";
+import { pullFreshCloudStateToLocalStore } from "@/utils/cloudSync";
 import {
   Loader2,
   DollarSign,
@@ -82,6 +83,12 @@ export function SupplierPaymentModal({
 
       const refreshed = getSuppliers();
       setSuppliers(refreshed);
+      if (refreshed.length <= 1) {
+        void pullFreshCloudStateToLocalStore({ force: true, silent: true }).then(() => {
+          const fresh = getSuppliers();
+          setSuppliers(fresh);
+        });
+      }
       const hamko = refreshed.find((s) => s.name && s.name.toLowerCase().includes("hamko")) || refreshed[0];
       const targetSupId = defaultSupplierId || hamko?.id || "";
       setSupplierId(targetSupId);

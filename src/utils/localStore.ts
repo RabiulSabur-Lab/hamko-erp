@@ -2446,6 +2446,102 @@ export function reconcileSalesTargetsWithRemote(
 }
 
 /**
+ * Cloud-Authoritative reconciler for Notifications.
+ */
+export function reconcileNotificationsWithRemote(
+  remoteNotifs: any[],
+  options?: { persist?: boolean; incremental?: boolean },
+): any[] {
+  const deletedNotifIds = getDeletedIds(STORAGE_KEYS.DELETED_NOTIFICATIONS);
+  const currentLocal = getLocalData<any[]>(STORAGE_KEYS.NOTIFICATIONS, []).filter(
+    (n) => Boolean(n && n.id) && !deletedNotifIds.has(String(n.id)),
+  );
+  const validRemote = (Array.isArray(remoteNotifs) ? remoteNotifs : []).filter(
+    (n) => Boolean(n && n.id) && !deletedNotifIds.has(String(n.id)),
+  );
+
+  if (options?.incremental) {
+    const map = new Map<string, any>();
+    currentLocal.forEach((n) => {
+      if (n && n.id) map.set(String(n.id), n);
+    });
+    for (const rn of validRemote) {
+      const existing = map.get(String(rn.id));
+      if (!existing || isRemoteAuthoritative(rn, existing)) {
+        map.set(String(rn.id), { ...(existing || {}), ...rn });
+      }
+    }
+    const result = Array.from(map.values()).sort(
+      (a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime(),
+    );
+    if (options?.persist !== false) {
+      setLocalData(STORAGE_KEYS.NOTIFICATIONS, result, null, true);
+    }
+    return result;
+  }
+
+  const remoteIdSet = new Set(validRemote.map((n) => String(n.id)));
+  const pendingNotifs = currentLocal.filter(
+    (ln) => ln && !remoteIdSet.has(String(ln.id)) && isPendingOfflineRecord(ln),
+  );
+  const reconciled = [...pendingNotifs, ...validRemote].sort(
+    (a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime(),
+  );
+  if (options?.persist !== false) {
+    setLocalData(STORAGE_KEYS.NOTIFICATIONS, reconciled, null, true);
+  }
+  return reconciled;
+}
+
+/**
+ * Cloud-Authoritative reconciler for Users directory.
+ */
+export function reconcileUsersWithRemote(
+  remoteUsers: any[],
+  options?: { persist?: boolean; incremental?: boolean },
+): any[] {
+  const deletedUserIds = getDeletedIds(STORAGE_KEYS.DELETED_USERS);
+  const currentLocal = getLocalData<any[]>(STORAGE_KEYS.USERS, []).filter(
+    (u) => Boolean(u && u.id) && !deletedUserIds.has(String(u.id)),
+  );
+  const validRemote = (Array.isArray(remoteUsers) ? remoteUsers : []).filter(
+    (u) => Boolean(u && u.id) && !deletedUserIds.has(String(u.id)),
+  );
+
+  if (options?.incremental) {
+    const map = new Map<string, any>();
+    currentLocal.forEach((u) => {
+      if (u && u.id) map.set(String(u.id), u);
+    });
+    for (const ru of validRemote) {
+      const existing = map.get(String(ru.id));
+      if (!existing || isRemoteAuthoritative(ru, existing)) {
+        map.set(String(ru.id), { ...(existing || {}), ...ru });
+      }
+    }
+    const result = Array.from(map.values()).sort(
+      (a, b) => (a.full_name || "").localeCompare(b.full_name || ""),
+    );
+    if (options?.persist !== false) {
+      setLocalData(STORAGE_KEYS.USERS, result, null, true);
+    }
+    return result;
+  }
+
+  const remoteIdSet = new Set(validRemote.map((u) => String(u.id)));
+  const pendingUsers = currentLocal.filter(
+    (lu) => lu && !remoteIdSet.has(String(lu.id)) && isPendingOfflineRecord(lu),
+  );
+  const reconciled = [...pendingUsers, ...validRemote].sort(
+    (a, b) => (a.full_name || "").localeCompare(b.full_name || ""),
+  );
+  if (options?.persist !== false) {
+    setLocalData(STORAGE_KEYS.USERS, reconciled, null, true);
+  }
+  return reconciled;
+}
+
+/**
  * Applies a granular zero-lag Realtime table patch directly into the local state.
  */
 export function applyRealtimeTablePatch(
@@ -2531,6 +2627,18 @@ export function applyRealtimeTablePatch(
       case "supplier_payments": {
         const current = getLocalData<SupplierPayment[]>(STORAGE_KEYS.SUPPLIER_PAYMENTS, []).filter((p) => String(p.id) !== id);
         setLocalData(STORAGE_KEYS.SUPPLIER_PAYMENTS, current, null, true);
+        break;
+      }
+      case "notifications": {
+        if (id) saveDeletedId(STORAGE_KEYS.DELETED_NOTIFICATIONS, id);
+        const current = getLocalData<any[]>(STORAGE_KEYS.NOTIFICATIONS, []).filter((n) => String(n.id) !== id);
+        setLocalData(STORAGE_KEYS.NOTIFICATIONS, current, null, true);
+        break;
+      }
+      case "users": {
+        if (id) saveDeletedId(STORAGE_KEYS.DELETED_USERS, id);
+        const current = getLocalData<any[]>(STORAGE_KEYS.USERS, []).filter((u) => String(u.id) !== id);
+        setLocalData(STORAGE_KEYS.USERS, current, null, true);
         break;
       }
       case "order_items": {
@@ -2629,6 +2737,14 @@ export function applyRealtimeTablePatch(
     }
     case "supplier_payments": {
       reconcileSupplierPaymentsWithRemote([payloadRecord], { incremental: true, persist: true });
+      break;
+    }
+    case "notifications": {
+      reconcileNotificationsWithRemote([payloadRecord], { incremental: true, persist: true });
+      break;
+    }
+    case "users": {
+      reconcileUsersWithRemote([payloadRecord], { incremental: true, persist: true });
       break;
     }
     default:
@@ -4708,6 +4824,17 @@ export function saveSupplier(supplierData: Partial<Supplier> & { name: string })
   });
 
   dispatchGlobalStateUpdate({ type: "supplier_updated", supplierId: savedSupplier.id });
+
+  // Background Cloud Sync to Supabase SSOT
+  try {
+    supabase
+      .from("suppliers")
+      .upsert(savedSupplier)
+      .then(undefined, (err) => console.warn("Supabase supplier upsert notice:", err));
+  } catch (err) {
+    console.warn("Supabase supplier sync error:", err);
+  }
+
   return savedSupplier;
 }
 
@@ -4860,6 +4987,33 @@ export function savePurchaseInvoice(
   });
 
   dispatchGlobalStateUpdate({ type: "purchase_invoice_created", invoiceId });
+
+  // Background Cloud Sync to Supabase SSOT
+  try {
+    const payload = {
+      id: newInvoice.id,
+      invoice_number: newInvoice.invoice_number,
+      supplier_id: newInvoice.supplier_id,
+      supplier_name: newInvoice.supplier_name,
+      invoice_date: newInvoice.invoice_date,
+      warehouse: (newInvoice as any).warehouse || "Main Warehouse",
+      total_amount: newInvoice.total_amount,
+      paid_amount: newInvoice.paid_amount,
+      due_amount: newInvoice.due_amount,
+      status: newInvoice.status,
+      notes: newInvoice.notes,
+      items: newInvoice.items,
+      created_at: newInvoice.created_at,
+      updated_at: newInvoice.updated_at,
+    };
+    supabase
+      .from("purchase_invoices")
+      .upsert(payload)
+      .then(undefined, (err) => console.warn("Supabase purchase_invoices upsert notice:", err));
+  } catch (err) {
+    console.warn("Supabase purchase invoice sync error:", err);
+  }
+
   return newInvoice;
 }
 
@@ -5134,6 +5288,17 @@ export function saveSupplierPayment(
   }
 
   dispatchGlobalStateUpdate({ type: "supplier_payment_recorded", paymentId });
+
+  // Background Cloud Sync to Supabase SSOT
+  try {
+    supabase
+      .from("supplier_payments")
+      .upsert(newPayment)
+      .then(undefined, (err) => console.warn("Supabase supplier_payments upsert notice:", err));
+  } catch (err) {
+    console.warn("Supabase supplier payment sync error:", err);
+  }
+
   return newPayment;
 }
 

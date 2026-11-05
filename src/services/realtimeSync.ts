@@ -33,6 +33,10 @@ const MONITORED_TABLES = [
   "territories",
   "sales_targets",
   "notifications",
+  "suppliers",
+  "purchase_invoices",
+  "supplier_payments",
+  "users",
 ] as const;
 
 class RealtimeSyncManager {

@@ -9,6 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Plus, X, Loader2, HelpCircle } from "lucide-react";
 import { formatBDT, cn } from "@/lib/utils";
 import { r2, getProducts, getCustomerLedgerDetails, STORAGE_KEYS, getDeletedIds } from "@/utils/localStore";
+import { pullFreshCloudStateToLocalStore } from "@/utils/cloudSync";
 import { sanitizeFormulaInput, formatTierLabel } from "@/utils/productUtils";
 import { useI18n } from "@/lib/i18n";
 import { SearchableSelect, type SearchableOption } from "@/components/SearchableSelect";
@@ -124,6 +125,14 @@ export function NewOrderModal({
   // Subscribe to storage change events so dropdowns update in real-time (only active when modal is open)
   useEffect(() => {
     if (!open) return;
+    const current = getProducts();
+    setLocalProducts(current);
+    if (current.length === 0) {
+      void pullFreshCloudStateToLocalStore({ force: true, silent: true }).then(() => {
+        setLocalProducts(getProducts());
+      });
+    }
+
     let timeoutId: any;
     const refresh = () => {
       clearTimeout(timeoutId);

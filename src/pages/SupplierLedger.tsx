@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
+import { supabase } from "@/lib/supabase";
 
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -143,7 +144,7 @@ export function SupplierLedger() {
     }
   }, [query.supplier]);
 
-  // Subscribe to storage update events
+  // Subscribe to storage update events and realtime channels
   useEffect(() => {
     const handleStorage = () => {
       setSuppliers(getSuppliers());
@@ -151,7 +152,16 @@ export function SupplierLedger() {
     };
     window.addEventListener("storage", handleStorage);
     window.addEventListener("sales_erp_storage_update", handleStorage);
+
+    const chan = supabase
+      .channel("supplier-ledger-page-realtime")
+      .on("postgres_changes", { event: "*", schema: "public", table: "suppliers" }, handleStorage)
+      .on("postgres_changes", { event: "*", schema: "public", table: "purchase_invoices" }, handleStorage)
+      .on("postgres_changes", { event: "*", schema: "public", table: "supplier_payments" }, handleStorage)
+      .subscribe();
+
     return () => {
+      supabase.removeChannel(chan);
       window.removeEventListener("storage", handleStorage);
       window.removeEventListener("sales_erp_storage_update", handleStorage);
     };
