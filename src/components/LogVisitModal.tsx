@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -58,8 +58,12 @@ export function LogVisitModal({
     visit_date?: string;
   }>({});
 
+  const isDirtyRef = useRef(false);
+  const prevOpenRef = useRef(false);
+
   useEffect(() => {
-    if (open) {
+    const justOpened = open && !prevOpenRef.current;
+    if (justOpened) {
       setCustomerId("");
       setVisitDate(toDateTimeLocalString(new Date()));
       setPurpose("");
@@ -67,7 +71,9 @@ export function LogVisitModal({
       setNotes("");
       setCoords(null);
       setFormErrors({});
+      isDirtyRef.current = false;
     }
+    prevOpenRef.current = open;
   }, [open]);
 
   const [capturingLocation, setCapturingLocation] = useState(false);

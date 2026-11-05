@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -64,22 +64,32 @@ export function PaymentReminderModal({
 
   const [liveDueAmount, setLiveDueAmount] = useState(() => computeLiveDue(customer, dueAmount));
 
+  const prevOpenRef = useRef(false);
+  const prevCustomerIdRef = useRef<string | undefined>(undefined);
+
   // Initialize draft immediately with exact requested template & dynamic variables upon open
   useEffect(() => {
     const currentDue = computeLiveDue(customer, dueAmount);
     setLiveDueAmount(currentDue);
+    const justOpened = open && !prevOpenRef.current;
+    const customerChanged = customer?.id !== prevCustomerIdRef.current;
+
     if (open && customer) {
-      const custName = customer.outlet_name || customer.name;
-      setReminderText(formatHamkoPaymentReminder(custName, currentDue));
-      setIsEditing(false);
-      setCopied(false);
-      setError(null);
-    } else {
+      if ((justOpened || customerChanged) && !isEditing) {
+        const custName = customer.outlet_name || customer.name;
+        setReminderText(formatHamkoPaymentReminder(custName, currentDue));
+        setIsEditing(false);
+        setCopied(false);
+        setError(null);
+      }
+    } else if (!open) {
       setIsEditing(false);
       setCopied(false);
       setError(null);
     }
-  }, [open, customer?.id, dueAmount]);
+    prevOpenRef.current = open;
+    prevCustomerIdRef.current = customer?.id;
+  }, [open, customer?.id, dueAmount, isEditing]);
 
   // Real-time state synchronization when new collections/orders occur
   useEffect(() => {

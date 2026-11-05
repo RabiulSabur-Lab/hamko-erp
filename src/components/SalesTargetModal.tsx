@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -42,8 +42,15 @@ export function SalesTargetModal({
   const [targetAmount, setTargetAmount] = useState<number | string>(100000);
   const [userId, setUserId] = useState<string>("");
 
+  const isDirtyRef = useRef(false);
+  const prevOpenRef = useRef(false);
+  const prevTargetIdRef = useRef<string | undefined>(undefined);
+
   useEffect(() => {
-    if (open) {
+    const justOpened = open && !prevOpenRef.current;
+    const targetChanged = target?.id !== prevTargetIdRef.current;
+
+    if (justOpened || (targetChanged && !isDirtyRef.current)) {
       if (target) {
         const sDate = (target.period_start || (target as any).start_date || "").slice(0, 10);
         const eDate = (target.period_end || (target as any).end_date || "").slice(0, 10);
@@ -61,8 +68,11 @@ export function SalesTargetModal({
         setTargetAmount(100000);
         setUserId("");
       }
+      isDirtyRef.current = false;
     }
-  }, [open, target]);
+    prevOpenRef.current = open;
+    prevTargetIdRef.current = target?.id;
+  }, [open, target?.id]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -93,7 +103,10 @@ export function SalesTargetModal({
           <Label>{t("period")}</Label>
           <Select
             value={period}
-            onChange={(e) => setPeriod(e.target.value as any)}
+            onChange={(e) => {
+              isDirtyRef.current = true;
+              setPeriod(e.target.value as any);
+            }}
           >
             {periods.map((p) => (
               <option key={p} value={p}>
@@ -110,7 +123,10 @@ export function SalesTargetModal({
               type="date"
               required
               value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
+              onChange={(e) => {
+                isDirtyRef.current = true;
+                setStartDate(e.target.value);
+              }}
             />
           </div>
           <div className="space-y-1.5">
@@ -119,7 +135,10 @@ export function SalesTargetModal({
               type="date"
               required
               value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
+              onChange={(e) => {
+                isDirtyRef.current = true;
+                setEndDate(e.target.value);
+              }}
             />
           </div>
         </div>
@@ -132,7 +151,10 @@ export function SalesTargetModal({
             step="any"
             required
             value={targetAmount}
-            onChange={(e) => setTargetAmount(e.target.value)}
+            onChange={(e) => {
+              isDirtyRef.current = true;
+              setTargetAmount(e.target.value);
+            }}
             placeholder="e.g. 500000"
           />
         </div>
@@ -142,7 +164,10 @@ export function SalesTargetModal({
             <Label>Assigned Sales Rep (Optional)</Label>
             <Select
               value={userId}
-              onChange={(e) => setUserId(e.target.value)}
+              onChange={(e) => {
+                isDirtyRef.current = true;
+                setUserId(e.target.value);
+              }}
             >
               <option value="">All / General Company Target</option>
               {users.map((u) => (
