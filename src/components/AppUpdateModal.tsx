@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
+import { Capacitor } from "@capacitor/core";
 import {
   Download,
   Sparkles,
@@ -9,6 +10,7 @@ import {
   LogOut,
   X,
   CheckCircle2,
+  RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -63,9 +65,25 @@ export function AppUpdateModal({ open, updateInfo, onClose }: AppUpdateModalProp
     return null;
   }
 
-  const handleDownload = () => {
-    setDownloadStarted(true);
-    triggerApkDownload(metadata.apkUrl);
+  const isNative = Capacitor.isNativePlatform();
+
+  const handleUpdateAction = () => {
+    if (isNative) {
+      setDownloadStarted(true);
+      triggerApkDownload(metadata.apkUrl);
+    } else {
+      if (typeof window !== "undefined") {
+        if ("serviceWorker" in navigator) {
+          navigator.serviceWorker.getRegistrations().then((regs) => {
+            regs.forEach((r) => r.unregister());
+          });
+          if (typeof caches !== "undefined") {
+            caches.keys().then((keys) => keys.forEach((k) => caches.delete(k)));
+          }
+        }
+        window.location.reload();
+      }
+    }
   };
 
   const handleDismiss = () => {
@@ -216,12 +234,21 @@ export function AppUpdateModal({ open, updateInfo, onClose }: AppUpdateModalProp
         <div className="flex flex-col gap-2">
           <Button
             type="button"
-            onClick={handleDownload}
+            onClick={handleUpdateAction}
             className="w-full h-11 text-sm font-semibold gap-2 shadow-md"
           >
-            <Download className="h-4 w-4" />
-            {lang === "bn" ? "ডাউনলোড ও ইনস্টল করুন" : "Download & Install Update"}
-            <ExternalLink className="h-3.5 w-3.5 opacity-70 ml-auto" />
+            {isNative ? (
+              <>
+                <Download className="h-4 w-4" />
+                {lang === "bn" ? "ডাউনলোড ও ইনস্টল করুন" : "Download & Install Update"}
+                <ExternalLink className="h-3.5 w-3.5 opacity-70 ml-auto" />
+              </>
+            ) : (
+              <>
+                <RefreshCw className="h-4 w-4 animate-spin-hover" />
+                {lang === "bn" ? "আপডেট প্রয়োগ করতে রিলোড করুন" : "Reload to Apply Update"}
+              </>
+            )}
           </Button>
 
           {isForced ? (

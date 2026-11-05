@@ -63,11 +63,32 @@ export function NotificationsPage() {
     window.addEventListener("storage", handleStorageUpdate);
     window.addEventListener("sales_erp_storage_update", handleStorageUpdate);
 
+    // Dedicated Realtime Channel for zero-latency notification arrivals
+    let channel: any = null;
+    try {
+      const chanName = `notifs-page-${Date.now().toString(36)}`;
+      channel = supabase
+        .channel(chanName)
+        .on("postgres_changes", { event: "*", schema: "public", table: "notifications" }, () => {
+          void loadNotifications();
+        })
+        .subscribe();
+    } catch (err) {
+      console.warn("Notifications page subscription notice:", err);
+    }
+
     return () => {
       window.removeEventListener("storage", handleStorageUpdate);
       window.removeEventListener("sales_erp_storage_update", handleStorageUpdate);
+      if (channel && supabase?.removeChannel) {
+        try {
+          supabase.removeChannel(channel);
+        } catch {
+          // ignore
+        }
+      }
     };
-  }, []);
+  }, [profile?.id]);
 
   useAutoSync(() => {
     void loadNotifications();

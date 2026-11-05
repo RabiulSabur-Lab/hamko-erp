@@ -123,11 +123,32 @@ export function AppLayout({ children }: { children: ReactNode }) {
       scheduleUnreadFetch();
     };
 
+    // Mobile foreground resume hooks: immediately re-fetch unread count upon unlocking or tab switch
+    const handleResumeOrFocus = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      scheduleUnreadFetch();
+    };
+
+    document.addEventListener("visibilitychange", handleResumeOrFocus);
+    window.addEventListener("focus", handleResumeOrFocus);
+    window.addEventListener("pageshow", handleResumeOrFocus);
+    window.addEventListener("online", handleResumeOrFocus);
+    document.addEventListener("resume", handleResumeOrFocus as EventListener);
+    window.addEventListener("resume", handleResumeOrFocus as EventListener);
+
+    // Periodic background poll every 15 seconds to ensure badge consistency even if WebSockets throttle
+    const pollInterval = setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      if (typeof navigator !== "undefined" && navigator.onLine === false) return;
+      scheduleUnreadFetch();
+    }, 15000);
+
     window.addEventListener("storage", handleStorage);
     window.addEventListener("sales_erp_storage_update", handleCustomUpdate);
     return () => {
       isMounted = false;
       if (debounceTimer) clearTimeout(debounceTimer);
+      clearInterval(pollInterval);
       try {
         if (notifChannel && supabase?.removeChannel) {
           supabase.removeChannel(notifChannel);
@@ -135,6 +156,12 @@ export function AppLayout({ children }: { children: ReactNode }) {
       } catch {
         // Safe fallback
       }
+      document.removeEventListener("visibilitychange", handleResumeOrFocus);
+      window.removeEventListener("focus", handleResumeOrFocus);
+      window.removeEventListener("pageshow", handleResumeOrFocus);
+      window.removeEventListener("online", handleResumeOrFocus);
+      document.removeEventListener("resume", handleResumeOrFocus as EventListener);
+      window.removeEventListener("resume", handleResumeOrFocus as EventListener);
       window.removeEventListener("storage", handleStorage);
       window.removeEventListener("sales_erp_storage_update", handleCustomUpdate);
     };
