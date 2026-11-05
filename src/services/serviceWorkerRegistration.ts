@@ -92,3 +92,4 @@ function notifyNewVersionAvailable(worker: ServiceWorker): void {
     },
   });
 }
+

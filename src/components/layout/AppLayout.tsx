@@ -136,6 +136,23 @@ export function AppLayout({ children }: { children: ReactNode }) {
     document.addEventListener("resume", handleResumeOrFocus as EventListener);
     window.addEventListener("resume", handleResumeOrFocus as EventListener);
 
+    // Native Capacitor App Plugin resume hook
+    let capHandle: any = null;
+    try {
+      const cap = (window as any).Capacitor;
+      if (cap?.Plugins?.App?.addListener) {
+        cap.Plugins.App.addListener("appStateChange", (state: { isActive: boolean }) => {
+          if (state.isActive) {
+            handleResumeOrFocus();
+          }
+        }).then((h: any) => {
+          capHandle = h;
+        }).catch(() => null);
+      }
+    } catch {
+      // Safe fallback
+    }
+
     // Periodic background poll every 15 seconds to ensure badge consistency even if WebSockets throttle
     const pollInterval = setInterval(() => {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
@@ -149,6 +166,9 @@ export function AppLayout({ children }: { children: ReactNode }) {
       isMounted = false;
       if (debounceTimer) clearTimeout(debounceTimer);
       clearInterval(pollInterval);
+      if (capHandle?.remove) {
+        capHandle.remove();
+      }
       try {
         if (notifChannel && supabase?.removeChannel) {
           supabase.removeChannel(notifChannel);

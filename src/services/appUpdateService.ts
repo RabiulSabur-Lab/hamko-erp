@@ -103,11 +103,40 @@ export async function getCurrentAppInfo(): Promise<CurrentAppInfo> {
   };
 }
 
+export const HOSTED_VERSION_URL = "https://hamko-erp.vercel.app/version.json";
+
 /**
- * Fetches the latest version metadata from Supabase with fallbacks to hosted JSON and safe defaults.
+ * Fetches the latest version metadata by prioritizing the hosted endpoint,
+ * with fallbacks to Supabase app_versions table and bundled asset fallbacks.
  */
 export async function fetchLatestAppVersion(): Promise<AppVersionMetadata | null> {
-  // 1. Primary: Query Supabase app_versions table
+  // 1. Primary: Query production hosted endpoint directly (ensures accurate APK update detection on native mobile)
+  try {
+    const url = `${HOSTED_VERSION_URL}?_t=${Date.now()}`;
+    const res = await fetch(url, {
+      cache: "no-cache",
+      headers: { "Cache-Control": "no-cache, no-store, must-revalidate" },
+    });
+    if (res.ok) {
+      const json = await res.json();
+      if (json && json.version && json.apkUrl) {
+        return {
+          version: String(json.version).trim(),
+          versionCode: Number(json.versionCode) || 1,
+          minSupportedVersion: json.minSupportedVersion ? String(json.minSupportedVersion).trim() : undefined,
+          forceUpdate: Boolean(json.forceUpdate),
+          apkUrl: String(json.apkUrl).trim(),
+          releaseNotes: json.releaseNotes || undefined,
+          releasedAt: json.releasedAt || undefined,
+          platform: json.platform || "android",
+        };
+      }
+    }
+  } catch (err) {
+    console.info("[AppUpdate] Hosted version.json fetch notice (trying Supabase table):", err);
+  }
+
+  // 2. Secondary: Query Supabase app_versions table
   try {
     if (supabase?.from) {
       const { data, error } = await supabase
@@ -136,7 +165,7 @@ export async function fetchLatestAppVersion(): Promise<AppVersionMetadata | null
     console.info("[AppUpdate] Supabase query notice (falling back to hosted version.json):", err);
   }
 
-  // 2. Secondary: Query hosted version.json file
+  // 3. Tertiary: Local /version.json
   try {
     const res = await fetch("/version.json", {
       cache: "no-cache",
@@ -158,10 +187,10 @@ export async function fetchLatestAppVersion(): Promise<AppVersionMetadata | null
       }
     }
   } catch (err) {
-    console.info("[AppUpdate] Hosted version.json fetch notice:", err);
+    console.info("[AppUpdate] Local version.json fetch notice:", err);
   }
 
-  // 3. Tertiary: In-memory fallback
+  // 4. Final: In-memory fallback
   return DEFAULT_FALLBACK_METADATA;
 }
 
@@ -251,9 +280,13 @@ export async function checkForAppUpdate(): Promise<AppUpdateCheckResult> {
 export function triggerApkDownload(apkUrl: string): void {
   if (!apkUrl) return;
   try {
+    if (typeof window !== "undefined" && (window as any).Capacitor?.isNativePlatform?.()) {
+      window.open(apkUrl, "_system");
+      return;
+    }
     const link = document.createElement("a");
     link.href = apkUrl;
-    link.target = "_system";
+    link.target = "_blank";
     link.rel = "noopener noreferrer";
     link.setAttribute("download", "");
     document.body.appendChild(link);

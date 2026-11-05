@@ -23,7 +23,7 @@ import { Loader2 } from "lucide-react";
 import { App as CapacitorApp } from "@capacitor/app";
 import { Capacitor } from "@capacitor/core";
 import { ErrorBoundary } from "./components/ErrorBoundary";
-import { initRealtimeSync, cleanupRealtimeSync } from "./services/realtimeSync";
+import { initRealtimeSync, cleanupRealtimeSync, reconnectRealtimeSync } from "./services/realtimeSync";
 import { pullFreshCloudStateToLocalStore } from "./utils/cloudSync";
 import { AppUpdateModal } from "./components/AppUpdateModal";
 import { checkForAppUpdate, type AppUpdateCheckResult } from "./services/appUpdateService";
@@ -133,7 +133,18 @@ export function App() {
     if (Capacitor.isNativePlatform()) {
       CapacitorApp.addListener("appStateChange", (state) => {
         if (state.isActive) {
+          // Immediately check for native APK update against hosted version.json
           void performUpdateCheck(false);
+          // Force immediate full cloud sync upon native resume
+          void pullFreshCloudStateToLocalStore({ force: true, silent: true });
+          // Force WebSocket channel reconnection to fix broken real-time connections
+          void reconnectRealtimeSync("capacitor_native_foreground_resume");
+          // Dispatch storage event to trigger unread notification refresh
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(
+              new CustomEvent("sales_erp_storage_update", { detail: { table: "notifications" } }),
+            );
+          }
         }
       }).then((handle) => {
         listenerHandle = handle;

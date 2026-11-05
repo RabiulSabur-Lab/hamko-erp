@@ -240,7 +240,7 @@ export function AppUpdateModal({ open, updateInfo, onClose }: AppUpdateModalProp
             {isNative ? (
               <>
                 <Download className="h-4 w-4" />
-                {lang === "bn" ? "ডাউনলোড ও ইনস্টল করুন" : "Download & Install Update"}
+                {lang === "bn" ? "সর্বশেষ APK ডাউনলোড করুন" : "Download Latest APK"}
                 <ExternalLink className="h-3.5 w-3.5 opacity-70 ml-auto" />
               </>
             ) : (
