@@ -61,7 +61,8 @@ export function AppUpdateModal({ open, updateInfo, onClose }: AppUpdateModalProp
     };
   }, [open, isForced, onClose]);
 
-  if (!open || !updateInfo || !updateInfo.hasUpdate || !metadata) {
+  // APK updates are strictly targeted at native Capacitor Android/iOS builds
+  if (!open || !updateInfo || !updateInfo.hasUpdate || !metadata || !Capacitor.isNativePlatform()) {
     return null;
   }
 

@@ -98,6 +98,9 @@ export function App() {
     let isMounted = true;
 
     const performUpdateCheck = async (isManual = false) => {
+      // Background APK update checking is strictly restricted to native mobile apps
+      if (!Capacitor.isNativePlatform() && !isManual) return;
+
       try {
         const result = await checkForAppUpdate();
         if (!isMounted) return;
