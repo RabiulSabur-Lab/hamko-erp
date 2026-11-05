@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -118,9 +118,37 @@ export function ProductEditModal({
     is_active: true,
   });
 
+  const isDirtyRef = useRef(false);
+  const prevOpenRef = useRef(false);
+  const prevProductIdRef = useRef<string | null | undefined>(undefined);
+
+  const updateForm = (updater: Partial<ProductFormData> | ((prev: ProductFormData) => ProductFormData)) => {
+    isDirtyRef.current = true;
+    if (typeof updater === "function") {
+      setForm((prev) => updater(prev));
+    } else {
+      setForm((prev) => ({ ...prev, ...updater }));
+    }
+  };
+
   useEffect(() => {
-    if (!isModalOpen) return;
-    if (activeProduct) {
+    if (!isModalOpen) {
+      prevOpenRef.current = false;
+      isDirtyRef.current = false;
+      return;
+    }
+
+    const currentProdId = activeProduct?.id || null;
+    const isNewOpen = !prevOpenRef.current && isModalOpen;
+    const isDifferentProduct = currentProdId !== prevProductIdRef.current;
+
+    // Only re-initialize form state if the modal just opened OR if switching to a different product ID while not dirty.
+    if (isNewOpen || (isDifferentProduct && !isDirtyRef.current)) {
+      prevOpenRef.current = true;
+      prevProductIdRef.current = currentProdId;
+      isDirtyRef.current = false;
+
+      if (activeProduct) {
       const catId =
         activeProduct.category_id ||
         (typeof activeProduct.category === "object" ? (activeProduct.category as any)?.id : null) ||
@@ -256,7 +284,8 @@ export function ProductEditModal({
         price_tiers: [],
       });
     }
-  }, [isModalOpen, activeProduct]);
+  }
+  }, [isModalOpen, activeProduct?.id]);
 
   // Watch for DP (Selling Base Rate) changes to automatically recalculate dynamic price tiers in real time
   useEffect(() => {
@@ -505,6 +534,7 @@ export function ProductEditModal({
       return;
     }
 
+    isDirtyRef.current = false;
     onSave({
       ...form,
       name: sanitizedName,
@@ -541,7 +571,7 @@ export function ProductEditModal({
             <Label>{t("skuCode")}</Label>
             <Input
               value={form.sku_code}
-              onChange={(e) => setForm({ ...form, sku_code: e.target.value })}
+              onChange={(e) => updateForm({ sku_code: e.target.value })}
               placeholder="e.g. HK-001"
               required
             />
@@ -552,7 +582,7 @@ export function ProductEditModal({
             <Label>{t("productName")}</Label>
             <Input
               value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              onChange={(e) => updateForm({ name: e.target.value })}
               placeholder="Product display name"
               required
             />
@@ -563,7 +593,7 @@ export function ProductEditModal({
             <Label>{t("brand")}</Label>
             <Input
               value={form.brand ?? ""}
-              onChange={(e) => setForm({ ...form, brand: e.target.value })}
+              onChange={(e) => updateForm({ brand: e.target.value })}
               placeholder="e.g. HAMKO"
             />
           </div>
@@ -588,7 +618,7 @@ export function ProductEditModal({
             <div className="flex items-center gap-1.5">
               <Select
                 value={form.category_id ?? ""}
-                onChange={(e) => setForm({ ...form, category_id: e.target.value || null })}
+                onChange={(e) => updateForm({ category_id: e.target.value || null })}
                 className="flex-1"
               >
                 <option value="">— Select Category —</option>
@@ -660,8 +690,7 @@ export function ProductEditModal({
               value={form.purchase_cost ?? form.distributor_price ?? ""}
               onChange={(e) => {
                 const val = e.target.value === "" ? "" : parseFloat(e.target.value) || 0;
-                setForm({
-                  ...form,
+                updateForm({
                   distributor_price: val,
                   purchase_cost: val,
                   cost_price: val,
@@ -680,7 +709,7 @@ export function ProductEditModal({
               type="number"
               min="0"
               value={form.reorder_level ?? 10}
-              onChange={(e) => setForm({ ...form, reorder_level: e.target.value === "" ? "" : Number(e.target.value) })}
+              onChange={(e) => updateForm({ reorder_level: e.target.value === "" ? "" : Number(e.target.value) })}
             />
           </div>
 
@@ -689,7 +718,7 @@ export function ProductEditModal({
             <Label>{(t as any)("unit" as string) || "Unit of Measure"}</Label>
             <Input
               value={form.unit ?? "pcs"}
-              onChange={(e) => setForm({ ...form, unit: e.target.value })}
+              onChange={(e) => updateForm({ unit: e.target.value })}
               placeholder="e.g. pcs, set, box"
             />
           </div>
@@ -699,7 +728,7 @@ export function ProductEditModal({
             <Label>{t("status") || "Status"}</Label>
             <Select
               value={form.is_active !== false ? "Active" : "Inactive"}
-              onChange={(e) => setForm({ ...form, is_active: e.target.value === "Active" })}
+              onChange={(e) => updateForm({ is_active: e.target.value === "Active" })}
             >
               <option value="Active">{lang === "bn" ? "সক্রিয় (Active)" : "Active"}</option>
               <option value="Inactive">{lang === "bn" ? "নিষ্ক্রিয় (Inactive)" : "Inactive"}</option>

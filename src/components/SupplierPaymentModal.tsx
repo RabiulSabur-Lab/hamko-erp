@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -67,9 +67,19 @@ export function SupplierPaymentModal({
   );
   const [notes, setNotes] = useState<string>("");
   const [saving, setSaving] = useState<boolean>(false);
+  const isDirtyRef = useRef(false);
+  const prevOpenRef = useRef(false);
 
   useEffect(() => {
-    if (open) {
+    if (!open) {
+      prevOpenRef.current = false;
+      isDirtyRef.current = false;
+      return;
+    }
+    if (!prevOpenRef.current && open) {
+      prevOpenRef.current = true;
+      isDirtyRef.current = false;
+
       const refreshed = getSuppliers();
       setSuppliers(refreshed);
       const hamko = refreshed.find((s) => s.name && s.name.toLowerCase().includes("hamko")) || refreshed[0];

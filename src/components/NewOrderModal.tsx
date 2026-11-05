@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,6 +24,7 @@ import {
 import type { Order, Customer, Product } from "@/lib/supabase";
 
 export interface OrderItemForm {
+  _rowId?: string;
   id?: string;
   category?: string;
   product_id: string;
@@ -188,92 +189,111 @@ export function NewOrderModal({
       });
   }, [allProducts]);
 
+  const isDirtyRef = useRef(false);
+  const prevOpenRef = useRef(false);
+  const prevOrderIdRef = useRef<string | null | undefined>(undefined);
+
   // Sync state when modal opens or target order changes
   useEffect(() => {
     if (!open) {
+      prevOpenRef.current = false;
+      isDirtyRef.current = false;
       setItems([]);
       return;
     }
 
-    if (order) {
-      setCustomerId(order.customer_id || "");
-      setStatus(order.status || "Pending");
-      setOrderDate(order.order_date ? order.order_date.slice(0, 10) : new Date().toISOString().slice(0, 10));
-      setDeliveryDate(order.delivery_date ? order.delivery_date.slice(0, 10) : "");
-      setNotes(order.notes || "");
-      setOrderDiscount(Number(order.discount) || 0);
+    const currentOrdId = order?.id || null;
+    const isNewOpen = !prevOpenRef.current && open;
+    const isDifferentOrder = currentOrdId !== prevOrderIdRef.current;
 
-      const currentPaid = Number(order.paid_amount ?? (order as any).paidAmount ?? 0);
-      const currentTotal = Number(order.total_amount ?? (order as any).total ?? 0);
+    // Only re-initialize form state if the modal just opened OR if switching to a different order while not dirty.
+    if (isNewOpen || (isDifferentOrder && !isDirtyRef.current)) {
+      prevOpenRef.current = true;
+      prevOrderIdRef.current = currentOrdId;
+      isDirtyRef.current = false;
 
-      if (currentPaid >= currentTotal && currentTotal > 0) {
-        setPaymentStatusType("Full Paid");
-        setPaidAmount(currentTotal);
-      } else if (currentPaid > 0) {
-        setPaymentStatusType("Partial Payment");
-        setPaidAmount(currentPaid);
+      if (order) {
+        setCustomerId(order.customer_id || "");
+        setStatus(order.status || "Pending");
+        setOrderDate(order.order_date ? order.order_date.slice(0, 10) : new Date().toISOString().slice(0, 10));
+        setDeliveryDate(order.delivery_date ? order.delivery_date.slice(0, 10) : "");
+        setNotes(order.notes || "");
+        setOrderDiscount(Number(order.discount) || 0);
+
+        const currentPaid = Number(order.paid_amount ?? (order as any).paidAmount ?? 0);
+        const currentTotal = Number(order.total_amount ?? (order as any).total ?? 0);
+
+        if (currentPaid >= currentTotal && currentTotal > 0) {
+          setPaymentStatusType("Full Paid");
+          setPaidAmount(currentTotal);
+        } else if (currentPaid > 0) {
+          setPaymentStatusType("Partial Payment");
+          setPaidAmount(currentPaid);
+        } else {
+          setPaymentStatusType("Full Due");
+          setPaidAmount(0);
+        }
+        setPaymentMethod((order as any).payment_method || "Cash");
+
+        // Explicitly load editing order items directly without appending to previous modal state
+        const sourceItems: any[] = (order as any).items ? [...(order as any).items] : order.order_items ? [...order.order_items] : [];
+        if (sourceItems.length > 0) {
+          // De-duplicate items if any duplicates exist (e.g. same product ID, price, tier)
+          const seen = new Set<string>();
+          const cleanItems = sourceItems.filter((it: any) => {
+            const key = it.product_id
+              ? `${it.product_id}-${it.unit_price}-${it.price_tier || "Custom"}`
+              : it.id
+              ? String(it.id)
+              : `${it.quantity}-${it.unit_price}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          });
+
+          setItems(
+            cleanItems.map((it: any, i: number) => {
+              const qty = Math.max(1, Number(it.quantity) || 1);
+              const uPrice = Math.max(0, r2(Number(it.unit_price) || 0));
+              const disc = Math.max(0, r2(Number(it.discount) || 0));
+              return {
+                _rowId: it._rowId || `nom-${it.id || i}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                id: it.id,
+                product_id: it.product_id,
+                quantity: qty,
+                price_tier: it.price_tier || "Custom",
+                unit_price: uPrice,
+                discount: disc,
+                subtotal: Math.max(0, r2(qty * uPrice - disc)),
+              };
+            })
+          );
+        } else {
+          setItems([]);
+        }
       } else {
+        // Reset for new order
+        setCustomerId("");
+        setStatus("Draft");
+        setOrderDate(new Date().toISOString().slice(0, 10));
+        setDeliveryDate("");
+        setNotes("");
+        setOrderDiscount(0);
         setPaymentStatusType("Full Due");
         setPaidAmount(0);
+        setPaymentMethod("Cash");
+        setItems([
+          {
+            _rowId: "nom-init-1",
+            product_id: "",
+            quantity: 1,
+            unit_price: 0,
+            discount: 0,
+            price_tier: "DP",
+            subtotal: 0,
+          },
+        ]);
       }
-      setPaymentMethod((order as any).payment_method || "Cash");
-
-      // Explicitly load editing order items directly without appending to previous modal state
-      const sourceItems: any[] = (order as any).items ? [...(order as any).items] : order.order_items ? [...order.order_items] : [];
-      if (sourceItems.length > 0) {
-        // De-duplicate items if any duplicates exist (e.g. same product ID, price, tier)
-        const seen = new Set<string>();
-        const cleanItems = sourceItems.filter((it: any) => {
-          const key = it.product_id
-            ? `${it.product_id}-${it.unit_price}-${it.price_tier || "Custom"}`
-            : it.id
-            ? String(it.id)
-            : `${it.quantity}-${it.unit_price}`;
-          if (seen.has(key)) return false;
-          seen.add(key);
-          return true;
-        });
-
-        setItems(
-          cleanItems.map((it: any) => {
-            const qty = Math.max(1, Number(it.quantity) || 1);
-            const uPrice = Math.max(0, r2(Number(it.unit_price) || 0));
-            const disc = Math.max(0, r2(Number(it.discount) || 0));
-            return {
-              id: it.id,
-              product_id: it.product_id,
-              quantity: qty,
-              price_tier: it.price_tier || "Custom",
-              unit_price: uPrice,
-              discount: disc,
-              subtotal: Math.max(0, r2(qty * uPrice - disc)),
-            };
-          })
-        );
-      } else {
-        setItems([]);
-      }
-    } else {
-      // Reset for new order
-      setCustomerId("");
-      setStatus("Draft");
-      setOrderDate(new Date().toISOString().slice(0, 10));
-      setDeliveryDate("");
-      setNotes("");
-      setOrderDiscount(0);
-      setPaymentStatusType("Full Due");
-      setPaidAmount(0);
-      setPaymentMethod("Cash");
-      setItems([
-        {
-          product_id: "",
-          quantity: 1,
-          unit_price: 0,
-          discount: 0,
-          price_tier: "DP",
-          subtotal: 0,
-        },
-      ]);
     }
   }, [open, order?.id]);
 
@@ -402,9 +422,11 @@ export function NewOrderModal({
 
   // Add Item - defaults to selected customer's dynamic price tier
   function addItem() {
+    isDirtyRef.current = true;
     setItems((prev) => [
       ...prev,
       {
+        _rowId: `nom-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         product_id: "",
         quantity: 1,
         unit_price: 0,
@@ -417,11 +439,13 @@ export function NewOrderModal({
 
   // Remove Item - fully active across ALL order statuses
   function removeItem(index: number) {
+    isDirtyRef.current = true;
     setItems((prev) => (prev || []).filter((_, i) => i !== index));
   }
 
   // Update line item with real-time recalculations and category filtering
   function updateItem(index: number, field: keyof OrderItemForm, value: any) {
+    isDirtyRef.current = true;
     setItems((prev) => {
       const next = [...(prev || [])];
       if (!next[index]) return prev;
@@ -499,12 +523,12 @@ export function NewOrderModal({
         }
       } else if (field === "unit_price") {
         // Direct manual override of unit price
-        current.unit_price = value === "" ? ("" as any) : Math.max(0, r2(Number(value) || 0));
+        current.unit_price = value;
         current.price_tier = "Custom";
       } else if (field === "quantity") {
-        current.quantity = value === "" ? ("" as any) : Math.max(1, Math.round(Number(value) || 1));
+        current.quantity = value;
       } else if (field === "discount") {
-        current.discount = value === "" ? ("" as any) : Math.max(0, r2(Number(value) || 0));
+        current.discount = value;
       }
 
       // Dynamically calculate line item subtotal: (Unit Price - Discount) * Quantity
@@ -512,9 +536,9 @@ export function NewOrderModal({
         current.unit_price = 0;
         current.subtotal = 0;
       } else {
-        const qty = Number(current.quantity) || 0;
-        const uPrice = Number(current.unit_price) || 0;
-        const lineDisc = Number(current.discount) || 0;
+        const qty = Math.max(0, Number(current.quantity) || 0);
+        const uPrice = Math.max(0, Number(current.unit_price) || 0);
+        const lineDisc = Math.max(0, Number(current.discount) || 0);
         current.subtotal = Math.max(0, r2((uPrice - lineDisc) * qty));
       }
 
@@ -669,6 +693,7 @@ export function NewOrderModal({
     const isDraftWithPayment = status === "Draft" && Number(additionalCashPaid) > 0;
     const finalOrderStatus = isDraftWithPayment ? "Pending" : status;
 
+    isDirtyRef.current = false;
     onSave({
       customer_id: customerId,
       status: finalOrderStatus,
@@ -840,7 +865,7 @@ export function NewOrderModal({
                     );
 
                     return (
-                      <TableRow key={idx}>
+                      <TableRow key={it.id || it._rowId || `item-${idx}`}>
                         {/* Searchable Product Select — [Category] Product Name format */}
                         <TableCell className="p-2">
                           <SearchableSelect
@@ -898,6 +923,7 @@ export function NewOrderModal({
                             max={!isDraft && selectedProd ? Math.max(0, remainingForThisRow) : undefined}
                             value={it.quantity}
                             onChange={(e) => updateItem(idx, "quantity", e.target.value)}
+                            onBlur={() => updateItem(idx, "quantity", Math.max(1, Math.round(Number(it.quantity) || 1)))}
                             className={cn(
                               "h-9 text-center font-mono",
                               isRowOverStock && (
@@ -969,6 +995,7 @@ export function NewOrderModal({
                             min="0"
                             value={it.unit_price}
                             onChange={(e) => updateItem(idx, "unit_price", e.target.value)}
+                            onBlur={() => updateItem(idx, "unit_price", Math.max(0, r2(Number(it.unit_price) || 0)))}
                             className="h-9 font-mono text-right"
                             title="Click to override unit price"
                           />
@@ -982,6 +1009,7 @@ export function NewOrderModal({
                             min="0"
                             value={it.discount}
                             onChange={(e) => updateItem(idx, "discount", e.target.value)}
+                            onBlur={() => updateItem(idx, "discount", Math.max(0, r2(Number(it.discount) || 0)))}
                             className="h-9 text-right"
                           />
                         </TableCell>

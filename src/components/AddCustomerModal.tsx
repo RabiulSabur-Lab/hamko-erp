@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -323,132 +323,162 @@ export function AddCustomerModal({
     };
   }, []);
 
+  const isDirtyRef = useRef(false);
+  const prevOpenRef = useRef(false);
+  const prevCustomerIdRef = useRef<string | null | undefined>(undefined);
+
+  const updateForm = (updater: Partial<Customer> | ((prev: Partial<Customer>) => Partial<Customer>)) => {
+    isDirtyRef.current = true;
+    if (typeof updater === "function") {
+      setForm((prev) => updater(prev));
+    } else {
+      setForm((prev) => ({ ...prev, ...updater }));
+    }
+  };
+
   // Sync modal state whenever opened or customer changes
   useEffect(() => {
-    if (!open) return;
-    setPhoneTouched(false);
-    setAltPhoneTouched(false);
-
-    const liveAreas = getAreas();
-    setAvailableAreas(liveAreas);
-
-    if (customer) {
-      const currentArea = customer.area || "";
-      const isPredefined = liveAreas.some((a) => a.name.toLowerCase() === currentArea.toLowerCase());
-      setIsCustomArea(!isPredefined && Boolean(currentArea));
-      setCustomAreaText(!isPredefined ? currentArea : "");
-
-      const parsed = parseCustomerNotes(customer.notes);
-      const secCheque = customer.securityChequeNo || (customer as any).security_cheque_no || parsed.securityChequeNo || "";
-      const secBank = customer.securityBankName || (customer as any).security_bank_name || parsed.securityBankName || "";
-      const secBranch = customer.securityBranchName || (customer as any).security_branch_name || parsed.securityBranchName || "";
-      const secDate = customer.securityChequeDate || (customer as any).security_cheque_date || parsed.securityChequeDate || "";
-      const secNotes = customer.securityNotes || (customer as any).security_notes || parsed.securityNotes || "";
-
-      setSecurityOpen(Boolean(secCheque || secBank || secBranch || secDate || secNotes));
-
-      setForm({
-        ...customer,
-        name: customer.outlet_name || customer.name || "",
-        outlet_name: customer.outlet_name || customer.name || "",
-        party_code: customer.party_code || "",
-        area: currentArea || "Mathbaria",
-        alt_phone: customer.alt_phone || "",
-        phone: customer.phone || "",
-        address: customer.address || "",
-        postal_code: customer.postal_code || (customer as any).postalCode || "",
-        latitude: customer.latitude ?? null,
-        longitude: customer.longitude ?? null,
-        opening_balance: customer.opening_balance ?? 0,
-        current_due: customer.current_due ?? 0,
-        due_status: customer.due_status ?? "Clear",
-        status: customer.status || (customer.is_active === false ? "Inactive" : "Active"),
-        is_active: (customer.status ? customer.status === "Active" : customer.is_active !== false),
-        notes: parsed.cleanNotes !== undefined ? parsed.cleanNotes : (customer.notes || ""),
-        trade_license_number: customer.trade_license_number || "",
-        securityChequeNo: secCheque,
-        securityBankName: secBank,
-        securityBranchName: secBranch,
-        securityChequeDate: secDate,
-        securityNotes: secNotes,
-      });
-    } else {
-      // Default to first active area or Mathbaria for new outlet
-      const defaultArea = (liveAreas && liveAreas[0]?.name) || "Mathbaria";
-      setIsCustomArea(false);
-      setCustomAreaText("");
-      setSecurityOpen(false);
-      const initialPartyCode = generatePartyCode(defaultArea, allCustomers);
-
-      setForm({
-        name: "",
-        outlet_name: "",
-        party_code: initialPartyCode,
-        area: defaultArea,
-        customer_type: "Retailer",
-        contact_person: "",
-        phone: "",
-        alt_phone: "",
-        address: "",
-        postal_code: "",
-        latitude: null,
-        longitude: null,
-        trade_license_number: "",
-        opening_balance: 0,
-        current_due: 0,
-        due_status: "Clear",
-        notes: "",
-        status: "Active",
-        is_active: true,
-        securityChequeNo: "",
-        securityBankName: "",
-        securityBranchName: "",
-        securityChequeDate: "",
-        securityNotes: "",
-      });
-
-      // Automatically capture live GPS coordinates on onboarding a new store
-      captureLiveGps(true);
+    if (!open) {
+      prevOpenRef.current = false;
+      isDirtyRef.current = false;
+      return;
     }
-  }, [open, customer, allCustomers]);
+
+    const currentCustId = customer?.id || null;
+    const isNewOpen = !prevOpenRef.current && open;
+    const isDifferentCustomer = currentCustId !== prevCustomerIdRef.current;
+
+    // Only re-initialize form state if the modal just opened OR if switching to a different customer ID while not dirty.
+    // If the modal was already open and user is typing (isDirty), NEVER wipe user's draft!
+    if (isNewOpen || (isDifferentCustomer && !isDirtyRef.current)) {
+      prevOpenRef.current = true;
+      prevCustomerIdRef.current = currentCustId;
+      isDirtyRef.current = false;
+
+      setPhoneTouched(false);
+      setAltPhoneTouched(false);
+
+      const liveAreas = getAreas();
+      setAvailableAreas(liveAreas);
+
+      if (customer) {
+        const currentArea = customer.area || "";
+        const isPredefined = liveAreas.some((a) => a.name.toLowerCase() === currentArea.toLowerCase());
+        setIsCustomArea(!isPredefined && Boolean(currentArea));
+        setCustomAreaText(!isPredefined ? currentArea : "");
+
+        const parsed = parseCustomerNotes(customer.notes);
+        const secCheque = customer.securityChequeNo || (customer as any).security_cheque_no || parsed.securityChequeNo || "";
+        const secBank = customer.securityBankName || (customer as any).security_bank_name || parsed.securityBankName || "";
+        const secBranch = customer.securityBranchName || (customer as any).security_branch_name || parsed.securityBranchName || "";
+        const secDate = customer.securityChequeDate || (customer as any).security_cheque_date || parsed.securityChequeDate || "";
+        const secNotes = customer.securityNotes || (customer as any).security_notes || parsed.securityNotes || "";
+
+        setSecurityOpen(Boolean(secCheque || secBank || secBranch || secDate || secNotes));
+
+        setForm({
+          ...customer,
+          name: customer.outlet_name || customer.name || "",
+          outlet_name: customer.outlet_name || customer.name || "",
+          party_code: customer.party_code || "",
+          area: currentArea || "Mathbaria",
+          alt_phone: customer.alt_phone || "",
+          phone: customer.phone || "",
+          address: customer.address || "",
+          postal_code: customer.postal_code || (customer as any).postalCode || "",
+          latitude: customer.latitude ?? null,
+          longitude: customer.longitude ?? null,
+          opening_balance: customer.opening_balance ?? 0,
+          current_due: customer.current_due ?? 0,
+          due_status: customer.due_status ?? "Clear",
+          status: customer.status || (customer.is_active === false ? "Inactive" : "Active"),
+          is_active: (customer.status ? customer.status === "Active" : customer.is_active !== false),
+          notes: parsed.cleanNotes !== undefined ? parsed.cleanNotes : (customer.notes || ""),
+          trade_license_number: customer.trade_license_number || "",
+          securityChequeNo: secCheque,
+          securityBankName: secBank,
+          securityBranchName: secBranch,
+          securityChequeDate: secDate,
+          securityNotes: secNotes,
+        });
+      } else {
+        // Default to first active area or Mathbaria for new outlet
+        const defaultArea = (liveAreas && liveAreas[0]?.name) || "Mathbaria";
+        setIsCustomArea(false);
+        setCustomAreaText("");
+        setSecurityOpen(false);
+        const initialPartyCode = generatePartyCode(defaultArea, allCustomers);
+
+        setForm({
+          name: "",
+          outlet_name: "",
+          party_code: initialPartyCode,
+          area: defaultArea,
+          customer_type: "Retailer",
+          contact_person: "",
+          phone: "",
+          alt_phone: "",
+          address: "",
+          postal_code: "",
+          latitude: null,
+          longitude: null,
+          trade_license_number: "",
+          opening_balance: 0,
+          current_due: 0,
+          due_status: "Clear",
+          notes: "",
+          status: "Active",
+          is_active: true,
+          securityChequeNo: "",
+          securityBankName: "",
+          securityBranchName: "",
+          securityChequeDate: "",
+          securityNotes: "",
+        });
+
+        // Automatically capture live GPS coordinates on onboarding a new store
+        captureLiveGps(true);
+      }
+    }
+  }, [open, customer?.id]);
 
   // Handle Area Selection & dynamic Party Code recalculation
   function handleAreaChange(selectedArea: string) {
+    isDirtyRef.current = true;
     if (selectedArea === "__CUSTOM__") {
       setIsCustomArea(true);
       const activeArea = customAreaText.trim() || "Area";
       const nextCode = generatePartyCode(activeArea, allCustomers, customer?.id);
-      setForm((prev) => ({
-        ...prev,
+      updateForm({
         area: activeArea,
         party_code: nextCode,
-      }));
+      });
     } else {
       setIsCustomArea(false);
       const nextCode = generatePartyCode(selectedArea, allCustomers, customer?.id);
-      setForm((prev) => ({
-        ...prev,
+      updateForm({
         area: selectedArea,
         party_code: nextCode,
-      }));
+      });
     }
   }
 
   function handleCustomAreaTextChange(val: string) {
+    isDirtyRef.current = true;
     setCustomAreaText(val);
     const activeArea = val.trim() || "Area";
     const nextCode = generatePartyCode(activeArea, allCustomers, customer?.id);
-    setForm((prev) => ({
-      ...prev,
+    updateForm({
       area: val,
       party_code: nextCode,
-    }));
+    });
   }
 
   function handleRegenerateCode() {
+    isDirtyRef.current = true;
     const activeArea = isCustomArea ? customAreaText.trim() : (form.area || (availableAreas && availableAreas[0]?.name) || "Mathbaria");
     const newCode = generatePartyCode(activeArea, allCustomers, customer?.id);
-    setForm((prev) => ({ ...prev, party_code: newCode }));
+    updateForm({ party_code: newCode });
     toast.info(`Party code updated: ${newCode}`);
   }
 
@@ -824,10 +854,9 @@ export function AddCustomerModal({
             <Input
               value={form.outlet_name ?? form.name ?? ""}
               onChange={(e) =>
-                setForm({ ...form, outlet_name: e.target.value, name: e.target.value })
+                updateForm({ outlet_name: e.target.value, name: e.target.value })
               }
               placeholder="e.g., M/S Fatema Enterprise or Bhuiyan Store"
-              autoFocus
             />
           </div>
 
@@ -892,7 +921,7 @@ export function AddCustomerModal({
             </div>
             <Input
               value={form.party_code ?? ""}
-              onChange={(e) => setForm({ ...form, party_code: e.target.value.toUpperCase() })}
+              onChange={(e) => updateForm({ party_code: e.target.value.toUpperCase() })}
               placeholder="e.g., SDR-0123"
               className="font-mono uppercase tracking-wider font-semibold bg-muted/40"
             />
@@ -906,7 +935,7 @@ export function AddCustomerModal({
             <Label>{t("customerType")}</Label>
             <Select
               value={form.customer_type ?? "Retailer"}
-              onChange={(e) => setForm({ ...form, customer_type: e.target.value as any })}
+              onChange={(e) => updateForm({ customer_type: e.target.value as any })}
             >
               {customerTypes.map((ty) => (
                 <option key={ty} value={ty}>
@@ -921,7 +950,7 @@ export function AddCustomerModal({
             <Label>{t("contactPerson")}</Label>
             <Input
               value={form.contact_person ?? ""}
-              onChange={(e) => setForm({ ...form, contact_person: e.target.value })}
+              onChange={(e) => updateForm({ contact_person: e.target.value })}
               placeholder="e.g., Md. Rafiqul Islam (Proprietor)"
             />
           </div>
@@ -942,7 +971,7 @@ export function AddCustomerModal({
               onBlur={() => setPhoneTouched(true)}
               onChange={(e) => {
                 const numericOnly = e.target.value.replace(/\D/g, "").slice(0, 11);
-                setForm({ ...form, phone: numericOnly });
+                updateForm({ phone: numericOnly });
               }}
               placeholder="017XXXXXXXX (11 digits)"
               className={
@@ -976,7 +1005,7 @@ export function AddCustomerModal({
               onBlur={() => setAltPhoneTouched(true)}
               onChange={(e) => {
                 const numericOnly = e.target.value.replace(/\D/g, "").slice(0, 11);
-                setForm({ ...form, alt_phone: numericOnly });
+                updateForm({ alt_phone: numericOnly });
               }}
               placeholder="018XXXXXXXX (11 digits)"
               className={
@@ -997,7 +1026,7 @@ export function AddCustomerModal({
             <Label>{t("tradeLicense")}</Label>
             <Input
               value={form.trade_license_number ?? ""}
-              onChange={(e) => setForm({ ...form, trade_license_number: e.target.value })}
+              onChange={(e) => updateForm({ trade_license_number: e.target.value })}
               placeholder="Trade License or NID number"
             />
           </div>
@@ -1010,7 +1039,7 @@ export function AddCustomerModal({
               value={form.opening_balance ?? 0}
               onChange={(e) => {
                 const ob = Number(e.target.value);
-                setForm((prev) => {
+                updateForm((prev) => {
                   const shouldSyncDue =
                     !isEditing &&
                     (prev.current_due === undefined ||
@@ -1037,7 +1066,7 @@ export function AddCustomerModal({
               value={form.current_due ?? 0}
               onChange={(e) => {
                 const cd = Number(e.target.value);
-                setForm((prev) => ({
+                updateForm((prev) => ({
                   ...prev,
                   current_due: cd,
                   due_status: cd <= 0 ? "Clear" : prev.due_status === "Clear" ? "Partial" : prev.due_status,
@@ -1050,7 +1079,7 @@ export function AddCustomerModal({
             <Label>{t("dueStatus")}</Label>
             <Select
               value={form.due_status ?? "Clear"}
-              onChange={(e) => setForm({ ...form, due_status: e.target.value as any })}
+              onChange={(e) => updateForm({ due_status: e.target.value as any })}
             >
               {dueStatuses.map((d) => (
                 <option key={d} value={d}>
@@ -1078,7 +1107,7 @@ export function AddCustomerModal({
               value={form.status || (form.is_active === false ? "Inactive" : "Active")}
               onChange={(e) => {
                 const val = e.target.value as "Active" | "Inactive";
-                setForm({ ...form, status: val, is_active: val === "Active" });
+                updateForm({ status: val, is_active: val === "Active" });
               }}
             >
               {customerStatuses.map((st) => (
@@ -1094,7 +1123,7 @@ export function AddCustomerModal({
             <Label>Address (Detailed Location)</Label>
             <Textarea
               value={form.address ?? ""}
-              onChange={(e) => setForm({ ...form, address: e.target.value })}
+              onChange={(e) => updateForm({ address: e.target.value })}
               rows={2}
               placeholder="Holding / Shop No, Road No, Bazaar / Stand Landmark"
             />
@@ -1131,7 +1160,7 @@ export function AddCustomerModal({
                 <Label className="text-xs">Postal / PIN Code</Label>
                 <Input
                   value={form.postal_code ?? ""}
-                  onChange={(e) => setForm({ ...form, postal_code: e.target.value })}
+                  onChange={(e) => updateForm({ postal_code: e.target.value })}
                   placeholder="e.g. 8560"
                   className="h-8 text-xs"
                 />
@@ -1143,7 +1172,7 @@ export function AddCustomerModal({
                   type="number"
                   step="any"
                   value={form.latitude ?? ""}
-                  onChange={(e) => setForm({ ...form, latitude: e.target.value ? parseFloat(e.target.value) : null })}
+                  onChange={(e) => updateForm({ latitude: e.target.value ? parseFloat(e.target.value) : null })}
                   placeholder="Auto-captured (e.g. 22.7234)"
                   className="h-8 text-xs font-mono"
                 />
@@ -1155,7 +1184,7 @@ export function AddCustomerModal({
                   type="number"
                   step="any"
                   value={form.longitude ?? ""}
-                  onChange={(e) => setForm({ ...form, longitude: e.target.value ? parseFloat(e.target.value) : null })}
+                  onChange={(e) => updateForm({ longitude: e.target.value ? parseFloat(e.target.value) : null })}
                   placeholder="Auto-captured (e.g. 90.3541)"
                   className="h-8 text-xs font-mono"
                 />
@@ -1213,7 +1242,7 @@ export function AddCustomerModal({
                   <Label className="text-xs font-semibold">Security Cheque Number</Label>
                   <Input
                     value={form.securityChequeNo ?? ""}
-                    onChange={(e) => setForm({ ...form, securityChequeNo: e.target.value })}
+                    onChange={(e) => updateForm({ securityChequeNo: e.target.value })}
                     placeholder="e.g., CD-9023412 or Cheque No"
                     className="font-mono text-sm uppercase"
                   />
@@ -1225,7 +1254,7 @@ export function AddCustomerModal({
                   <Input
                     list="security-banks-list"
                     value={form.securityBankName ?? ""}
-                    onChange={(e) => setForm({ ...form, securityBankName: e.target.value })}
+                    onChange={(e) => updateForm({ securityBankName: e.target.value })}
                     placeholder="e.g., Dutch-Bangla Bank (DBBL), Islami Bank..."
                   />
                   <datalist id="security-banks-list">
@@ -1240,7 +1269,7 @@ export function AddCustomerModal({
                   <Label className="text-xs font-semibold">Branch Name</Label>
                   <Input
                     value={form.securityBranchName ?? ""}
-                    onChange={(e) => setForm({ ...form, securityBranchName: e.target.value })}
+                    onChange={(e) => updateForm({ securityBranchName: e.target.value })}
                     placeholder="e.g., Motijheel Branch, Dhaka / Mathbaria Branch"
                   />
                 </div>
@@ -1251,7 +1280,7 @@ export function AddCustomerModal({
                   <Input
                     type="date"
                     value={form.securityChequeDate ?? ""}
-                    onChange={(e) => setForm({ ...form, securityChequeDate: e.target.value })}
+                    onChange={(e) => updateForm({ securityChequeDate: e.target.value })}
                   />
                 </div>
 
@@ -1260,7 +1289,7 @@ export function AddCustomerModal({
                   <Label className="text-xs font-semibold">Security Notes / Guarantee Terms</Label>
                   <Input
                     value={form.securityNotes ?? ""}
-                    onChange={(e) => setForm({ ...form, securityNotes: e.target.value })}
+                    onChange={(e) => updateForm({ securityNotes: e.target.value })}
                     placeholder="e.g., ৳5,00,000 guarantee against 30-day credit limit"
                   />
                 </div>
@@ -1273,7 +1302,7 @@ export function AddCustomerModal({
             <Label>{t("notes")}</Label>
             <Textarea
               value={form.notes ?? ""}
-              onChange={(e) => setForm({ ...form, notes: e.target.value })}
+              onChange={(e) => updateForm({ notes: e.target.value })}
               rows={2}
               placeholder="Additional remarks, credit limit preferences, etc."
             />

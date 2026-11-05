@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -68,36 +68,53 @@ export function EditProcurementModal({
 
   // Debit Note-specific fields
   const [reason, setReason] = useState("");
+  const isDirtyRef = useRef(false);
+  const prevOpenRef = useRef(false);
+  const prevItemIdRef = useRef<string | null | undefined>(undefined);
 
   useEffect(() => {
-    if (!open || !item) return;
-
-    if (item.type === "invoice" && item.invoice) {
-      const inv = item.invoice;
-      setDate(inv.invoice_date || (inv.created_at ? inv.created_at.slice(0, 10) : ""));
-      setAmount(inv.total_amount || 0);
-      setInvoiceNumber(inv.invoice_number || "");
-      setNotes(inv.notes || "");
-    } else if (item.type === "payment" && item.payment) {
-      const pay = item.payment;
-      setDate(pay.payment_date || (pay.created_at ? pay.created_at.slice(0, 10) : ""));
-      setAmount(pay.amount || 0);
-      setVoucherNumber(pay.payment_number || pay.reference_no || "");
-      setPaymentMode(pay.payment_mode || "Bank Transfer");
-      setBankName(pay.bank_name || "");
-      setChequeNo(pay.cheque_no || "");
-      setChequeDate(pay.cheque_date || "");
-      setTransactionId(pay.transaction_id || "");
-      setNotes(pay.notes || "");
-    } else if (item.type === "debit_note" && item.payment) {
-      const dn = item.payment;
-      setDate(dn.payment_date || (dn.created_at ? dn.created_at.slice(0, 10) : ""));
-      setAmount(dn.amount || 0);
-      setVoucherNumber(dn.reference_no || dn.payment_number || "");
-      setReason(dn.reason || dn.notes || "");
-      setNotes(dn.notes || dn.reason || "");
+    if (!open || !item) {
+      prevOpenRef.current = false;
+      isDirtyRef.current = false;
+      return;
     }
-  }, [open, item]);
+
+    const currentId = item.invoice?.id || item.payment?.id || null;
+    const isNewOpen = !prevOpenRef.current && open;
+    const isDifferent = currentId !== prevItemIdRef.current;
+
+    if (isNewOpen || (isDifferent && !isDirtyRef.current)) {
+      prevOpenRef.current = true;
+      prevItemIdRef.current = currentId;
+      isDirtyRef.current = false;
+
+      if (item.type === "invoice" && item.invoice) {
+        const inv = item.invoice;
+        setDate(inv.invoice_date || (inv.created_at ? inv.created_at.slice(0, 10) : ""));
+        setAmount(inv.total_amount || 0);
+        setInvoiceNumber(inv.invoice_number || "");
+        setNotes(inv.notes || "");
+      } else if (item.type === "payment" && item.payment) {
+        const pay = item.payment;
+        setDate(pay.payment_date || (pay.created_at ? pay.created_at.slice(0, 10) : ""));
+        setAmount(pay.amount || 0);
+        setVoucherNumber(pay.payment_number || pay.reference_no || "");
+        setPaymentMode(pay.payment_mode || "Bank Transfer");
+        setBankName(pay.bank_name || "");
+        setChequeNo(pay.cheque_no || "");
+        setChequeDate(pay.cheque_date || "");
+        setTransactionId(pay.transaction_id || "");
+        setNotes(pay.notes || "");
+      } else if (item.type === "debit_note" && item.payment) {
+        const dn = item.payment;
+        setDate(dn.payment_date || (dn.created_at ? dn.created_at.slice(0, 10) : ""));
+        setAmount(dn.amount || 0);
+        setVoucherNumber(dn.reference_no || dn.payment_number || "");
+        setReason(dn.reason || dn.notes || "");
+        setNotes(dn.notes || dn.reason || "");
+      }
+    }
+  }, [open, item?.invoice?.id, item?.payment?.id]);
 
   if (!item) return null;
 

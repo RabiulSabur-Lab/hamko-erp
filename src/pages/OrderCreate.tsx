@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -58,6 +58,7 @@ import {
 } from "@/lib/payloadSanitizer";
 
 export interface OrderItemRow {
+  _rowId?: string;
   product_id: string;
   quantity: number | string;
   price_tier: string;
@@ -238,6 +239,7 @@ export function OrderCreate() {
 
   const [items, setItems] = useState<OrderItemRow[]>([
     {
+      _rowId: "row-init-1",
       product_id: "",
       quantity: 1,
       price_tier: "DP",
@@ -352,11 +354,16 @@ export function OrderCreate() {
   }, [customerLedger]);
 
   const [useAdvance, setUseAdvance] = useState(true);
+  const userToggledAdvanceRef = useRef(false);
 
-  // Automatically enable useAdvance when customer changes and has advance balance
+  // Automatically enable useAdvance when customer changes and has advance balance (unless explicitly disabled by user)
   useEffect(() => {
-    if (availableAdvance > 0) {
-      setUseAdvance((prev) => (prev ? prev : true));
+    userToggledAdvanceRef.current = false;
+  }, [customerId]);
+
+  useEffect(() => {
+    if (availableAdvance > 0 && !userToggledAdvanceRef.current) {
+      setUseAdvance(true);
     }
   }, [customerId, availableAdvance]);
 
@@ -482,6 +489,7 @@ export function OrderCreate() {
     setItems((prev) => [
       ...prev,
       {
+        _rowId: `row-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         product_id: "",
         quantity: 1,
         price_tier: formatTierLabel(customerDefaultTier) || "DP",
@@ -498,7 +506,7 @@ export function OrderCreate() {
     setItems((prev) => {
       // If previous items only contained a single empty row, replace it; otherwise append
       const existingValid = (prev || []).filter((it) => it?.product_id && it.product_id.trim() !== "");
-      const newRows: OrderItemRow[] = parsedItems.map((item) => {
+      const newRows: OrderItemRow[] = parsedItems.map((item, i) => {
         const prod = productsMap.get(item.productId) || (products || []).find((p) => String(p?.id) === String(item.productId));
         const baseDP = prod ? getProductUnitPrice(prod) : 0;
         const dynamicTiers = prod ? getProductPriceTiers(prod) : [];
@@ -520,6 +528,7 @@ export function OrderCreate() {
 
         const qty = Math.max(1, Number(item.qty) || 1);
         return {
+          _rowId: `row-ai-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 7)}`,
           product_id: item.productId,
           quantity: qty,
           price_tier: appliedTier,
@@ -613,12 +622,12 @@ export function OrderCreate() {
           }
         }
       } else if (field === "unit_price") {
-        current.unit_price = value === "" ? "" : Math.max(0, r2(Number(value) || 0));
+        current.unit_price = value;
         current.price_tier = "Custom";
       } else if (field === "quantity") {
-        current.quantity = value === "" ? "" : Math.max(1, Math.round(Number(value) || 1));
+        current.quantity = value;
       } else if (field === "discount") {
-        current.discount = value === "" ? "" : Math.max(0, r2(Number(value) || 0));
+        current.discount = value;
       }
 
       // Dynamically calculate line item subtotal: (Unit Price - Discount) * Quantity
@@ -626,9 +635,9 @@ export function OrderCreate() {
         current.unit_price = 0;
         current.subtotal = 0;
       } else {
-        const qty = Number(current.quantity) || 0;
-        const uPrice = Number(current.unit_price) || 0;
-        const lineDisc = Number(current.discount) || 0;
+        const qty = Math.max(0, Number(current.quantity) || 0);
+        const uPrice = Math.max(0, Number(current.unit_price) || 0);
+        const lineDisc = Math.max(0, Number(current.discount) || 0);
         current.subtotal = Math.max(0, r2((uPrice - lineDisc) * qty));
       }
 
@@ -1132,7 +1141,10 @@ export function OrderCreate() {
                   <input
                     type="checkbox"
                     checked={useAdvance}
-                    onChange={(e) => setUseAdvance(e.target.checked)}
+                    onChange={(e) => {
+                      userToggledAdvanceRef.current = true;
+                      setUseAdvance(e.target.checked);
+                    }}
                     className="rounded border-emerald-400 text-emerald-600 focus:ring-emerald-500 h-3.5 w-3.5"
                   />
                   <span>Apply Advance</span>
@@ -1222,7 +1234,7 @@ export function OrderCreate() {
                     );
 
                     return (
-                      <TableRow key={idx}>
+                      <TableRow key={it._rowId || `item-${idx}`}>
                         {/* Product Search */}
                         <TableCell className="p-2">
                           <SearchableSelect
@@ -1280,6 +1292,7 @@ export function OrderCreate() {
                             max={!isDraft && prod ? Math.max(0, remainingForThisRow) : undefined}
                             value={it.quantity}
                             onChange={(e) => updateItem(idx, "quantity", e.target.value)}
+                            onBlur={() => updateItem(idx, "quantity", Math.max(1, Math.round(Number(it.quantity) || 1)))}
                             className={cn(
                               "h-9 text-center font-mono",
                               isRowOverStock && (
@@ -1327,7 +1340,7 @@ export function OrderCreate() {
                                 className="h-9 text-xs"
                               >
                                 <option value="DP">
-                                  {lang === "bn" ? "ডিলার মূল্য (DP)" : "DP (Dealer Price)"}
+                                   {lang === "bn" ? "ডিলার মূল্য (DP)" : "DP (Dealer Price)"}
                                 </option>
                                 {dynamicTiers.map((dt: any, dtIdx: number) => {
                                   const cleanName = formatTierLabel(dt?.name);
@@ -1351,6 +1364,7 @@ export function OrderCreate() {
                             min="0"
                             value={it.unit_price}
                             onChange={(e) => updateItem(idx, "unit_price", e.target.value)}
+                            onBlur={() => updateItem(idx, "unit_price", Math.max(0, r2(Number(it.unit_price) || 0)))}
                             className="h-9 font-mono text-right"
                           />
                         </TableCell>
@@ -1363,6 +1377,7 @@ export function OrderCreate() {
                             min="0"
                             value={it.discount}
                             onChange={(e) => updateItem(idx, "discount", e.target.value)}
+                            onBlur={() => updateItem(idx, "discount", Math.max(0, r2(Number(it.discount) || 0)))}
                             className="h-9 font-mono text-right"
                             placeholder="0"
                           />

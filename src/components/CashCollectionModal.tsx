@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -159,50 +159,73 @@ export function CashCollectionModal({
     )
   );
 
+  const isDirtyRef = useRef(false);
+  const prevOpenRef = useRef(false);
+  const prevCollectionIdRef = useRef<string | null | undefined>(undefined);
+
   useEffect(() => {
-    if (!open) return;
-    if (editingCollection) {
-      setCustomerId(editingCollection.customer_id || "");
-      setOrderId(editingCollection.order_id || "");
-      setAmount(editingCollection.amount || "");
-      setPaymentMethod(editingCollection.payment_method || "Cash");
-      setCollectionDate(
-        editingCollection.collection_date
-          ? new Date(editingCollection.collection_date).toISOString().slice(0, 16)
-          : new Date().toISOString().slice(0, 16)
-      );
-      setNotes(editingCollection.notes || "");
-      setChequeNo(
-        editingCollection.cheque_number ||
-          (editingCollection as any).chequeNo ||
-          (editingCollection as any).cheque_no ||
-          ""
-      );
-      setBankName(editingCollection.bank_name || (editingCollection as any).bankName || "");
-      setBranchName(editingCollection.branch_name || (editingCollection as any).branchName || "");
-      setChequeDate(
-        editingCollection.cheque_date
-          ? String(editingCollection.cheque_date).slice(0, 10)
-          : (editingCollection as any).chequeDate
-          ? String((editingCollection as any).chequeDate).slice(0, 10)
-          : ""
-      );
-    } else {
-      setCustomerId("");
-      setOrderId("");
-      setAmount("");
-      setPaymentMethod("Cash");
-      setCollectionDate(new Date().toISOString().slice(0, 16));
-      setNotes("");
-      setChequeNo("");
-      setBankName("");
-      setBranchName("");
-      setChequeDate("");
-      setEnableSettlementDiscount(false);
-      setSettlementDiscount("");
-      setSettlementReason("");
+    if (!open) {
+      prevOpenRef.current = false;
+      isDirtyRef.current = false;
+      return;
     }
-  }, [open, editingCollection]);
+
+    const currentColId = editingCollection?.id || null;
+    const isNewOpen = !prevOpenRef.current && open;
+    const isDifferentCollection = currentColId !== prevCollectionIdRef.current;
+
+    // Only re-initialize form state if the modal just opened OR if switching to a different collection ID while not dirty.
+    if (isNewOpen || (isDifferentCollection && !isDirtyRef.current)) {
+      prevOpenRef.current = true;
+      prevCollectionIdRef.current = currentColId;
+      isDirtyRef.current = false;
+
+      if (editingCollection) {
+        setCustomerId(editingCollection.customer_id || "");
+        setOrderId(editingCollection.order_id || "");
+        setAmount(editingCollection.amount || "");
+        setPaymentMethod(editingCollection.payment_method || "Cash");
+        setCollectionDate(
+          editingCollection.collection_date
+            ? new Date(editingCollection.collection_date).toISOString().slice(0, 16)
+            : new Date().toISOString().slice(0, 16)
+        );
+        setNotes(editingCollection.notes || "");
+        setChequeNo(
+          editingCollection.cheque_number ||
+            (editingCollection as any).chequeNo ||
+            (editingCollection as any).cheque_no ||
+            ""
+        );
+        setBankName(editingCollection.bank_name || (editingCollection as any).bankName || "");
+        setBranchName(editingCollection.branch_name || (editingCollection as any).branchName || "");
+        setChequeDate(
+          editingCollection.cheque_date
+            ? String(editingCollection.cheque_date).slice(0, 10)
+            : (editingCollection as any).chequeDate
+            ? String((editingCollection as any).chequeDate).slice(0, 10)
+            : ""
+        );
+        setEnableSettlementDiscount(Boolean((editingCollection as any).settlement_discount));
+        setSettlementDiscount((editingCollection as any).settlement_discount || "");
+        setSettlementReason((editingCollection as any).settlement_reason || "");
+      } else {
+        setCustomerId("");
+        setOrderId("");
+        setAmount("");
+        setPaymentMethod("Cash");
+        setCollectionDate(new Date().toISOString().slice(0, 16));
+        setNotes("");
+        setChequeNo("");
+        setBankName("");
+        setBranchName("");
+        setChequeDate("");
+        setEnableSettlementDiscount(false);
+        setSettlementDiscount("");
+        setSettlementReason("");
+      }
+    }
+  }, [open, editingCollection?.id]);
 
   const selectedCustomer: Customer | undefined = customers.find((c: Customer) => c.id === customerId);
 
@@ -477,6 +500,7 @@ export function CashCollectionModal({
         window.dispatchEvent(new Event("storage"));
       }
       toast.success(isEditing ? (t("updated") || "Collection updated successfully") : (t("created") || "Collection recorded successfully"));
+      isDirtyRef.current = false;
       onSaved?.(collectionRecord);
       onClose();
 
@@ -572,7 +596,7 @@ export function CashCollectionModal({
         {/* Customer Select */}
         <div className="space-y-1.5">
           <Label>{t("selectCustomer")}</Label>
-          <Select value={customerId} onChange={(e) => setCustomerId(e.target.value)}>
+          <Select value={customerId} onChange={(e) => { isDirtyRef.current = true; setCustomerId(e.target.value); }}>
             <option value="">— Select Outlet / Customer —</option>
             {customers.map((c: Customer) => {
               const partyCode = (c.party_code || (c as any).partyCode || (c as any).code || "").trim();
@@ -608,7 +632,7 @@ export function CashCollectionModal({
         {/* Order Select (optional) */}
         <div className="space-y-1.5">
           <Label>{t("orderNumber" as string) || "Order (optional)"}</Label>
-          <Select value={orderId} onChange={(e) => setOrderId(e.target.value)}>
+          <Select value={orderId} onChange={(e) => { isDirtyRef.current = true; setOrderId(e.target.value); }}>
             <option value="">— Link to specific order (optional) —</option>
             {allOrders
               .filter((o: Order) => o.customer_id === customerId)
@@ -627,7 +651,7 @@ export function CashCollectionModal({
             <Input
               type="number"
               value={amount}
-              onChange={(e) => setAmount(e.target.value)}
+              onChange={(e) => { isDirtyRef.current = true; setAmount(e.target.value); }}
               placeholder="0.00"
             />
           </div>
@@ -635,7 +659,7 @@ export function CashCollectionModal({
             <Label>{t("paymentMethod")}</Label>
             <Select
               value={paymentMethod}
-              onChange={(e) => setPaymentMethod(e.target.value)}
+              onChange={(e) => { isDirtyRef.current = true; setPaymentMethod(e.target.value); }}
             >
               {PAYMENT_METHODS.map((m: string) => (
                 <option key={m} value={m}>
@@ -670,7 +694,7 @@ export function CashCollectionModal({
                 <Label className="text-xs font-medium">Cheque Number *</Label>
                 <Input
                   value={chequeNo}
-                  onChange={(e) => setChequeNo(e.target.value)}
+                  onChange={(e) => { isDirtyRef.current = true; setChequeNo(e.target.value); }}
                   placeholder="e.g. 123456"
                   required
                 />
@@ -680,7 +704,7 @@ export function CashCollectionModal({
                 <Input
                   list="modal-bank-options"
                   value={bankName}
-                  onChange={(e) => setBankName(e.target.value)}
+                  onChange={(e) => { isDirtyRef.current = true; setBankName(e.target.value); }}
                   placeholder="e.g. City Bank, IBBL..."
                 />
                 <datalist id="modal-bank-options">
@@ -693,7 +717,7 @@ export function CashCollectionModal({
                 <Label className="text-xs font-medium">Branch Name</Label>
                 <Input
                   value={branchName}
-                  onChange={(e) => setBranchName(e.target.value)}
+                  onChange={(e) => { isDirtyRef.current = true; setBranchName(e.target.value); }}
                   placeholder="e.g. Motijheel Branch"
                 />
               </div>
@@ -702,7 +726,7 @@ export function CashCollectionModal({
                 <Input
                   type="date"
                   value={chequeDate}
-                  onChange={(e) => setChequeDate(e.target.value)}
+                  onChange={(e) => { isDirtyRef.current = true; setChequeDate(e.target.value); }}
                 />
               </div>
             </div>
@@ -722,6 +746,7 @@ export function CashCollectionModal({
                   type="checkbox"
                   checked={enableSettlementDiscount}
                   onChange={(e) => {
+                    isDirtyRef.current = true;
                     setEnableSettlementDiscount(e.target.checked);
                     if (!e.target.checked) {
                       setSettlementDiscount("");
@@ -741,7 +766,7 @@ export function CashCollectionModal({
                   <Input
                     type="number"
                     value={settlementDiscount}
-                    onChange={(e) => setSettlementDiscount(e.target.value)}
+                    onChange={(e) => { isDirtyRef.current = true; setSettlementDiscount(e.target.value); }}
                     placeholder="0.00"
                   />
                 </div>
@@ -749,7 +774,7 @@ export function CashCollectionModal({
                   <Label className="text-xs font-medium">Approval Reason *</Label>
                   <Input
                     value={settlementReason}
-                    onChange={(e) => setSettlementReason(e.target.value)}
+                    onChange={(e) => { isDirtyRef.current = true; setSettlementReason(e.target.value); }}
                     placeholder="e.g. Prompt settlement waiver approved by Admin"
                     required
                   />
@@ -765,7 +790,7 @@ export function CashCollectionModal({
           <Input
             type="datetime-local"
             value={collectionDate}
-            onChange={(e) => setCollectionDate(e.target.value)}
+            onChange={(e) => { isDirtyRef.current = true; setCollectionDate(e.target.value); }}
           />
         </div>
 
@@ -774,7 +799,7 @@ export function CashCollectionModal({
           <Label>{t("notes")}</Label>
           <Textarea
             value={notes}
-            onChange={(e) => setNotes(e.target.value)}
+            onChange={(e) => { isDirtyRef.current = true; setNotes(e.target.value); }}
             rows={2}
             placeholder="Remarks, money receipt number, deposit details, etc."
           />
