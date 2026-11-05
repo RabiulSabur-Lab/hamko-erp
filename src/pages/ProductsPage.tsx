@@ -38,6 +38,7 @@ import {
   calculateDefaultPriceTiers,
 } from "@/utils/productUtils";
 import { sanitizeProductPayload, executeWithSchemaResilience } from "@/lib/payloadSanitizer";
+import { triggerGlobalLiveSync, clearCloudPullThrottle } from "@/utils/cloudSync";
 
 export interface Category {
   id: string;
@@ -131,14 +132,13 @@ export function ProductsPage() {
     loadData();
 
     const handleStorage = () => {
+      mountedRef.current = true;
       const deletedIds = getDeletedIds(STORAGE_KEYS.DELETED_PRODUCTS);
       const storedProds = getLocalData<Product[]>(STORAGE_KEYS.PRODUCTS, []);
       const refreshed = (Array.isArray(storedProds) ? storedProds : []).filter((p: Product) => !deletedIds.has(p.id));
-      if (refreshed.length > 0) {
-        setProducts([...refreshed].sort((a: Product, b: Product) => (a.name || "").localeCompare(b.name || "")));
-      }
+      setProducts([...refreshed].sort((a: Product, b: Product) => (a.name || "").localeCompare(b.name || "")));
       const refreshedCats = getLocalData<Category[]>(STORAGE_KEYS.CATEGORIES, []);
-      if (Array.isArray(refreshedCats) && refreshedCats.length > 0) setCategories(refreshedCats);
+      if (Array.isArray(refreshedCats)) setCategories(refreshedCats);
 
       // Trigger live network fetch so secondary devices converge with cloud
       void loadData(false);
@@ -174,7 +174,15 @@ export function ProductsPage() {
   }, [query.search]);
 
   async function loadData(isManual = false) {
-    if (isManual) setLoading(true);
+    mountedRef.current = true;
+    if (isManual) {
+      setLoading(true);
+      try {
+        await triggerGlobalLiveSync({ silent: true });
+      } catch (err) {
+        console.warn("[ProductsPage] Live sync notice:", err);
+      }
+    }
     try {
       const [pRes, cRes] = await Promise.all([
         supabase.from("products").select("*, category:categories(*)").order("name", { ascending: true }),

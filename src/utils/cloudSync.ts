@@ -192,10 +192,10 @@ async function safeTimedQuery<TRes extends { data: any; error: any }>(
         return { data: res?.data ?? null, error: null };
       }
       lastError = res.error;
-      // If RLS or permission issue, silently return empty array without triggering an error state
+      // If RLS or permission issue, treat as non-authoritative failure so it does not overwrite cache with empty arrays
       if (isRlsOrPermissionError(lastError)) {
-        console.warn(`[CloudSync] ${label} restricted by RLS/permissions — returning empty dataset silently.`);
-        return { data: [] as any, error: null };
+        console.warn(`[CloudSync] ${label} restricted by RLS/permissions — preserving local state.`);
+        return { data: null, error: lastError };
       }
       if (attempt < attempts - 1 && isRetryableNetworkFailure(lastError)) {
         await new Promise((r) => setTimeout(r, 350));
@@ -205,8 +205,8 @@ async function safeTimedQuery<TRes extends { data: any; error: any }>(
     } catch (err: any) {
       lastError = { message: err?.message || `${label} failed` };
       if (isRlsOrPermissionError(lastError) || isRlsOrPermissionError(err)) {
-        console.warn(`[CloudSync] ${label} exception (RLS/permissions) — returning empty dataset silently.`);
-        return { data: [] as any, error: null };
+        console.warn(`[CloudSync] ${label} exception (RLS/permissions) — preserving local state.`);
+        return { data: null, error: lastError };
       }
       if (attempt < attempts - 1 && isRetryableNetworkFailure(lastError)) {
         await new Promise((r) => setTimeout(r, 350));
@@ -972,6 +972,11 @@ export async function pushAllLocalDataToSupabase(
  * Pulls authoritative cloud data from Supabase and reconciles localStorage mirrors
  * so Web and Mobile platforms always render identical state on startup, reconnect, or Realtime updates.
  */
+export function clearCloudPullThrottle(): void {
+  lastCloudPullAt = 0;
+  inFlightCloudPull = null;
+}
+
 export async function pullFreshCloudStateToLocalStore(options?: {
   force?: boolean;
   silent?: boolean;
@@ -985,11 +990,13 @@ export async function pullFreshCloudStateToLocalStore(options?: {
   }
 
   const now = Date.now();
-  if (!options?.force && now - lastCloudPullAt < 1500) {
+  if (options?.force) {
+    lastCloudPullAt = 0;
+  } else if (now - lastCloudPullAt < 1500) {
     return inFlightCloudPull ?? { synced: false, updatedTables: [], error: null };
   }
   if (inFlightCloudPull) {
-    if (options?.force && now - lastCloudPullAt > 400) {
+    if (options?.force) {
       await inFlightCloudPull.catch(() => null);
     } else {
       return inFlightCloudPull;
@@ -998,13 +1005,12 @@ export async function pullFreshCloudStateToLocalStore(options?: {
 
   const task = (async (): Promise<CloudPullResult> => {
     try {
-      const sessionCheck = await ensureValidSession();
+      const sessionCheck = await ensureValidSession(options?.force);
       if (sessionCheck.offline) {
         return { synced: false, updatedTables: [], offline: true, error: null };
       }
-      // If user session is absent or refreshing, log diagnostic notice but proceed with read queries
-      // since primary tables have read permissions open to anon & authenticated roles.
-      if (!sessionCheck.session || !hasActiveSessionToken(sessionCheck.session)) {
+      const hasToken = Boolean(sessionCheck.session && hasActiveSessionToken(sessionCheck.session));
+      if (!hasToken) {
         if (sessionCheck.error) {
           console.warn("[CloudSync] Session verification note; proceeding with cloud read queries:", sessionCheck.error.rawMessage);
         }
@@ -1363,12 +1369,20 @@ export async function pullFreshCloudStateToLocalStore(options?: {
       const updatedTables: string[] = [];
       const tableErrors: Array<{ table: string; error: any }> = [];
 
+      // Never overwrite populated local caches with empty arrays on cold starts or unauthenticated RLS rejects
+      const shouldPersist = (data: any[]): boolean => {
+        if (data.length > 0) return true;
+        return hasToken;
+      };
+
       // 1. ORDERS
       try {
         const res = ordersRes.status === "fulfilled" ? ordersRes.value : { data: null, error: ordersRes.reason };
         if (!res.error && Array.isArray(res.data)) {
-          reconcileOrdersWithRemote(res.data as any, { persist: true, maxCache: 500 });
-          updatedTables.push("orders");
+          if (shouldPersist(res.data)) {
+            reconcileOrdersWithRemote(res.data as any, { persist: true, maxCache: 500 });
+            updatedTables.push("orders");
+          }
         } else if (res.error) {
           tableErrors.push({ table: "orders", error: res.error });
         }
@@ -1381,8 +1395,10 @@ export async function pullFreshCloudStateToLocalStore(options?: {
       try {
         const res = colsRes.status === "fulfilled" ? colsRes.value : { data: null, error: colsRes.reason };
         if (!res.error && Array.isArray(res.data)) {
-          reconcileCollectionsWithRemote(res.data as any, { persist: true, maxCache: 1000 });
-          updatedTables.push("collections");
+          if (shouldPersist(res.data)) {
+            reconcileCollectionsWithRemote(res.data as any, { persist: true, maxCache: 1000 });
+            updatedTables.push("collections");
+          }
         } else if (res.error) {
           tableErrors.push({ table: "collections", error: res.error });
         }
@@ -1395,8 +1411,10 @@ export async function pullFreshCloudStateToLocalStore(options?: {
       try {
         const res = custRes.status === "fulfilled" ? custRes.value : { data: null, error: custRes.reason };
         if (!res.error && Array.isArray(res.data)) {
-          mergeAndEnrichCustomers(res.data as any, { persist: true });
-          updatedTables.push("customers");
+          if (shouldPersist(res.data)) {
+            mergeAndEnrichCustomers(res.data as any, { persist: true });
+            updatedTables.push("customers");
+          }
         } else if (res.error) {
           tableErrors.push({ table: "customers", error: res.error });
         }
@@ -1409,8 +1427,10 @@ export async function pullFreshCloudStateToLocalStore(options?: {
       try {
         const res = prodRes.status === "fulfilled" ? prodRes.value : { data: null, error: prodRes.reason };
         if (!res.error && Array.isArray(res.data)) {
-          reconcileProductsWithRemote(res.data as any, { persist: true });
-          updatedTables.push("products");
+          if (shouldPersist(res.data)) {
+            reconcileProductsWithRemote(res.data as any, { persist: true });
+            updatedTables.push("products");
+          }
         } else if (res.error) {
           tableErrors.push({ table: "products", error: res.error });
         }
@@ -1423,8 +1443,10 @@ export async function pullFreshCloudStateToLocalStore(options?: {
       try {
         const res = catRes.status === "fulfilled" ? catRes.value : { data: null, error: catRes.reason };
         if (!res.error && Array.isArray(res.data)) {
-          reconcileCategoriesWithRemote(res.data as any, { persist: true });
-          updatedTables.push("categories");
+          if (shouldPersist(res.data)) {
+            reconcileCategoriesWithRemote(res.data as any, { persist: true });
+            updatedTables.push("categories");
+          }
         } else if (res.error) {
           tableErrors.push({ table: "categories", error: res.error });
         }
@@ -1437,8 +1459,10 @@ export async function pullFreshCloudStateToLocalStore(options?: {
       try {
         const res = expRes.status === "fulfilled" ? expRes.value : { data: null, error: expRes.reason };
         if (!res.error && Array.isArray(res.data)) {
-          reconcileExpensesWithRemote(res.data as any, { persist: true });
-          updatedTables.push("expenses");
+          if (shouldPersist(res.data)) {
+            reconcileExpensesWithRemote(res.data as any, { persist: true });
+            updatedTables.push("expenses");
+          }
         } else if (res.error) {
           tableErrors.push({ table: "expenses", error: res.error });
         }
@@ -1451,8 +1475,10 @@ export async function pullFreshCloudStateToLocalStore(options?: {
       try {
         const res = visitsRes.status === "fulfilled" ? visitsRes.value : { data: null, error: visitsRes.reason };
         if (!res.error && Array.isArray(res.data)) {
-          reconcileVisitsWithRemote(res.data as any, { persist: true });
-          updatedTables.push("visits");
+          if (shouldPersist(res.data)) {
+            reconcileVisitsWithRemote(res.data as any, { persist: true });
+            updatedTables.push("visits");
+          }
         } else if (res.error) {
           tableErrors.push({ table: "visits", error: res.error });
         }
@@ -1465,8 +1491,10 @@ export async function pullFreshCloudStateToLocalStore(options?: {
       try {
         const res = terrRes.status === "fulfilled" ? terrRes.value : { data: null, error: terrRes.reason };
         if (!res.error && Array.isArray(res.data)) {
-          reconcileAreasWithRemote(res.data as any, { persist: true });
-          updatedTables.push("territories");
+          if (shouldPersist(res.data)) {
+            reconcileAreasWithRemote(res.data as any, { persist: true });
+            updatedTables.push("territories");
+          }
         } else if (res.error) {
           tableErrors.push({ table: "territories", error: res.error });
         }
@@ -1479,8 +1507,10 @@ export async function pullFreshCloudStateToLocalStore(options?: {
       try {
         const res = invRes.status === "fulfilled" ? invRes.value : { data: null, error: invRes.reason };
         if (!res.error && Array.isArray(res.data)) {
-          reconcileInventoryWithRemote(res.data as any, { persist: true });
-          updatedTables.push("inventory");
+          if (shouldPersist(res.data)) {
+            reconcileInventoryWithRemote(res.data as any, { persist: true });
+            updatedTables.push("inventory");
+          }
         } else if (res.error) {
           tableErrors.push({ table: "inventory", error: res.error });
         }
@@ -1493,8 +1523,10 @@ export async function pullFreshCloudStateToLocalStore(options?: {
       try {
         const res = supRes.status === "fulfilled" ? supRes.value : { data: null, error: supRes.reason };
         if (!res.error && Array.isArray(res.data)) {
-          reconcileSuppliersWithRemote(res.data as any, { persist: true });
-          updatedTables.push("suppliers");
+          if (shouldPersist(res.data)) {
+            reconcileSuppliersWithRemote(res.data as any, { persist: true });
+            updatedTables.push("suppliers");
+          }
         }
       } catch (e) {
         console.warn("[CloudSync] Suppliers reconcile notice:", e);
@@ -1504,8 +1536,10 @@ export async function pullFreshCloudStateToLocalStore(options?: {
       try {
         const res = piRes.status === "fulfilled" ? piRes.value : { data: null, error: piRes.reason };
         if (!res.error && Array.isArray(res.data)) {
-          reconcilePurchaseInvoicesWithRemote(res.data as any, { persist: true });
-          updatedTables.push("purchase_invoices");
+          if (shouldPersist(res.data)) {
+            reconcilePurchaseInvoicesWithRemote(res.data as any, { persist: true });
+            updatedTables.push("purchase_invoices");
+          }
         }
       } catch (e) {
         console.warn("[CloudSync] Purchase invoices reconcile notice:", e);
@@ -1515,8 +1549,10 @@ export async function pullFreshCloudStateToLocalStore(options?: {
       try {
         const res = spRes.status === "fulfilled" ? spRes.value : { data: null, error: spRes.reason };
         if (!res.error && Array.isArray(res.data)) {
-          reconcileSupplierPaymentsWithRemote(res.data as any, { persist: true });
-          updatedTables.push("supplier_payments");
+          if (shouldPersist(res.data)) {
+            reconcileSupplierPaymentsWithRemote(res.data as any, { persist: true });
+            updatedTables.push("supplier_payments");
+          }
         }
       } catch (e) {
         console.warn("[CloudSync] Supplier payments reconcile notice:", e);
@@ -1526,8 +1562,10 @@ export async function pullFreshCloudStateToLocalStore(options?: {
       try {
         const res = targetsRes.status === "fulfilled" ? targetsRes.value : { data: null, error: targetsRes.reason };
         if (!res.error && Array.isArray(res.data)) {
-          reconcileSalesTargetsWithRemote(res.data as any, { persist: true });
-          updatedTables.push("sales_targets");
+          if (shouldPersist(res.data)) {
+            reconcileSalesTargetsWithRemote(res.data as any, { persist: true });
+            updatedTables.push("sales_targets");
+          }
         } else if (res.error) {
           tableErrors.push({ table: "sales_targets", error: res.error });
         }
@@ -1540,8 +1578,10 @@ export async function pullFreshCloudStateToLocalStore(options?: {
       try {
         const res = usersRes.status === "fulfilled" ? usersRes.value : { data: null, error: usersRes.reason };
         if (!res.error && Array.isArray(res.data)) {
-          reconcileUsersWithRemote(res.data as any, { persist: true });
-          updatedTables.push("users");
+          if (shouldPersist(res.data)) {
+            reconcileUsersWithRemote(res.data as any, { persist: true });
+            updatedTables.push("users");
+          }
         }
       } catch (e) {
         console.warn("[CloudSync] Users reconcile notice:", e);
@@ -1551,14 +1591,16 @@ export async function pullFreshCloudStateToLocalStore(options?: {
       try {
         const res = notifsRes.status === "fulfilled" ? notifsRes.value : { data: null, error: notifsRes.reason };
         if (!res.error && Array.isArray(res.data)) {
-          reconcileNotificationsWithRemote(res.data as any, { persist: true });
-          updatedTables.push("notifications");
+          if (shouldPersist(res.data)) {
+            reconcileNotificationsWithRemote(res.data as any, { persist: true });
+            updatedTables.push("notifications");
+          }
         }
       } catch (e) {
         console.warn("[CloudSync] Notifications reconcile notice:", e);
       }
 
-      if (updatedTables.length > 0) {
+      if (updatedTables.length > 0 || options?.force) {
         const detail = { type: "cloud_pull_completed", updatedTables };
         window.dispatchEvent(new CustomEvent("sales_erp_storage_update", { detail }));
         broadcastCrossTabSync({ detail });
@@ -1624,4 +1666,23 @@ export function exportAllLocalData(): void {
   const jsonStr = JSON.stringify(exportData, null, 2);
   const dateStr = new Date().toISOString().slice(0, 10);
   void exportJsonBackup(`hamko_erp_full_backup_${dateStr}.json`, jsonStr);
+}
+
+/**
+ * Manually triggered global Live Sync override.
+ * Clears throttle locks, forces an authoritative cloud pull across 100% of tables,
+ * and broadcasts an explicit storage re-hydration event to all active views.
+ */
+export async function triggerGlobalLiveSync(options?: { silent?: boolean }): Promise<CloudPullResult> {
+  clearCloudPullThrottle();
+  const res = await pullFreshCloudStateToLocalStore({ force: true, silent: options?.silent ?? false });
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(
+      new CustomEvent("sales_erp_storage_update", {
+        detail: { type: "live_sync_forced", updatedTables: res.updatedTables },
+      }),
+    );
+    window.dispatchEvent(new CustomEvent("customer_ledger_updated"));
+  }
+  return res;
 }

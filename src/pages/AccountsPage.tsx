@@ -17,7 +17,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { EmptyState } from "@/components/ui/empty";
 import { formatBDT, formatDate, cn } from "@/lib/utils";
 import { exportToExcel } from "@/lib/export";
-import { Plus, Download, Wallet, Loader2, DollarSign, TrendingDown, BookOpen, CreditCard, Trash2, Calendar, X, User, AlertCircle, Phone } from "lucide-react";
+import { Plus, Download, Wallet, Loader2, DollarSign, TrendingDown, BookOpen, CreditCard, Trash2, Calendar, X, User, AlertCircle, Phone, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import {
   fetchActiveSalesOfficers,
@@ -69,7 +69,7 @@ import {
   isSupplierPaymentExpense,
   isPendingOfflineRecord,
 } from "@/utils/localStore";
-import { normalizePaymentMethod } from "@/utils/cloudSync";
+import { normalizePaymentMethod, triggerGlobalLiveSync, clearCloudPullThrottle } from "@/utils/cloudSync";
 import { CustomerLedgerModal } from "@/components/CustomerLedgerModal";
 import { OrderDetailsModal } from "@/components/OrderDetailsModal";
 import { CollectionDetailsModal } from "@/components/CollectionDetailsModal";
@@ -179,7 +179,7 @@ function TableDateRangePicker({
 }
 
 export function AccountsPage() {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const { profile, user } = useAuth();
 
   const isManagerOrAdmin = useMemo(() => {
@@ -336,9 +336,22 @@ export function AccountsPage() {
     return map;
   }, [salesOfficers, usersMap]);
 
+  const profileRef = useRef(profile);
+  profileRef.current = profile;
+  const getUserNameRef = useRef(getUserName);
+  getUserNameRef.current = getUserName;
   const mountedRef = useRef(true);
 
-  const loadAccountsData = useCallback(async () => {
+  const loadAccountsData = useCallback(async (isManual = false) => {
+    mountedRef.current = true;
+    if (isManual) {
+      setLoading(true);
+      try {
+        await triggerGlobalLiveSync({ silent: true });
+      } catch (err) {
+        console.warn("[AccountsPage] Live sync notice:", err);
+      }
+    }
     try {
       const [usersRes, colRes, expRes, cRes, oRes, officersData] = await Promise.all([
         supabase.from("users").select("id, full_name, email, role_name"),
@@ -350,8 +363,9 @@ export function AccountsPage() {
       ]);
       if (!mountedRef.current) return;
 
+      const activeProfile = profileRef.current;
       // Build enriched user lookup map from database query, officers list, and collections
-      const updatedUsersMap: Record<string, UserLookupInfo> = { ...buildUserLookupMap(profile) };
+      const updatedUsersMap: Record<string, UserLookupInfo> = { ...buildUserLookupMap(activeProfile) };
 
       if (!usersRes.error && Array.isArray(usersRes.data)) {
         usersRes.data.forEach((u: any) => {
@@ -435,7 +449,7 @@ export function AccountsPage() {
       if (remoteCols !== null) {
         const reconciledCols = reconcileCollectionsWithRemote(remoteCols, { persist: false });
         const enrichedCols: Collection[] = reconciledCols.map((c: Collection) => {
-          const resolvedCollectorName = getUserName(
+          const resolvedCollectorName = getUserNameRef.current(
             c.collected_by,
             c.collector?.full_name || (c as any).collector_name || (c as any).collected_by_name || (c as any).sales_rep_name || "Sales Officer"
           );
@@ -478,20 +492,24 @@ export function AccountsPage() {
       if (!oRes.error && Array.isArray(oRes.data)) {
         setOrders(allOrders);
       }
+      if (isManual) {
+        toast.success(lang === "bn" ? "অ্যাকাউন্টস ডাটা সফলভাবে সিন্ক হয়েছে" : "Accounts data synchronized with cloud");
+      }
     } catch (err) {
       console.warn("Using cached accounts data due to network error:", err);
     } finally {
       if (mountedRef.current) setLoading(false);
     }
-  }, [profile, getUserName]);
+  }, [lang]);
 
   useAutoSync(() => {
-    void loadAccountsData();
+    mountedRef.current = true;
+    void loadAccountsData(false);
   });
 
   useEffect(() => {
     mountedRef.current = true;
-    void loadAccountsData();
+    void loadAccountsData(false);
 
     const accChannel = supabase
       .channel("accounts-page-realtime")
@@ -517,33 +535,26 @@ export function AccountsPage() {
 
   useEffect(() => {
     const handleStorageUpdate = () => {
-      const currentMap = buildUserLookupMap(profile);
+      mountedRef.current = true;
+      const currentMap = buildUserLookupMap(profileRef.current);
       setUsersMap((prev) => ({ ...prev, ...currentMap }));
       setSalesOfficers(getLocalSalesOfficers());
       const deletedColIds = getDeletedIds(STORAGE_KEYS.DELETED_COLLECTIONS);
       const updatedCols = getCollections().filter((c) => !deletedColIds.has(c.id));
-      if (updatedCols.length > 0) {
-        setCollections([...updatedCols]);
-      }
+      setCollections([...updatedCols]);
 
       const deletedExpIds = getDeletedIds(STORAGE_KEYS.DELETED_EXPENSES);
       const updatedExps = syncSupplierPaymentsToExpenses(getExpenses().filter((e) => !deletedExpIds.has(e.id)));
-      if (updatedExps.length > 0) {
-        setExpenses([...updatedExps]);
-      }
+      setExpenses([...updatedExps]);
 
       const updatedCusts: Customer[] = getCustomers();
-      if (updatedCusts.length > 0) {
-        setCustomers([...updatedCusts]);
-      }
+      setCustomers([...updatedCusts]);
 
       const updatedOrds: Order[] = getOrders();
-      if (updatedOrds.length > 0) {
-        setOrders([...updatedOrds]);
-      }
+      setOrders([...updatedOrds]);
 
       // Trigger live network fetch so secondary devices converge with cloud
-      void loadAccountsData();
+      void loadAccountsData(false);
     };
 
     window.addEventListener("storage", handleStorageUpdate);
@@ -1138,7 +1149,11 @@ export function AccountsPage() {
         </CardContent></Card>
       </div>
 
-      <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+      <div className="flex flex-col gap-2 sm:flex-row sm:justify-end sm:items-center">
+        <Button variant="outline" size="sm" onClick={() => loadAccountsData(true)} disabled={loading} title="Live cloud sync" className="gap-1.5">
+          <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin text-primary' : ''}`} />
+          <span className="hidden sm:inline">{loading ? "Syncing..." : "Live Sync"}</span>
+        </Button>
         {isManagerOrAdmin && (
           <Button size="sm" variant="outline" onClick={openExpense}><Plus className="h-4 w-4" /> {t("expenseEntry")}</Button>
         )}

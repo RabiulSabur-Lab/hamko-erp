@@ -14,10 +14,11 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { EmptyState } from "@/components/ui/empty";
 import { formatBDT, toBnDigit } from "@/lib/utils";
 import { exportToExcel } from "@/lib/export";
-import { Search, Download, Warehouse, Loader2 } from "lucide-react";
+import { Search, Download, Warehouse, Loader2, RefreshCw } from "lucide-react";
 import { useRouter } from "@/router";
 import { toast } from "sonner";
 import { useAutoSync } from "@/hooks/useAutoSync";
+import { triggerGlobalLiveSync, clearCloudPullThrottle } from "@/utils/cloudSync";
 
 import {
   STORAGE_KEYS,
@@ -93,9 +94,10 @@ export function InventoryPage() {
 
   useEffect(() => {
     mountedRef.current = true;
-    loadData();
+    void loadData();
 
     const handleStorage = () => {
+      mountedRef.current = true;
       const deletedIds = getDeletedIds(STORAGE_KEYS.DELETED_PRODUCTS);
       const cachedCategories: any[] = getLocalData(STORAGE_KEYS.CATEGORIES, []);
       const catMap = new Map(cachedCategories.map((c) => [c.id, c]));
@@ -106,12 +108,10 @@ export function InventoryPage() {
           purchase_cost: p.purchase_cost ?? p.distributor_price ?? p.purchase_price ?? null,
           category: (p.category_id && catMap.has(p.category_id)) ? catMap.get(p.category_id) : (p.category || null),
         }));
-      if (refreshed.length > 0) {
-        setProducts([...refreshed].sort((a, b) => (a.name || "").localeCompare(b.name || "")));
-      }
+      setProducts([...refreshed].sort((a, b) => (a.name || "").localeCompare(b.name || "")));
 
       // Always trigger live server fetch so secondary devices converge with cloud
-      void loadData();
+      void loadData(false);
     };
 
     const invChannel = supabase
@@ -134,10 +134,20 @@ export function InventoryPage() {
 
   // Cloud-First re-validation on window focus, visibility change, and mobile app resume
   useAutoSync(() => {
-    void loadData();
+    mountedRef.current = true;
+    void loadData(false);
   });
 
-  async function loadData() {
+  async function loadData(isManual = false) {
+    mountedRef.current = true;
+    if (isManual) {
+      setLoading(true);
+      try {
+        await triggerGlobalLiveSync({ silent: true });
+      } catch (err) {
+        console.warn("[InventoryPage] Live sync notice:", err);
+      }
+    }
     try {
       const [pRes, cRes, invRes] = await Promise.all([
         supabase.from("products").select("*, category:categories(*)").order("name", { ascending: true }),
@@ -193,6 +203,9 @@ export function InventoryPage() {
         const sorted = enriched.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
         if (mountedRef.current) setProducts(sorted);
         setLocalData(STORAGE_KEYS.PRODUCTS, sorted, null, true);
+        if (isManual) {
+          toast.success(lang === "bn" ? `লাইভ সিন্ক: ${sorted.length}টি পণ্য লোড হয়েছে` : `Live sync: ${sorted.length} products loaded from cloud`);
+        }
       }
     } catch (err) {
       console.warn("Using local inventory cache:", err);
@@ -450,8 +463,19 @@ export function InventoryPage() {
           )}
         </div>
 
-        {/* Action Button on the right: Export Excel */}
+        {/* Action Button on the right: Export Excel & Live Sync */}
         <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => loadData(true)}
+            disabled={loading}
+            title="Live cloud sync"
+            className="h-9 gap-1.5"
+          >
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin text-primary' : ''}`} />
+            <span className="hidden sm:inline">{loading ? "Syncing..." : "Live Sync"}</span>
+          </Button>
           <Button
             variant="outline"
             size="sm"

@@ -30,6 +30,7 @@ import {
   STORAGE_KEYS,
   type Customer,
 } from "@/utils/localStore";
+import { pullFreshCloudStateToLocalStore, clearCloudPullThrottle } from "@/utils/cloudSync";
 
 export interface PrevDashboardMetrics {
   prevCollection: number;
@@ -324,8 +325,14 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
       }
       lastAutoFetchAtRef.current = nowMs;
 
-      if (isManual && mountedRef.current) {
-        setRefreshing(true);
+      if (isManual) {
+        initialFetchedForUserRef.current = null;
+        lastAutoFetchAtRef.current = 0;
+        clearCloudPullThrottle();
+        void pullFreshCloudStateToLocalStore({ force: true, silent: true }).catch(() => null);
+        if (mountedRef.current) {
+          setRefreshing(true);
+        }
       }
 
       const task = (async () => {
@@ -617,7 +624,7 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
     [applyLocalFallback, surfaceFailureNotification],
   );
 
-  // Hard loading timeout: guarantees Dashboard skeleton exits cleanly within 9s on all devices
+  // Hard loading timeout: guarantees Dashboard skeleton exits cleanly within 9s on all devices without clobbering active queries
   useEffect(() => {
     mountedRef.current = true;
     const watchdog = setTimeout(() => {
@@ -625,7 +632,13 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
         setLoading((prevLoading) => {
           if (prevLoading) {
             console.warn("[Dashboard] Loading timeout reached (9s). Unlocking UI with fallback state.");
-            applyLocalFallback();
+            // Only apply local fallback if local cache actually has data and no fetch is currently in flight
+            if (!inFlightRef.current) {
+              const snap = readCachedDashboardSnapshot();
+              if (snap.hasAnyCached) {
+                applyLocalFallback();
+              }
+            }
           }
           return false;
         });
@@ -644,10 +657,17 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
     if (authLoading) return;
     const targetKey = userId ?? "__public__";
     if (initialFetchedForUserRef.current === targetKey) return;
-    initialFetchedForUserRef.current = targetKey;
 
     lastAutoFetchAtRef.current = 0; // Allow initial fetch immediately
-    void fetchFromSupabase(false);
+    void fetchFromSupabase(false)
+      .then(() => {
+        if (mountedRef.current) {
+          initialFetchedForUserRef.current = targetKey;
+        }
+      })
+      .catch(() => {
+        initialFetchedForUserRef.current = null;
+      });
   }, [authLoading, userId, fetchFromSupabase]);
 
   // Single multiplexed Realtime channel for instant zero-lag dashboard invalidation

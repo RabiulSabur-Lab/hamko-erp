@@ -86,6 +86,7 @@ import {
   isPendingOfflineRecord,
 } from "@/utils/localStore";
 import { resolveOrderProduct, sanitizeFormulaInput, formatTierLabel } from "@/utils/productUtils";
+import { triggerGlobalLiveSync, clearCloudPullThrottle } from "@/utils/cloudSync";
 
 const statuses = ["Draft", "Pending", "Approved", "Delivered", "Cancelled"] as const;
 
@@ -362,11 +363,20 @@ export function OrdersPage() {
 
   // Anti-stale data: auto re-fetch on window focus, visibility change, and mobile app resume
   useAutoSync(() => {
-    load(false);
+    isMountedRef.current = true;
+    void load(false);
   });
 
   async function load(isManual = false) {
-    if (isManual) setLoading(true);
+    isMountedRef.current = true;
+    if (isManual) {
+      setLoading(true);
+      try {
+        await triggerGlobalLiveSync({ silent: true });
+      } catch (err) {
+        console.warn("[OrdersPage] Live sync pull notice:", err);
+      }
+    }
     try {
         const [usersQueryRes, oRes, cRes, pRes, officersData] = await Promise.all([
           supabase.from("users").select("id, full_name, email, role_name"),
@@ -616,25 +626,26 @@ export function OrdersPage() {
     }
 
   useEffect(() => {
+    isMountedRef.current = true;
     let isMounted = true;
-    load(false);
+    void load(false);
 
     const ordChannel = supabase
       .channel("orders-page-realtime")
       .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => {
-        if (isMounted) load();
+        if (isMounted) void load();
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "order_items" }, () => {
-        if (isMounted) load();
+        if (isMounted) void load();
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "customers" }, () => {
-        if (isMounted) load();
+        if (isMounted) void load();
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "products" }, () => {
-        if (isMounted) load();
+        if (isMounted) void load();
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "collections" }, () => {
-        if (isMounted) load();
+        if (isMounted) void load();
       })
       .subscribe();
 
@@ -651,23 +662,22 @@ export function OrdersPage() {
 
   useEffect(() => {
     const handleStorageUpdate = () => {
+      isMountedRef.current = true;
       const currentMap = buildUserLookupMap(profile);
       setUsersMap((prev) => ({ ...prev, ...currentMap }));
       setSalesOfficers(getLocalSalesOfficers());
       const cleaned = cleanCorruptedStoredOrders();
       const deletedIds = getDeletedIds(STORAGE_KEYS.DELETED_ORDERS);
       const updated = cleaned.filter((o: Order) => !deletedIds.has(o.id));
-      if (updated.length > 0) {
-        setOrders([...updated]);
-      }
+      setOrders([...updated]);
       const custs = getCustomers();
-      if (Array.isArray(custs) && custs.length > 0) setCustomers([...custs]);
+      if (Array.isArray(custs)) setCustomers([...custs]);
       const prods = getProducts();
-      if (Array.isArray(prods) && prods.length > 0) setProducts([...prods]);
+      if (Array.isArray(prods)) setProducts([...prods]);
       setAreas(getAreas());
 
       // Trigger live network fetch so secondary devices converge with cloud
-      load(false);
+      void load(false);
     };
 
     window.addEventListener("storage", handleStorageUpdate);

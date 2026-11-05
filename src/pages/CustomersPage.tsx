@@ -19,7 +19,7 @@ import { useRouter } from "@/router";
 import { CustomerLedgerModal } from "@/components/CustomerLedgerModal";
 import { AddCustomerModal, parseCustomerNotes } from "@/components/AddCustomerModal";
 import { PaymentReminderModal } from "@/components/PaymentReminderModal";
-import { encodeCustomerNotes } from "@/utils/cloudSync";
+import { encodeCustomerNotes, triggerGlobalLiveSync, clearCloudPullThrottle } from "@/utils/cloudSync";
 
 const customerTypes = ["Dealer", "Retailer", "Wholesale"] as const;
 const dueStatuses = ["Clear", "Overdue", "Partial"] as const;
@@ -132,7 +132,15 @@ export function CustomersPage() {
   });
 
   async function loadData(isManual = false) {
-    if (isManual) setLoading(true);
+    mountedRef.current = true;
+    if (isManual) {
+      setLoading(true);
+      try {
+        await triggerGlobalLiveSync({ silent: true });
+      } catch (err) {
+        console.warn("[CustomersPage] Live sync notice:", err);
+      }
+    }
     try {
       const [cRes, tRes, oRes, colRes] = await Promise.all([
         supabase.from("customers").select("*, territory:territories(*)").order("name", { ascending: true }),
