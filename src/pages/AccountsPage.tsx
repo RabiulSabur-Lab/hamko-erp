@@ -440,7 +440,7 @@ export function AccountsPage() {
               resolvedOrdersData = bareOrdersRes.data as any;
             }
           }
-        } catch {}
+        } catch { }
       }
       const allOrders: Order[] = resolvedOrdersData
         ? reconcileOrdersWithRemote(resolvedOrdersData as unknown as Order[], { persist: true, maxCache: 500 })
@@ -952,7 +952,7 @@ export function AccountsPage() {
           }
 
           window.dispatchEvent(new Event("sales_erp_storage_update"));
-        dispatchGlobalStateUpdate({ type: "expense_created" });
+          dispatchGlobalStateUpdate({ type: "expense_created" });
           dispatchGlobalStateUpdate({ customerId: form.customer_id, type: "collection_updated" });
         } catch (syncErr: any) {
           console.warn("Supabase collection persistence exception (persisted locally):", syncErr?.message || syncErr);
