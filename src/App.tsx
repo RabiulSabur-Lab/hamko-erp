@@ -159,12 +159,8 @@ export function App() {
 
   // Centralized Global Realtime & Cross-Device Cloud Sync
   useEffect(() => {
-    if (session) {
-      void initRealtimeSync();
-      void pullFreshCloudStateToLocalStore({ force: true, silent: true });
-    } else {
-      cleanupRealtimeSync();
-    }
+    void initRealtimeSync();
+    void pullFreshCloudStateToLocalStore({ force: true, silent: true });
   }, [session]);
 
   // Hard 6.5-second fallback timeout: Force UI unlock and render login if initialization stalls on mobile

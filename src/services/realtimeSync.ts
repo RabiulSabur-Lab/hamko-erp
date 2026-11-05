@@ -15,7 +15,7 @@ interface RealtimeManagerConfig {
 const DEFAULT_CONFIG: Required<RealtimeManagerConfig> = {
   reconnectBaseMs: 1500,
   reconnectMaxMs: 30000,
-  pullDebounceMs: 350,
+  pullDebounceMs: 200,
 };
 
 // Monitored primary database tables for Postgres Change Data Capture (CDC)
@@ -82,9 +82,12 @@ class RealtimeSyncManager {
     // Align realtime auth credentials with active session if present
     await this.alignRealtimeAuth();
 
-    // If channel is already connected and active, skip redundant re-subscription
+    // If channel is already connected and active, verify it is still joined
     if (this.syncChannel && this.status === "CONNECTED") {
-      return;
+      const state = (this.syncChannel as any)?.state;
+      if (state === "joined") {
+        return;
+      }
     }
 
     this.teardownChannels();
@@ -109,11 +112,26 @@ class RealtimeSyncManager {
         );
       }
 
+      // Mobile/Edge network watchdog: if connection hangs in CONNECTING for >7s, timeout and retry
+      let connectWatchdog: ReturnType<typeof setTimeout> | null = setTimeout(() => {
+        if (this.status === "CONNECTING" && !this.isDestroyed) {
+          console.warn("[RealtimeSync] Subscription handshake timed out after 7s. Re-establishing channel...");
+          this.status = "ERROR";
+          this.teardownChannels();
+          this.scheduleReconnect("subscription_timeout_7s");
+          void pullFreshCloudStateToLocalStore({ force: true, silent: true });
+        }
+      }, 7000);
+
       // Track channel connection state
       channel.subscribe((subStatus, err) => {
         if (this.isDestroyed) return;
 
         if (subStatus === "SUBSCRIBED") {
+          if (connectWatchdog) {
+            clearTimeout(connectWatchdog);
+            connectWatchdog = null;
+          }
           this.status = "CONNECTED";
           this.reconnectAttempts = 0;
           if (this.reconnectTimer) {
@@ -121,11 +139,16 @@ class RealtimeSyncManager {
             this.reconnectTimer = null;
           }
         } else if (subStatus === "CHANNEL_ERROR" || subStatus === "TIMED_OUT" || subStatus === "CLOSED") {
+          if (connectWatchdog) {
+            clearTimeout(connectWatchdog);
+            connectWatchdog = null;
+          }
           this.status = "ERROR";
           if (err) {
-            console.warn(`[RealtimeSync] Channel ${subStatus} notice:`, err.message || err);
+            console.warn(`[RealtimeSync] Channel ${subStatus} notice:`, (err as any)?.message || err);
           }
           this.scheduleReconnect("channel_status_" + subStatus.toLowerCase());
+          void pullFreshCloudStateToLocalStore({ force: true, silent: true });
         }
       });
 
@@ -284,6 +307,7 @@ class RealtimeSyncManager {
 
   /**
    * Immediately reconnects and triggers fresh cloud synchronization.
+   * Explicitly tears down channels to prevent zombie sockets on mobile resume.
    */
   public async reconnect(reason = "manual_or_lifecycle"): Promise<void> {
     if (this.reconnectTimer) {
@@ -291,11 +315,13 @@ class RealtimeSyncManager {
       this.reconnectTimer = null;
     }
     this.reconnectAttempts = 0;
+    this.teardownChannels();
+    this.status = "DISCONNECTED";
     await this.init();
 
     // Trigger state convergence on reconnect if network is available
     const now = Date.now();
-    if (now - this.lastCloudSyncAt > 1500) {
+    if (now - this.lastCloudSyncAt > 800) {
       this.lastCloudSyncAt = now;
       void pullFreshCloudStateToLocalStore({ force: true, silent: true });
     }
@@ -365,7 +391,7 @@ class RealtimeSyncManager {
 
   /**
    * Continuous background state convergence polling loop.
-   * Forcefully queries Supabase every 7.5s, bypassing any WebSocket dropouts.
+   * Forcefully queries Supabase every 6s and performs automated WebSocket health checks.
    */
   public startConvergencePolling(): void {
     if (this.convergencePollTimer) return;
@@ -373,13 +399,21 @@ class RealtimeSyncManager {
       if (this.isDestroyed) return;
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       if (typeof navigator !== "undefined" && navigator.onLine === false) return;
+
+      // 1. Proactive WebSocket health check: detect zombie or closed mobile sockets
+      const channelState = (this.syncChannel as any)?.state;
+      if (!this.syncChannel || this.status !== "CONNECTED" || (channelState && channelState !== "joined" && channelState !== "joining")) {
+        void this.reconnect("polling_health_check_disconnected");
+      }
+
+      // 2. State convergence pull
       if (!this.isAutoPulling) {
         this.isAutoPulling = true;
         void pullFreshCloudStateToLocalStore({ force: true, silent: true }).finally(() => {
           this.isAutoPulling = false;
         });
       }
-    }, 7500);
+    }, 6000);
   }
 
   public stopConvergencePolling(): void {

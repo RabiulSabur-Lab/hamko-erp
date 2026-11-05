@@ -646,28 +646,18 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
     };
   }, [applyLocalFallback]);
 
-  // Initial cloud fetch keyed strictly on primitive auth flags (executes once per authenticated userId)
+  // Initial cloud fetch from Supabase SSOT (executes immediately on client mount, guarantees 100% parity across mobile & desktop)
   useEffect(() => {
-    if (authLoading || !sessionVerified) return;
-
-    const targetKey = userId ?? "__unauthenticated__";
+    const targetKey = userId ?? "__public__";
     if (initialFetchedForUserRef.current === targetKey) return;
     initialFetchedForUserRef.current = targetKey;
 
-    if (!userId) {
-      applyLocalFallback();
-      setLoading(false);
-      return;
-    }
-
-    lastAutoFetchAtRef.current = 0; // Allow initial fetch immediately for this user
+    lastAutoFetchAtRef.current = 0; // Allow initial fetch immediately
     void fetchFromSupabase(false);
-  }, [authLoading, sessionVerified, userId, fetchFromSupabase, applyLocalFallback]);
+  }, [userId, fetchFromSupabase]);
 
-  // Single multiplexed Realtime channel (keyed on primitive userId — never tears down on token object churn)
+  // Single multiplexed Realtime channel for instant zero-lag dashboard invalidation
   useEffect(() => {
-    if (loading || !sessionVerified || !userId) return;
-
     let debounceTimer: ReturnType<typeof setTimeout> | undefined;
     const scheduleSync = () => {
       if (debounceTimer) clearTimeout(debounceTimer);
@@ -676,13 +666,14 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
           lastAutoFetchAtRef.current = 0;
           void fetchFromSupabase(false);
         }
-      }, 1200);
+      }, 250);
     };
 
     let channel: any = null;
     try {
+      const channelName = `dashboard_live_sync_${Date.now().toString(36)}`;
       channel = supabase
-        .channel("dashboard_live_sync")
+        .channel(channelName)
         .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, scheduleSync)
         .on("postgres_changes", { event: "*", schema: "public", table: "order_items" }, scheduleSync)
         .on("postgres_changes", { event: "*", schema: "public", table: "collections" }, scheduleSync)
@@ -703,11 +694,12 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
         }
       }
     };
-  }, [loading, sessionVerified, userId, fetchFromSupabase]);
+  }, [fetchFromSupabase]);
 
   // Filtered & debounced listener for local/cross-tab/cloud-pull mutations from other ERP pages
   useEffect(() => {
     let debounceTimer: ReturnType<typeof setTimeout> | undefined;
+    let cloudRefetchTimer: ReturnType<typeof setTimeout> | undefined;
 
     const scheduleLocalSync = () => {
       if (debounceTimer) clearTimeout(debounceTimer);
@@ -725,7 +717,17 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
             setLastSynced(new Date());
           }
         });
-      }, 150);
+      }, 100);
+    };
+
+    const scheduleCloudRefetch = () => {
+      if (cloudRefetchTimer) clearTimeout(cloudRefetchTimer);
+      cloudRefetchTimer = setTimeout(() => {
+        if (mountedRef.current && !inFlightRef.current) {
+          lastAutoFetchAtRef.current = 0;
+          void fetchFromSupabase(false);
+        }
+      }, 300);
     };
 
     const eTypeRef = { current: "" };
@@ -737,6 +739,11 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
         return;
       }
       scheduleLocalSync();
+
+      // When incoming Realtime CDC payload or fresh cloud pull completes, re-run SSOT verification
+      if (detail?.type === "realtime_cdc" || detail?.type === "cloud_pull_completed") {
+        scheduleCloudRefetch();
+      }
     };
 
     const handleCrossTabStorage = (e: StorageEvent) => {
@@ -744,6 +751,7 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
         return;
       }
       scheduleLocalSync();
+      scheduleCloudRefetch();
     };
 
     window.addEventListener("sales_erp_storage_update", handleLocalUpdate);
@@ -751,22 +759,24 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
     window.addEventListener("storage", handleCrossTabStorage);
     return () => {
       if (debounceTimer) clearTimeout(debounceTimer);
+      if (cloudRefetchTimer) clearTimeout(cloudRefetchTimer);
       window.removeEventListener("sales_erp_storage_update", handleLocalUpdate);
       window.removeEventListener("customer_ledger_updated", scheduleLocalSync);
       window.removeEventListener("storage", handleCrossTabStorage);
     };
-  }, []);
+  }, [fetchFromSupabase]);
 
   // Auto-sync on mobile app resume / focus / online reconnect (Cloud-First revalidation)
   useAutoSync(
     () => {
-      if (!loading && !refreshing && !inFlightRef.current && sessionVerified && userId) {
+      if (!loading && !refreshing && !inFlightRef.current) {
         lastAutoFetchAtRef.current = 0;
         void fetchFromSupabase(false);
       }
     },
-    !loading && sessionVerified && Boolean(userId),
-    1200,
+    !loading,
+    1000,
+    6000,
   );
 
   return {
