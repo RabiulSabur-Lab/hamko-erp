@@ -22,6 +22,7 @@ import {
   reconcileSalesTargetsWithRemote,
   reconcileNotificationsWithRemote,
   reconcileUsersWithRemote,
+  reconcileStockTransactionsWithRemote,
   broadcastCrossTabSync,
   getProducts,
   getCustomers,
@@ -1078,7 +1079,7 @@ export async function pullFreshCloudStateToLocalStore(options?: {
               .from("orders")
               .select(SUPABASE_TABLE_SELECTS.ordersWithItemsAndCustomer)
               .order("order_date", { ascending: false })
-              .limit(1000),
+              .limit(2500),
           10000,
           "Cloud pull orders",
           1,
@@ -1090,7 +1091,7 @@ export async function pullFreshCloudStateToLocalStore(options?: {
               .from("orders")
               .select(SUPABASE_TABLE_SELECTS.ordersCoreFallback)
               .order("order_date", { ascending: false })
-              .limit(1000),
+              .limit(2500),
           10000,
           "Cloud pull orders fallback",
           1,
@@ -1102,7 +1103,7 @@ export async function pullFreshCloudStateToLocalStore(options?: {
               .from("orders")
               .select(SUPABASE_TABLE_SELECTS.ordersFlatFallback)
               .order("order_date", { ascending: false })
-              .limit(1000),
+              .limit(2500),
           10000,
           "Cloud pull orders flat fallback",
           1,
@@ -1116,7 +1117,7 @@ export async function pullFreshCloudStateToLocalStore(options?: {
               .from("collections")
               .select(SUPABASE_TABLE_SELECTS.collections)
               .order("collection_date", { ascending: false })
-              .limit(2000),
+              .limit(3000),
           10000,
           "Cloud pull collections",
           1,
@@ -1128,7 +1129,7 @@ export async function pullFreshCloudStateToLocalStore(options?: {
               .from("collections")
               .select(SUPABASE_TABLE_SELECTS.collectionsCoreFallback)
               .order("collection_date", { ascending: false })
-              .limit(2000),
+              .limit(3000),
           10000,
           "Cloud pull collections fallback",
           1,
@@ -1200,7 +1201,7 @@ export async function pullFreshCloudStateToLocalStore(options?: {
               .from("expenses")
               .select("id, category, description, amount, expense_date, recorded_by, notes, created_at")
               .order("expense_date", { ascending: false })
-              .limit(1000),
+              .limit(2000),
           10000,
           "Cloud pull expenses",
           1,
@@ -1213,7 +1214,7 @@ export async function pullFreshCloudStateToLocalStore(options?: {
                 .from("expenses")
                 .select("id, category, amount, expense_date, created_at")
                 .order("expense_date", { ascending: false })
-                .limit(1000),
+                .limit(2000),
             10000,
             "Cloud pull expenses fallback",
             1,
@@ -1229,7 +1230,7 @@ export async function pullFreshCloudStateToLocalStore(options?: {
               .from("visits")
               .select(SUPABASE_TABLE_SELECTS.visits)
               .order("visit_date", { ascending: false })
-              .limit(1000),
+              .limit(2000),
           10000,
           "Cloud pull visits",
           1,
@@ -1243,7 +1244,7 @@ export async function pullFreshCloudStateToLocalStore(options?: {
               .from("territories")
               .select(SUPABASE_TABLE_SELECTS.territories)
               .order("name", { ascending: true })
-              .limit(500),
+              .limit(1000),
           10000,
           "Cloud pull territories",
           1,
@@ -1256,7 +1257,7 @@ export async function pullFreshCloudStateToLocalStore(options?: {
             supabase
               .from("inventory")
               .select(SUPABASE_TABLE_SELECTS.inventory)
-              .limit(1000),
+              .limit(2000),
           10000,
           "Cloud pull inventory",
           1,
@@ -1270,7 +1271,7 @@ export async function pullFreshCloudStateToLocalStore(options?: {
               .from("suppliers")
               .select("*")
               .order("name", { ascending: true })
-              .limit(500),
+              .limit(1000),
           10000,
           "Cloud pull suppliers",
           1,
@@ -1284,7 +1285,7 @@ export async function pullFreshCloudStateToLocalStore(options?: {
               .from("purchase_invoices")
               .select("*")
               .order("invoice_date", { ascending: false })
-              .limit(500),
+              .limit(2000),
           10000,
           "Cloud pull purchase invoices",
           1,
@@ -1298,7 +1299,7 @@ export async function pullFreshCloudStateToLocalStore(options?: {
               .from("supplier_payments")
               .select("*")
               .order("payment_date", { ascending: false })
-              .limit(500),
+              .limit(2000),
           10000,
           "Cloud pull supplier payments",
           1,
@@ -1312,7 +1313,7 @@ export async function pullFreshCloudStateToLocalStore(options?: {
               .from("sales_targets")
               .select("*")
               .order("created_at", { ascending: false })
-              .limit(500),
+              .limit(1000),
           10000,
           "Cloud pull targets",
           1,
@@ -1326,7 +1327,7 @@ export async function pullFreshCloudStateToLocalStore(options?: {
               .from("users")
               .select("id, email, full_name, role, role_name, phone, is_active, created_at, updated_at")
               .order("full_name", { ascending: true })
-              .limit(500),
+              .limit(1000),
           10000,
           "Cloud pull users",
           1,
@@ -1340,14 +1341,28 @@ export async function pullFreshCloudStateToLocalStore(options?: {
               .from("notifications")
               .select("*")
               .order("created_at", { ascending: false })
-              .limit(200),
+              .limit(500),
           10000,
           "Cloud pull notifications",
           1,
         );
       };
 
-      const [ordersRes, colsRes, custRes, prodRes, catRes, expRes, visitsRes, terrRes, invRes, supRes, piRes, spRes, targetsRes, usersRes, notifsRes] = await Promise.allSettled([
+      const fetchStockTransactionsSafe = async () => {
+        return safeTimedQuery(
+          () =>
+            supabase
+              .from("stock_transactions")
+              .select("*")
+              .order("created_at", { ascending: false })
+              .limit(2500),
+          10000,
+          "Cloud pull stock transactions",
+          1,
+        );
+      };
+
+      const [ordersRes, colsRes, custRes, prodRes, catRes, expRes, visitsRes, terrRes, invRes, supRes, piRes, spRes, targetsRes, usersRes, notifsRes, txRes] = await Promise.allSettled([
         fetchOrdersSafe(),
         fetchCollectionsSafe(),
         fetchCustomersSafe(),
@@ -1363,6 +1378,7 @@ export async function pullFreshCloudStateToLocalStore(options?: {
         fetchSalesTargetsSafe(),
         fetchUsersSafe(),
         fetchNotificationsSafe(),
+        fetchStockTransactionsSafe(),
       ]);
 
       await yieldToUI();
@@ -1380,7 +1396,7 @@ export async function pullFreshCloudStateToLocalStore(options?: {
         const res = ordersRes.status === "fulfilled" ? ordersRes.value : { data: null, error: ordersRes.reason };
         if (!res.error && Array.isArray(res.data)) {
           if (shouldPersist(res.data)) {
-            reconcileOrdersWithRemote(res.data as any, { persist: true, maxCache: 500 });
+            reconcileOrdersWithRemote(res.data as any, { persist: true });
             updatedTables.push("orders");
           }
         } else if (res.error) {
@@ -1396,7 +1412,7 @@ export async function pullFreshCloudStateToLocalStore(options?: {
         const res = colsRes.status === "fulfilled" ? colsRes.value : { data: null, error: colsRes.reason };
         if (!res.error && Array.isArray(res.data)) {
           if (shouldPersist(res.data)) {
-            reconcileCollectionsWithRemote(res.data as any, { persist: true, maxCache: 1000 });
+            reconcileCollectionsWithRemote(res.data as any, { persist: true });
             updatedTables.push("collections");
           }
         } else if (res.error) {
@@ -1598,6 +1614,22 @@ export async function pullFreshCloudStateToLocalStore(options?: {
         }
       } catch (e) {
         console.warn("[CloudSync] Notifications reconcile notice:", e);
+      }
+
+      // 16. STOCK TRANSACTIONS
+      try {
+        const res = txRes.status === "fulfilled" ? txRes.value : { data: null, error: txRes.reason };
+        if (!res.error && Array.isArray(res.data)) {
+          if (shouldPersist(res.data)) {
+            reconcileStockTransactionsWithRemote(res.data as any, { persist: true });
+            updatedTables.push("stock_transactions");
+          }
+        } else if (res.error) {
+          tableErrors.push({ table: "stock_transactions", error: res.error });
+        }
+      } catch (e) {
+        tableErrors.push({ table: "stock_transactions", error: e });
+        console.warn("[CloudSync] Stock transactions reconcile notice:", e);
       }
 
       if (updatedTables.length > 0 || options?.force) {

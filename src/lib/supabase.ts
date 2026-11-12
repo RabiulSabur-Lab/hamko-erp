@@ -913,6 +913,9 @@ export interface PurchaseInvoice {
   items: PurchaseInvoiceItem[];
   created_at: string;
   updated_at: string;
+  _unsynced?: boolean;
+  is_offline?: boolean;
+  _modifiedAt?: number;
 }
 
 export interface SupplierPayment {
@@ -934,6 +937,9 @@ export interface SupplierPayment {
   cheque_date?: string | null;
   transaction_id?: string | null;
   reason?: string | null;
+  _unsynced?: boolean;
+  is_offline?: boolean;
+  _modifiedAt?: number;
 }
 
 export interface SupplierLedgerEntry {

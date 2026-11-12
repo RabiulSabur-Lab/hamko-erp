@@ -59,6 +59,9 @@ import {
   getDeletedIds,
   saveDeletedId,
   mergeAndEnrichCustomers,
+  reconcileVisitsWithRemote,
+  reconcileOrdersWithRemote,
+  reconcileSalesTargetsWithRemote,
   getAreas,
   type Area,
   r2,
@@ -205,19 +208,15 @@ export function SfaPage() {
   async function loadData() {
     try {
       const [vRes, cRes, tRes, uRes, oRes] = await Promise.all([
-        supabase.from("visits").select("*, customer:customers(name, address)").order("visit_date", { ascending: false }).limit(100),
+        supabase.from("visits").select("*, customer:customers(name, address)").order("visit_date", { ascending: false }).limit(1000),
         supabase.from("customers").select("*").order("name"),
-        supabase.from("sales_targets").select("*").order("period_start", { ascending: false }),
+        supabase.from("sales_targets").select("*").order("period_start", { ascending: false }).limit(1000),
         supabase.from("users").select("*").order("full_name"),
         supabase.from("orders").select("*, customer:customers(name, current_due), sales_rep:users(full_name), order_items(*, product:products(name, sku_code, unit_price))").order("order_date", { ascending: false }),
       ]);
       if (!vRes.error && Array.isArray(vRes.data)) {
-        const deletedVisitIds = getDeletedIds(STORAGE_KEYS.DELETED_VISITS);
-        const remoteVisits = (vRes.data as Visit[]).filter((v: Visit) => !deletedVisitIds.has(String(v.id))).sort(
-          (a, b) => new Date(b.visit_date || b.created_at || 0).getTime() - new Date(a.visit_date || a.created_at || 0).getTime()
-        );
-        setVisits(remoteVisits);
-        saveVisits(remoteVisits);
+        const reconciledVisits = reconcileVisitsWithRemote(vRes.data as Visit[], { persist: true });
+        setVisits(reconciledVisits);
       } else {
         const deletedVisitIds = getDeletedIds(STORAGE_KEYS.DELETED_VISITS);
         const localVisits = (getLocalData<Visit[]>(STORAGE_KEYS.VISITS, []) || []).filter((v: Visit) => !deletedVisitIds.has(String(v.id)));
@@ -228,44 +227,14 @@ export function SfaPage() {
         setCustomers(mergedCusts.filter((c) => c.is_active !== false && c.status !== "Inactive"));
       }
       if (!tRes.error && Array.isArray(tRes.data)) {
-        const deletedTargetIds = getDeletedIds(STORAGE_KEYS.DELETED_TARGETS);
-        const remoteTargets = (tRes.data as SalesTarget[]).filter((tg: SalesTarget) => !deletedTargetIds.has(String(tg.id)));
-        const currentLocalRaw = getLocalData<SalesTarget[]>(STORAGE_KEYS.TARGETS, []);
-        const currentLocal = (Array.isArray(currentLocalRaw) ? currentLocalRaw : []).filter((tg: SalesTarget) => !deletedTargetIds.has(String(tg.id)));
-        
-        const localMap = new Map<string, SalesTarget>(
-          currentLocal.map((t: SalesTarget) => [String(t.id).trim(), t])
-        );
-
-        // Process remote targets: if local target has been edited, preserve the local edit over stale remote data
-        const processedRemoteTargets = remoteTargets.map((rt: SalesTarget): SalesTarget => {
-          const local = localMap.get(String(rt.id).trim());
-          if (!local) return rt;
-          if (local.updated_at) {
-            const localTime = new Date(local.updated_at).getTime();
-            const remoteTime = new Date((rt as any).updated_at || rt.created_at || 0).getTime();
-            if (localTime >= remoteTime) {
-              return { ...rt, ...local };
-            }
-          }
-          return rt;
-        });
-
-        const remoteIdSet = new Set(remoteTargets.map((tg: SalesTarget) => String(tg.id).trim()));
-        const pendingLocalTargets = currentLocal.filter((lt: SalesTarget) => !remoteIdSet.has(String(lt.id).trim()));
-        const mergedTargets: SalesTarget[] = [...pendingLocalTargets, ...processedRemoteTargets];
-        setTargets(mergedTargets);
-        setLocalData(STORAGE_KEYS.TARGETS, mergedTargets);
+        const reconciledTargets = reconcileSalesTargetsWithRemote(tRes.data as SalesTarget[], { persist: true });
+        setTargets(reconciledTargets);
       }
       if (uRes.data) setUsers(uRes.data as UserProfile[]);
 
       if (!oRes.error && Array.isArray(oRes.data)) {
-        const deletedOrderIds = getDeletedIds(STORAGE_KEYS.DELETED_ORDERS);
-        const remoteOrders = (oRes.data as Order[]).filter((o: any) => !deletedOrderIds.has(o.id)).sort(
-          (a, b) => new Date(b.order_date || b.created_at || 0).getTime() - new Date(a.order_date || a.created_at || 0).getTime()
-        );
-        setOrders(remoteOrders);
-        setLocalData(STORAGE_KEYS.ORDERS, remoteOrders);
+        const mergedOrders = reconcileOrdersWithRemote(oRes.data as Order[], { persist: true });
+        setOrders(mergedOrders);
       }
     } catch (err) {
       console.warn("Using local SFA cache:", err);

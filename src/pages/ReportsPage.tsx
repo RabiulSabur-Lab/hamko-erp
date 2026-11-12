@@ -48,6 +48,8 @@ import {
   calculateOfficerCommissions,
   calculateSupplierPayablesUpToDate,
   mergeAndEnrichCustomers,
+  reconcileOrdersWithRemote,
+  reconcileCollectionsWithRemote,
   parseCustomerNotes,
   isPendingOfflineRecord,
   type Customer,
@@ -244,17 +246,11 @@ export function ReportsPage() {
             ...o,
             customer: enrichEmbeddedCustomer(o.customer),
           }));
-        const remoteIdSet = new Set(validRemote.map((o: any) => String(o.id)));
-        const currentLocal = getOrders().filter((o: any) => !deletedIds.has(o.id));
-        const pendingLocal = currentLocal.filter(
-          (lo: any) => !remoteIdSet.has(String(lo.id)) && isPendingOfflineRecord(lo),
-        );
-        const mergedOrders = [...pendingLocal, ...validRemote];
-        setOrders(mergedOrders);
-        setLocalData(STORAGE_KEYS.ORDERS, mergedOrders.slice(0, 500), null, true);
+        const reconciledOrders = reconcileOrdersWithRemote(validRemote, { persist: true });
+        setOrders(reconciledOrders);
       }
 
-      // Merge remote and pending local collections and persist silently
+      // Merge remote and local collections without destructive truncation
       if (cSettled.status === "fulfilled" && !cSettled.value.error && Array.isArray(cSettled.value.data)) {
         const deletedIds = getDeletedIds(STORAGE_KEYS.DELETED_COLLECTIONS);
         const validRemote = cSettled.value.data
@@ -263,20 +259,8 @@ export function ReportsPage() {
             ...c,
             customer: enrichEmbeddedCustomer(c.customer),
           }));
-        const remoteIdSet = new Set(validRemote.map((c: any) => String(c.id)));
-        const remoteColNumSet = new Set(
-          validRemote.map((c: any) => String(c.collection_number || "").trim().toUpperCase()).filter(Boolean),
-        );
-        const currentLocal = getCollections().filter((c: any) => !deletedIds.has(c.id));
-        const pendingLocal = currentLocal.filter(
-          (lc: any) =>
-            !remoteIdSet.has(String(lc.id)) &&
-            (!lc.collection_number || !remoteColNumSet.has(String(lc.collection_number).trim().toUpperCase())) &&
-            isPendingOfflineRecord(lc),
-        );
-        const mergedCols = deduplicateCollections([...pendingLocal, ...validRemote]);
-        setCollections(mergedCols);
-        setLocalData(STORAGE_KEYS.COLLECTIONS, mergedCols.slice(0, 1000), null, true);
+        const reconciledCols = reconcileCollectionsWithRemote(validRemote, { persist: true });
+        setCollections(reconciledCols);
       }
 
       // Merge remote customers and persist silently so local store stays cloud-authoritative

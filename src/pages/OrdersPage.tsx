@@ -556,7 +556,13 @@ export function OrdersPage() {
             return ro;
           });
 
-          const mergedOrders = enrichedRemoteOrders.map((ord) => {
+          // Ensure all local orders not yet on remote are strictly preserved (Additive-Only local-first)
+          const localOrdersNotOnRemote = currentLocal.filter((lo) => {
+            const num = lo.order_number ? String(lo.order_number).trim().toUpperCase() : "";
+            return !remoteIdSet.has(String(lo.id)) && (!num || !remoteOrderNumSet.has(num));
+          });
+
+          const mergedOrders = [...localOrdersNotOnRemote, ...enrichedRemoteOrders].map((ord) => {
             const repName =
               (ord.sales_rep_id ? getSalesOfficerById(ord.sales_rep_id)?.full_name : null) ||
               (ord.sales_rep_id ? getUserName(ord.sales_rep_id) : null) ||

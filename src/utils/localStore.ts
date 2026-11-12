@@ -436,7 +436,9 @@ export function setLocalData<T = any>(key: string, value: T, ttlMs?: number | nu
         return u;
       }) as unknown as T;
     }
-    setItemWithTTL(key, sanitizedValue, ttlMs);
+    // Operational business records default to permanent storage (never auto-purge after 7 days)
+    const effectiveTtl = ttlMs !== undefined ? ttlMs : null;
+    setItemWithTTL(key, sanitizedValue, effectiveTtl);
     if (!silent && !isDispatchingStorageEvent) {
       isDispatchingStorageEvent = true;
       try {
@@ -1617,14 +1619,8 @@ export function mergeAndEnrichCustomers(
     (c: Customer) => Boolean(c && c.id) && !deletedCustomerIds.has(c.id)
   );
   const remoteIdSet = new Set<string>(validRemote.map((c: Customer) => String(c.id)));
-  const currentLocal: Customer[] = getCustomers();
-  const pendingLocal: Customer[] = currentLocal.filter(
-    (lc: Customer) =>
-      Boolean(lc && lc.id) &&
-      !deletedCustomerIds.has(lc.id) &&
-      !remoteIdSet.has(String(lc.id)) &&
-      isPendingOfflineRecord(lc),
-  );
+  const currentLocal: Customer[] = getCustomers().filter((c) => !deletedCustomerIds.has(c.id));
+  const localNotOnRemote = currentLocal.filter((lc: Customer) => !remoteIdSet.has(String(lc.id)));
 
   const localMap = new Map<string, Customer>(currentLocal.map((c: Customer) => [String(c.id), c]));
   const enrichedRemote: Customer[] = validRemote.map((rc: Customer) => {
@@ -1761,7 +1757,7 @@ export function mergeAndEnrichCustomers(
     return result;
   }
 
-  const merged: Customer[] = [...pendingLocal, ...enrichedRemote].sort((a: Customer, b: Customer) =>
+  const merged: Customer[] = [...localNotOnRemote, ...enrichedRemote].sort((a: Customer, b: Customer) =>
     (a.outlet_name || a.name || "").localeCompare(b.outlet_name || b.name || "")
   );
 
@@ -1845,8 +1841,7 @@ export function reconcileOrdersWithRemote(
       excludeCancelled: false,
     }) as Order[];
     if (options?.persist !== false) {
-      const toStore = options?.maxCache ? result.slice(0, options.maxCache) : result;
-      setLocalData(STORAGE_KEYS.ORDERS, toStore, null, true);
+      setLocalData(STORAGE_KEYS.ORDERS, result, null, true);
     }
     return result;
   }
@@ -1856,21 +1851,21 @@ export function reconcileOrdersWithRemote(
     validRemote.map((o) => String(o.order_number || "").trim().toUpperCase()).filter(Boolean),
   );
 
-  const pendingLocal = currentLocal.filter(
+  const localNotOnRemote = currentLocal.filter(
     (lo) =>
       !remoteIdSet.has(String(lo.id)) &&
-      (!lo.order_number || !remoteNumSet.has(String(lo.order_number).trim().toUpperCase())) &&
-      isPendingOfflineRecord(lo),
+      (!lo.order_number || !remoteNumSet.has(String(lo.order_number).trim().toUpperCase()))
   );
 
-  const reconciled = deduplicateOrders([...pendingLocal, ...validRemote], {
+  const reconciled = deduplicateOrders([...localNotOnRemote, ...validRemote], {
     excludeDrafts: false,
     excludeCancelled: false,
-  }) as Order[];
+  }).sort(
+    (a: Order, b: Order) => new Date(b.order_date || b.created_at || 0).getTime() - new Date(a.order_date || a.created_at || 0).getTime()
+  ) as Order[];
 
   if (options?.persist !== false) {
-    const toStore = options?.maxCache ? reconciled.slice(0, options.maxCache) : reconciled;
-    setLocalData(STORAGE_KEYS.ORDERS, toStore, null, true);
+    setLocalData(STORAGE_KEYS.ORDERS, reconciled, null, true);
   }
   return reconciled;
 }
@@ -1932,8 +1927,7 @@ export function reconcileCollectionsWithRemote(
     });
     const result = deduplicateCollections(Array.from(map.values()));
     if (options?.persist !== false) {
-      const toStore = options?.maxCache ? result.slice(0, options.maxCache) : result;
-      setLocalData(STORAGE_KEYS.COLLECTIONS, toStore, null, true);
+      setLocalData(STORAGE_KEYS.COLLECTIONS, result, null, true);
     }
     return result;
   }
@@ -1943,18 +1937,18 @@ export function reconcileCollectionsWithRemote(
     validRemote.map((c) => String(c.collection_number || "").trim().toUpperCase()).filter(Boolean),
   );
 
-  const pendingLocal = currentLocal.filter(
+  const localNotOnRemote = currentLocal.filter(
     (lc) =>
       !remoteIdSet.has(String(lc.id)) &&
-      (!lc.collection_number || !remoteColNumSet.has(String(lc.collection_number).trim().toUpperCase())) &&
-      isPendingOfflineRecord(lc),
+      (!lc.collection_number || !remoteColNumSet.has(String(lc.collection_number).trim().toUpperCase()))
   );
 
-  const reconciled = deduplicateCollections([...pendingLocal, ...validRemote]);
+  const reconciled = deduplicateCollections([...localNotOnRemote, ...validRemote]).sort(
+    (a: Collection, b: Collection) => new Date(b.collection_date || b.created_at || 0).getTime() - new Date(a.collection_date || a.created_at || 0).getTime()
+  );
 
   if (options?.persist !== false) {
-    const toStore = options?.maxCache ? reconciled.slice(0, options.maxCache) : reconciled;
-    setLocalData(STORAGE_KEYS.COLLECTIONS, toStore, null, true);
+    setLocalData(STORAGE_KEYS.COLLECTIONS, reconciled, null, true);
   }
   return reconciled;
 }
@@ -2037,14 +2031,13 @@ export function reconcileProductsWithRemote(
     validRemote.map((p) => String(p.sku_code || "").trim().toUpperCase()).filter(Boolean),
   );
 
-  const pendingLocal = localProds.filter(
+  const localNotOnRemote = localProds.filter(
     (lp) =>
       !remoteIdSet.has(String(lp.id)) &&
-      (!lp.sku_code || !remoteSkuSet.has(String(lp.sku_code).trim().toUpperCase())) &&
-      isPendingOfflineRecord(lp),
+      (!lp.sku_code || !remoteSkuSet.has(String(lp.sku_code).trim().toUpperCase()))
   );
 
-  const reconciled = [...pendingLocal, ...validRemote];
+  const reconciled = [...localNotOnRemote, ...validRemote].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
   if (options?.persist !== false) {
     setLocalData(STORAGE_KEYS.PRODUCTS, reconciled, null, true);
   }
@@ -2080,10 +2073,10 @@ export function reconcileCategoriesWithRemote(
   }
 
   const remoteIdSet = new Set(validRemote.map((c) => String(c.id)));
-  const pendingCats = (Array.isArray(currentLocal) ? currentLocal : []).filter(
-    (lc) => lc && !remoteIdSet.has(String(lc.id)) && isPendingOfflineRecord(lc),
+  const localNotOnRemote = (Array.isArray(currentLocal) ? currentLocal : []).filter(
+    (lc) => lc && !remoteIdSet.has(String(lc.id))
   );
-  const reconciled = [...pendingCats, ...validRemote].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  const reconciled = [...localNotOnRemote, ...validRemote].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
   if (options?.persist !== false) {
     setLocalData(STORAGE_KEYS.CATEGORIES, reconciled, null, true);
   }
@@ -2126,10 +2119,10 @@ export function reconcileExpensesWithRemote(
   }
 
   const remoteIdSet = new Set(validRemote.map((e) => String(e.id)));
-  const pendingExp = currentLocal.filter(
-    (le) => le && !remoteIdSet.has(String(le.id)) && isPendingOfflineRecord(le),
+  const localNotOnRemote = currentLocal.filter(
+    (le) => le && !remoteIdSet.has(String(le.id))
   );
-  const reconciled = [...pendingExp, ...validRemote].sort(
+  const reconciled = [...localNotOnRemote, ...validRemote].sort(
     (a, b) => new Date(b.expense_date || b.created_at || 0).getTime() - new Date(a.expense_date || a.created_at || 0).getTime(),
   );
   if (options?.persist !== false) {
@@ -2174,10 +2167,10 @@ export function reconcileVisitsWithRemote(
   }
 
   const remoteIdSet = new Set(validRemote.map((v) => String(v.id)));
-  const pendingVisits = currentLocal.filter(
-    (lv) => lv && !remoteIdSet.has(String(lv.id)) && isPendingOfflineRecord(lv),
+  const localNotOnRemote = currentLocal.filter(
+    (lv) => lv && !remoteIdSet.has(String(lv.id))
   );
-  const reconciled = [...pendingVisits, ...validRemote].sort(
+  const reconciled = [...localNotOnRemote, ...validRemote].sort(
     (a, b) => new Date(b.visit_date || b.created_at || 0).getTime() - new Date(a.visit_date || a.created_at || 0).getTime(),
   );
   if (options?.persist !== false) {
@@ -2226,10 +2219,10 @@ export function reconcileAreasWithRemote(
   }
 
   const remoteIdSet = new Set(validRemote.map((a) => String(a.id)));
-  const pendingAreas = currentLocal.filter(
-    (la) => la && !remoteIdSet.has(String(la.id)) && isPendingOfflineRecord(la),
+  const localNotOnRemote = currentLocal.filter(
+    (la) => la && !remoteIdSet.has(String(la.id))
   );
-  const reconciled = [...pendingAreas, ...validRemote].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  const reconciled = [...localNotOnRemote, ...validRemote].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
   if (options?.persist !== false) {
     setLocalData(STORAGE_KEYS.AREAS, reconciled, null, true);
   }
@@ -2300,10 +2293,10 @@ export function reconcileSuppliersWithRemote(
   }
 
   const remoteIdSet = new Set(validRemote.map((s) => String(s.id)));
-  const pendingSuppliers = currentLocal.filter(
-    (ls) => ls && !remoteIdSet.has(String(ls.id)) && isPendingOfflineRecord(ls),
+  const localNotOnRemote = currentLocal.filter(
+    (ls) => ls && !remoteIdSet.has(String(ls.id))
   );
-  const reconciled = [...pendingSuppliers, ...validRemote];
+  const reconciled = [...localNotOnRemote, ...validRemote];
   const finalResult = reconciled.length > 0 ? reconciled : DEFAULT_SUPPLIERS;
   if (options?.persist !== false) {
     setLocalData(STORAGE_KEYS.SUPPLIERS, finalResult, null, true);
@@ -2344,10 +2337,10 @@ export function reconcilePurchaseInvoicesWithRemote(
   }
 
   const remoteIdSet = new Set(validRemote.map((i) => String(i.id)));
-  const pendingInvoices = currentLocal.filter(
-    (li) => li && !remoteIdSet.has(String(li.id)) && isPendingOfflineRecord(li),
+  const localNotOnRemote = currentLocal.filter(
+    (li) => li && !remoteIdSet.has(String(li.id))
   );
-  const reconciled = [...pendingInvoices, ...validRemote].sort(
+  const reconciled = [...localNotOnRemote, ...validRemote].sort(
     (a, b) => new Date(b.invoice_date || b.created_at || 0).getTime() - new Date(a.invoice_date || a.created_at || 0).getTime(),
   );
   if (options?.persist !== false) {
@@ -2389,10 +2382,10 @@ export function reconcileSupplierPaymentsWithRemote(
   }
 
   const remoteIdSet = new Set(validRemote.map((p) => String(p.id)));
-  const pendingPayments = currentLocal.filter(
-    (lp) => lp && !remoteIdSet.has(String(lp.id)) && isPendingOfflineRecord(lp),
+  const localNotOnRemote = currentLocal.filter(
+    (lp) => lp && !remoteIdSet.has(String(lp.id))
   );
-  const reconciled = [...pendingPayments, ...validRemote].sort(
+  const reconciled = [...localNotOnRemote, ...validRemote].sort(
     (a, b) => new Date(b.payment_date || b.created_at || 0).getTime() - new Date(a.payment_date || a.created_at || 0).getTime(),
   );
   if (options?.persist !== false) {
@@ -2435,10 +2428,10 @@ export function reconcileSalesTargetsWithRemote(
   }
 
   const remoteIdSet = new Set(validRemote.map((t) => String(t.id)));
-  const pendingTargets = currentLocal.filter(
-    (lt) => lt && !remoteIdSet.has(String(lt.id)) && isPendingOfflineRecord(lt),
+  const localNotOnRemote = currentLocal.filter(
+    (lt) => lt && !remoteIdSet.has(String(lt.id))
   );
-  const reconciled = [...pendingTargets, ...validRemote];
+  const reconciled = [...localNotOnRemote, ...validRemote];
   if (options?.persist !== false) {
     setLocalData(STORAGE_KEYS.TARGETS, reconciled, null, true);
   }
@@ -2481,10 +2474,10 @@ export function reconcileNotificationsWithRemote(
   }
 
   const remoteIdSet = new Set(validRemote.map((n) => String(n.id)));
-  const pendingNotifs = currentLocal.filter(
-    (ln) => ln && !remoteIdSet.has(String(ln.id)) && isPendingOfflineRecord(ln),
+  const localNotOnRemote = currentLocal.filter(
+    (ln) => ln && !remoteIdSet.has(String(ln.id))
   );
-  const reconciled = [...pendingNotifs, ...validRemote].sort(
+  const reconciled = [...localNotOnRemote, ...validRemote].sort(
     (a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime(),
   );
   if (options?.persist !== false) {
@@ -2529,16 +2522,56 @@ export function reconcileUsersWithRemote(
   }
 
   const remoteIdSet = new Set(validRemote.map((u) => String(u.id)));
-  const pendingUsers = currentLocal.filter(
-    (lu) => lu && !remoteIdSet.has(String(lu.id)) && isPendingOfflineRecord(lu),
+  const localNotOnRemote = currentLocal.filter(
+    (lu) => lu && !remoteIdSet.has(String(lu.id))
   );
-  const reconciled = [...pendingUsers, ...validRemote].sort(
+  const reconciled = [...localNotOnRemote, ...validRemote].sort(
     (a, b) => (a.full_name || "").localeCompare(b.full_name || ""),
   );
   if (options?.persist !== false) {
     setLocalData(STORAGE_KEYS.USERS, reconciled, null, true);
   }
   return reconciled;
+}
+
+/**
+ * Additive-Only reconciler for Stock Transactions.
+ */
+export function reconcileStockTransactionsWithRemote(
+  remoteTransactions: any[],
+  options?: { persist?: boolean; incremental?: boolean },
+): any[] {
+  const currentLocal = getLocalData<any[]>(STORAGE_KEYS.TRANSACTIONS, []);
+  const txMap = new Map<string, any>();
+  for (const tx of currentLocal) {
+    if (tx && tx.id) txMap.set(String(tx.id), tx);
+  }
+
+  const validRemote = (Array.isArray(remoteTransactions) ? remoteTransactions : []).filter(
+    (tx) => Boolean(tx && tx.id),
+  );
+
+  for (const rt of validRemote) {
+    const rtId = String(rt.id);
+    const existing = txMap.get(rtId);
+    const isPending = Boolean(existing && isPendingOfflineRecord(existing));
+    txMap.set(rtId, {
+      ...(existing || {}),
+      ...rt,
+      ...(isPending ? (existing || {}) : {}),
+      is_offline: isPending ? (existing?.is_offline ?? true) : false,
+      _unsynced: isPending ? (existing?._unsynced ?? true) : false,
+    });
+  }
+
+  const result = Array.from(txMap.values()).sort(
+    (a, b) => new Date(b.transaction_date || b.created_at || 0).getTime() - new Date(a.transaction_date || a.created_at || 0).getTime(),
+  );
+
+  if (options?.persist !== false) {
+    setLocalData(STORAGE_KEYS.TRANSACTIONS, result, null, true);
+  }
+  return result;
 }
 
 /**
@@ -2554,6 +2587,11 @@ export function applyRealtimeTablePatch(
 
   if (eventType === "DELETE") {
     switch (table) {
+      case "stock_transactions": {
+        const current = getLocalData<any[]>(STORAGE_KEYS.TRANSACTIONS, []).filter((tx) => String(tx.id) !== id);
+        setLocalData(STORAGE_KEYS.TRANSACTIONS, current, null, true);
+        break;
+      }
       case "orders": {
         if (id) saveDeletedId(STORAGE_KEYS.DELETED_ORDERS, id);
         const current = getOrders().filter((o) => String(o.id) !== id);
@@ -2721,6 +2759,10 @@ export function applyRealtimeTablePatch(
     }
     case "inventory": {
       reconcileInventoryWithRemote([payloadRecord], { incremental: true, persist: true });
+      break;
+    }
+    case "stock_transactions": {
+      reconcileStockTransactionsWithRemote([payloadRecord], { incremental: true, persist: true });
       break;
     }
     case "sales_targets": {
@@ -4876,6 +4918,9 @@ export function savePurchaseInvoice(
     status: dueAmount <= 0 && totalAmount > 0 ? "Paid" : paidAmount > 0 ? "Partially Paid" : "Received",
     created_at: now,
     updated_at: now,
+    _unsynced: true,
+    is_offline: true,
+    _modifiedAt: Date.now(),
   };
 
   // 1. Save invoice
@@ -4904,6 +4949,9 @@ export function savePurchaseInvoice(
         notes: `Procurement Chalan ${newInvoice.invoice_number} - ${item.product_name} (${qty} pcs @ ${formatCurrency(item.purchase_rate)})`,
         transaction_date: newInvoice.invoice_date || now,
         created_at: now,
+        _unsynced: true,
+        is_offline: true,
+        _modifiedAt: Date.now(),
       });
     });
 
@@ -4912,6 +4960,7 @@ export function savePurchaseInvoice(
     // Background sync stock transactions to Supabase
     try {
       const dbTxPayload = newTransactions.map((tx: any) => ({
+        id: tx.id,
         product_id: tx.product_id,
         transaction_type: tx.transaction_type,
         quantity: tx.quantity,
@@ -4924,7 +4973,19 @@ export function savePurchaseInvoice(
       supabase
         .from("stock_transactions")
         .insert(dbTxPayload)
-        .then(undefined, (err) => console.warn("Supabase stock_transactions insert notice:", err));
+        .then(
+          ({ error }) => {
+            if (!error) {
+              const currentTx = getLocalData<any[]>(STORAGE_KEYS.TRANSACTIONS, []);
+              const txIdSet = new Set(newTransactions.map((t) => t.id));
+              const reconciledTx = currentTx.map((t) => txIdSet.has(t.id) ? { ...t, _unsynced: false, is_offline: false } : t);
+              setLocalData(STORAGE_KEYS.TRANSACTIONS, reconciledTx, null, true);
+            } else {
+              console.warn("Supabase stock_transactions insert notice:", error.message);
+            }
+          },
+          (err) => console.warn("Supabase stock_transactions insert notice:", err)
+        );
     } catch (err) {
       console.warn("Supabase stock tx error:", err);
     }
@@ -4963,6 +5024,9 @@ export function savePurchaseInvoice(
       created_at: now,
       invoice_id: invoiceId,
       chalan_id: invoiceId,
+      _unsynced: true,
+      is_offline: true,
+      _modifiedAt: Date.now(),
     };
     const payments = getSupplierPayments();
     setLocalData(STORAGE_KEYS.SUPPLIER_PAYMENTS, [paymentRecord, ...payments]);
@@ -5009,7 +5073,18 @@ export function savePurchaseInvoice(
     supabase
       .from("purchase_invoices")
       .upsert(payload)
-      .then(undefined, (err) => console.warn("Supabase purchase_invoices upsert notice:", err));
+      .then(
+        ({ error }) => {
+          if (!error) {
+            const current = getLocalData<PurchaseInvoice[]>(STORAGE_KEYS.PURCHASE_INVOICES, []);
+            const updated = current.map((i) => i.id === newInvoice.id ? { ...i, _unsynced: false, is_offline: false } : i);
+            setLocalData(STORAGE_KEYS.PURCHASE_INVOICES, updated, null, true);
+          } else {
+            console.warn("Supabase purchase_invoices upsert notice:", error.message);
+          }
+        },
+        (err) => console.warn("Supabase purchase_invoices upsert notice:", err)
+      );
   } catch (err) {
     console.warn("Supabase purchase invoice sync error:", err);
   }
@@ -5234,6 +5309,9 @@ export function saveSupplierPayment(
     reference_no: finalReferenceNo,
     amount,
     created_at: now,
+    _unsynced: true,
+    is_offline: true,
+    _modifiedAt: Date.now(),
   };
 
   // 1. Save payment
@@ -5294,7 +5372,18 @@ export function saveSupplierPayment(
     supabase
       .from("supplier_payments")
       .upsert(newPayment)
-      .then(undefined, (err) => console.warn("Supabase supplier_payments upsert notice:", err));
+      .then(
+        ({ error }) => {
+          if (!error) {
+            const current = getLocalData<SupplierPayment[]>(STORAGE_KEYS.SUPPLIER_PAYMENTS, []);
+            const updated = current.map((p) => p.id === newPayment.id ? { ...p, _unsynced: false, is_offline: false } : p);
+            setLocalData(STORAGE_KEYS.SUPPLIER_PAYMENTS, updated, null, true);
+          } else {
+            console.warn("Supabase supplier_payments upsert notice:", error.message);
+          }
+        },
+        (err) => console.warn("Supabase supplier payment sync error:", err)
+      );
   } catch (err) {
     console.warn("Supabase supplier payment sync error:", err);
   }
