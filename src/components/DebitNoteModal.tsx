@@ -7,6 +7,8 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { formatBDT } from "@/lib/utils";
 import { toast } from "sonner";
+import { supabase } from "@/lib/supabase";
+import { generateUuid } from "@/lib/payloadSanitizer";
 import {
   getSuppliers,
   getPurchaseInvoices,
@@ -146,6 +148,24 @@ export function DebitNoteModal({
       const combinedNotes = notes.trim()
         ? `${reasonCategory}: ${notes.trim()}`
         : reasonCategory;
+
+      const paymentId = generateUuid();
+      const { error: dnErr } = await supabase.from("supplier_payments").insert({
+        id: paymentId,
+        payment_number: finalDnNumber,
+        reference_no: finalDnNumber,
+        supplier_id: selectedSupplier.id,
+        supplier_name: selectedSupplier.name,
+        amount: returnAmount,
+        payment_method: "cash",
+        payment_date: returnDate,
+        notes: combinedNotes,
+      });
+
+      if (dnErr) {
+        toast.error(`Database Debit Note error: ${dnErr.message}`);
+        return;
+      }
 
       saveSupplierDebitNote({
         supplier_id: selectedSupplier.id,

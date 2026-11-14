@@ -174,7 +174,7 @@ export function CustomerLedgerModal({ open, onClose, customer }: CustomerLedgerM
         const targetName = String(currentCust.name || "").trim().toLowerCase();
         if (!targetId && !targetName) return;
 
-        // Fetch orders for this customer from Supabase
+        // Fetch orders for this customer from Supabase (all non-cancelled, non-draft orders)
         const targetParty = String(currentCust?.party_code || "").trim();
         const { data: remoteOrders } = await supabase
           .from("orders")
@@ -186,7 +186,7 @@ export function CustomerLedgerModal({ open, onClose, customer }: CustomerLedgerM
               ? `customer_id.eq.${targetId}`
               : `party_code.eq.${targetParty},customer_name.eq.${targetName}`
           )
-          .eq("status", "Delivered")
+          .not("status", "in", '("Cancelled","Draft")')
           .order("order_date", { ascending: false });
 
         // Fetch collections for this customer from Supabase

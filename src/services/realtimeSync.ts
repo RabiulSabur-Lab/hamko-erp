@@ -15,7 +15,7 @@ interface RealtimeManagerConfig {
 const DEFAULT_CONFIG: Required<RealtimeManagerConfig> = {
   reconnectBaseMs: 1500,
   reconnectMaxMs: 30000,
-  pullDebounceMs: 200,
+  pullDebounceMs: 20000,
 };
 
 // Monitored primary database tables for Postgres Change Data Capture (CDC)
@@ -51,6 +51,7 @@ class RealtimeSyncManager {
   private pullDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private lastResumeSyncAt = 0;
   private lastCloudSyncAt = 0;
+  private lastConvergencePullAt = 0;
   private isAutoPulling = false;
   private convergencePollTimer: ReturnType<typeof setInterval> | null = null;
   private config: Required<RealtimeManagerConfig>;
@@ -394,8 +395,9 @@ class RealtimeSyncManager {
   }
 
   /**
-   * Continuous background state convergence polling loop.
-   * Forcefully queries Supabase every 6s and performs automated WebSocket health checks.
+   * Background state convergence and health-check loop.
+   * Performs automated WebSocket health checks every 30s and throttles full database pulls
+   * to prevent Disk IO exhaustion on Supabase.
    */
   public startConvergencePolling(): void {
     if (this.convergencePollTimer) return;
@@ -404,20 +406,27 @@ class RealtimeSyncManager {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       if (typeof navigator !== "undefined" && navigator.onLine === false) return;
 
-      // 1. Proactive WebSocket health check: detect zombie or closed mobile sockets
+      const now = Date.now();
       const channelState = (this.syncChannel as any)?.state;
-      if (!this.syncChannel || this.status !== "CONNECTED" || (channelState && channelState !== "joined" && channelState !== "joining")) {
+      const isHealthyConnected = this.syncChannel && this.status === "CONNECTED" && channelState === "joined";
+
+      // 1. Proactive WebSocket health check: detect zombie or closed sockets
+      if (!isHealthyConnected && channelState !== "joining") {
         void this.reconnect("polling_health_check_disconnected");
       }
 
-      // 2. State convergence pull
-      if (!this.isAutoPulling) {
+      // 2. Controlled state convergence pull:
+      // When actively CONNECTED, Realtime CDC streams all changes immediately over WebSockets.
+      // We only run a full fallback pull every 5 minutes (300s) if connected, or every 60s if disconnected/reconnecting.
+      const pullIntervalMs = isHealthyConnected ? 300000 : 60000;
+      if (!this.isAutoPulling && (now - this.lastConvergencePullAt >= pullIntervalMs)) {
         this.isAutoPulling = true;
+        this.lastConvergencePullAt = now;
         void pullFreshCloudStateToLocalStore({ force: true, silent: true }).finally(() => {
           this.isAutoPulling = false;
         });
       }
-    }, 6000);
+    }, 30000);
   }
 
   public stopConvergencePolling(): void {

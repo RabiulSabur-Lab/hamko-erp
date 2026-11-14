@@ -680,7 +680,7 @@ export function AccountsPage() {
   }, [customersWithDue, orders, collections, dueStartDate, dueEndDate]);
 
   function openCollection() {
-    setCustomers(getCustomers());
+    setCustomers((prev) => (prev.length > 0 ? prev : getCustomers()));
     setDialogType("collection");
     setForm({
       customer_id: "",
@@ -783,7 +783,13 @@ export function AccountsPage() {
           const res = updateCustomerBalance(form.customer_id, orders, undefined);
           updatedCustDue = res.currentDue;
           updatedCustStatus = res.dueStatus as any;
-          setCustomers(getCustomers());
+          setCustomers((prev) =>
+            prev.map((c) =>
+              c.id === form.customer_id
+                ? { ...c, current_due: updatedCustDue, due_status: updatedCustStatus }
+                : c
+            )
+          );
         }
 
         // If order linked, update order paid and due locally and persist
@@ -1027,8 +1033,14 @@ export function AccountsPage() {
     setCollections([...updated]); // Spread operator creates a new array reference to force immediate React re-render
 
     if (target?.customer_id) {
-      recalculateCustomerLedger(target.customer_id, undefined, updated, { persist: true });
-      setCustomers(getCustomers());
+      const recalc = recalculateCustomerLedger(target.customer_id, undefined, updated, { persist: true });
+      setCustomers((prev) =>
+        prev.map((c) =>
+          c.id === target.customer_id
+            ? { ...c, current_due: recalc.currentDue, due_status: recalc.dueStatus as any }
+            : c
+        )
+      );
     }
     toast.success(t("deleted"));
   };

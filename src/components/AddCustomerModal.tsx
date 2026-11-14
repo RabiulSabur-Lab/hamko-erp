@@ -652,6 +652,10 @@ export function AddCustomerModal({
           });
           if (routesChanged) {
             setLocalData(STORAGE_KEYS.ROUTE_PLAN, cascadedRoutes);
+            void supabase.from("route_plan").upsert({
+              customer_id: customerId,
+              notes: `${outletName} (${finalArea || ""})`,
+            }, { onConflict: "customer_id" });
           }
         }
 

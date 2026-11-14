@@ -205,8 +205,8 @@ export function SupplierLedger() {
         entries: [],
       };
     }
-    return getSupplierLedgerDetails(selectedSupplierId, { startDate, endDate });
-  }, [selectedSupplierId, suppliers, startDate, endDate, dataVersion]);
+    return getSupplierLedgerDetails(selectedSupplierId, { startDate, endDate }, suppliers, purchaseInvoices, supplierPayments);
+  }, [selectedSupplierId, suppliers, purchaseInvoices, supplierPayments, startDate, endDate, dataVersion]);
 
   const supplier = ledgerData.supplier;
 

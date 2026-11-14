@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,6 +21,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
+import { supabase } from "@/lib/supabase";
+import { generateUuid, isValidUuid } from "@/lib/payloadSanitizer";
 import { printElementOrDocument } from "@/lib/export";
 import {
   STORAGE_KEYS,
@@ -117,11 +119,31 @@ export function EveningHandoverModal({
     };
   }, [myTodayCollections]);
 
+  const [dbPendingHandovers, setDbPendingHandovers] = useState<HandoverRecord[]>([]);
+
+  useEffect(() => {
+    if (!open) return;
+    let isMounted = true;
+    void supabase
+      .from("handovers")
+      .select("*")
+      .eq("status", "PENDING_VERIFICATION")
+      .then(({ data, error }) => {
+        if (!error && Array.isArray(data) && isMounted) {
+          setDbPendingHandovers(data as HandoverRecord[]);
+        }
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, [open, generatedSlip]);
+
   // Gather existing pending handovers
   const pendingHandovers: HandoverRecord[] = useMemo(() => {
+    if (dbPendingHandovers.length > 0) return dbPendingHandovers;
     const records = getLocalData<HandoverRecord[]>(STORAGE_KEYS.HANDOVERS, []);
     return records.filter((h) => h.status === "PENDING_VERIFICATION");
-  }, [open, generatedSlip]);
+  }, [dbPendingHandovers, open, generatedSlip]);
 
   // Generate a clean 4-digit PIN deterministically or randomly
   function generate4DigitPin(): string {
@@ -129,7 +151,7 @@ export function EveningHandoverModal({
   }
 
   // 1-Click Day-End Closing: Sales Officer completes day and generates cash slip
-  function handleCompleteDayAndGenerateSlip() {
+  async function handleCompleteDayAndGenerateSlip() {
     if (summary.total <= 0 && summary.count === 0) {
       toast.error("No collections recorded today to handover.");
       return;
@@ -144,10 +166,11 @@ export function EveningHandoverModal({
         ? (myTodayCollections[0]?.collector_name || myTodayCollections[0]?.collected_by_name || "Sales Officer")
         : (profile?.full_name || (user as any)?.user_metadata?.full_name || "Sales Officer");
 
+    const handoverId = generateUuid();
     const newHandover: HandoverRecord = {
-      id: `handover-${Date.now()}`,
+      id: handoverId,
       handover_number: handoverNum,
-      officer_id: targetOfficerId || null,
+      officer_id: isValidUuid(targetOfficerId) ? targetOfficerId : null,
       officer_name: officerDisplayName,
       session_date: new Date().toISOString(),
       total_amount: summary.total,
@@ -160,7 +183,28 @@ export function EveningHandoverModal({
       created_at: new Date().toISOString(),
     };
 
-    // Save handover record
+    // Await live Supabase insertion
+    const { error: hoErr } = await supabase.from("handovers").insert({
+      id: newHandover.id,
+      handover_number: newHandover.handover_number,
+      officer_id: newHandover.officer_id,
+      officer_name: newHandover.officer_name,
+      session_date: newHandover.session_date,
+      total_amount: newHandover.total_amount,
+      cash_amount: newHandover.cash_amount,
+      bkash_amount: newHandover.bkash_amount,
+      cheque_amount: newHandover.cheque_amount,
+      verification_pin: newHandover.verification_pin,
+      status: newHandover.status,
+      collection_ids: newHandover.collection_ids,
+    });
+
+    if (hoErr) {
+      toast.error(`Database handover record error: ${hoErr.message}`);
+      return;
+    }
+
+    // Save handover record locally
     const existing = getLocalData<HandoverRecord[]>(STORAGE_KEYS.HANDOVERS, []);
     const updatedHandovers = [newHandover, ...existing];
     setLocalData(STORAGE_KEYS.HANDOVERS, updatedHandovers);
@@ -183,11 +227,12 @@ export function EveningHandoverModal({
 
     dispatchGlobalStateUpdate({ type: "handover_created" as any });
     setGeneratedSlip(newHandover);
+    setDbPendingHandovers((prev) => [newHandover, ...prev]);
     toast.success("Day-end closing completed! Handover slip & PIN generated.");
   }
 
   // Cashier verification by PIN
-  function handleVerifyPin(targetPin?: string) {
+  async function handleVerifyPin(targetPin?: string) {
     const pinToVerify = (targetPin || verificationInputPin).trim();
     if (!pinToVerify || pinToVerify.length !== 4) {
       toast.error("Please enter a valid 4-digit verification PIN.");
@@ -195,51 +240,69 @@ export function EveningHandoverModal({
     }
 
     setVerifying(true);
-    setTimeout(() => {
-      const allHandovers = getLocalData<HandoverRecord[]>(STORAGE_KEYS.HANDOVERS, []);
-      const matchIndex = allHandovers.findIndex(
-        (h) => h.verification_pin === pinToVerify && h.status === "PENDING_VERIFICATION"
-      );
+    try {
+      const { data: verifiedRows, error: updErr } = await supabase
+        .from("handovers")
+        .update({
+          status: "VERIFIED",
+          verified_at: new Date().toISOString(),
+          verified_by: profile?.full_name || "Head Cashier",
+        })
+        .eq("verification_pin", pinToVerify)
+        .eq("status", "PENDING_VERIFICATION")
+        .select();
 
-      if (matchIndex === -1) {
-        toast.error("Invalid or already verified PIN. Please check the officer's screen.");
-        setVerifying(false);
-        return;
+      if (updErr || !verifiedRows || verifiedRows.length === 0) {
+        // Fallback check in local memory
+        const allHandovers = getLocalData<HandoverRecord[]>(STORAGE_KEYS.HANDOVERS, []);
+        const matchIndex = allHandovers.findIndex(
+          (h) => h.verification_pin === pinToVerify && h.status === "PENDING_VERIFICATION"
+        );
+        if (matchIndex === -1) {
+          toast.error("Invalid or already verified PIN. Please check the officer's screen.");
+          setVerifying(false);
+          return;
+        }
       }
 
-      const verifiedRecord = {
-        ...allHandovers[matchIndex],
-        status: "VERIFIED" as const,
-        verified_at: new Date().toISOString(),
-        verified_by: profile?.full_name || "Head Cashier",
-      };
+      const allHandovers = getLocalData<HandoverRecord[]>(STORAGE_KEYS.HANDOVERS, []);
+      const matchIndex = allHandovers.findIndex((h) => h.verification_pin === pinToVerify);
+      if (matchIndex !== -1) {
+        const verifiedRecord = {
+          ...allHandovers[matchIndex],
+          status: "VERIFIED" as const,
+          verified_at: new Date().toISOString(),
+          verified_by: profile?.full_name || "Head Cashier",
+        };
+        allHandovers[matchIndex] = verifiedRecord;
+        setLocalData(STORAGE_KEYS.HANDOVERS, allHandovers);
 
-      allHandovers[matchIndex] = verifiedRecord;
-      setLocalData(STORAGE_KEYS.HANDOVERS, allHandovers);
+        // Mark collections as VERIFIED
+        const targetIds = new Set(verifiedRecord.collection_ids || []);
+        const colList = getCollections();
+        const updatedCols = colList.map((c) => {
+          if (targetIds.has(c.id) || c.verification_pin === pinToVerify) {
+            return {
+              ...c,
+              status: "VERIFIED",
+              verified_at: new Date().toISOString(),
+              verified_by: profile?.full_name || "Head Cashier",
+            };
+          }
+          return c;
+        });
+        setLocalData(STORAGE_KEYS.COLLECTIONS, updatedCols);
+      }
 
-      // Mark collections as VERIFIED
-      const targetIds = new Set(verifiedRecord.collection_ids || []);
-      const colList = getCollections();
-      const updatedCols = colList.map((c) => {
-        if (targetIds.has(c.id) || c.verification_pin === pinToVerify) {
-          return {
-            ...c,
-            status: "VERIFIED",
-            verified_at: new Date().toISOString(),
-            verified_by: profile?.full_name || "Head Cashier",
-          };
-        }
-        return c;
-      });
-      setLocalData(STORAGE_KEYS.COLLECTIONS, updatedCols);
-
+      setDbPendingHandovers((prev) => prev.filter((h) => h.verification_pin !== pinToVerify));
       dispatchGlobalStateUpdate({ type: "handover_verified" as any });
       setVerifying(false);
       setVerificationInputPin("");
-      toast.success(
-        `Handover Verified! ৳${formatCurrency(verifiedRecord.total_amount)} physical cash & collections confirmed.`
-      );
-    }, 400);
+      toast.success("Handover Verified! Physical cash & collections confirmed.");
+    } catch (e: any) {
+      toast.error(e?.message || "Verification failed");
+      setVerifying(false);
+    }
   }
 
   return (

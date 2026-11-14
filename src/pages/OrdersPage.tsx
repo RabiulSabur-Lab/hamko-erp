@@ -55,6 +55,8 @@ import {
   sanitizeStockTxPayload,
   sanitizeCustomerPayload,
   executeWithSchemaResilience,
+  isValidUuid,
+  generateUuid,
 } from "@/lib/payloadSanitizer";
 
 import {
@@ -732,6 +734,14 @@ export function OrdersPage() {
     try {
       const customer = (Array.isArray(customers) ? customers : []).find((c: Customer) => c.id === orderFormData.customer_id);
 
+      // Strict format for delivery_date (YYYY-MM-DD or null)
+      let formattedDeliveryDate: string | null = null;
+      if (orderFormData.delivery_date) {
+        const dStr = String(orderFormData.delivery_date).trim();
+        const m = dStr.match(/^(\d{4}-\d{2}-\d{2})/);
+        if (m) formattedDeliveryDate = m[1];
+      }
+
       if (editingOrder) {
         // --- EDIT EXISTING ORDER ---
         const newTotal = r2(Number(orderFormData.total) || 0);
@@ -750,11 +760,48 @@ export function OrdersPage() {
         const oldPaid = Number(editingOrder.paid_amount) || 0;
         const paidDiff = r2(editPaid - oldPaid);
 
-        // Requirement 1: Replace items property completely with current items array
-        const newItemsList = Array.from(orderFormData.items).map((it, i) => {
+        // 1. Await direct Supabase update before modifying local state or notifying
+        const cleanOrderUpdate = sanitizeOrderPayload({
+          customer_id: orderFormData.customer_id,
+          status: orderFormData.status,
+          order_date: orderFormData.order_date || editingOrder.order_date || new Date().toISOString(),
+          delivery_date: formattedDeliveryDate,
+          notes: orderFormData.notes?.trim() || null,
+          discount: r2(Number(orderFormData.discount || 0)),
+          subtotal: r2(Number(orderFormData.subtotal || 0)),
+          total_amount: newTotal,
+          due_amount: editDue,
+          paid_amount: editPaid,
+          payment_status: editDbPayStatus,
+          updated_at: new Date().toISOString(),
+        });
+
+        const { error: orderUpdateErr } = await supabase
+          .from("orders")
+          .update(cleanOrderUpdate)
+          .eq("id", editingOrder.id);
+
+        if (orderUpdateErr) {
+          toast.error(`Order update failed: ${orderUpdateErr.message}`);
+          return;
+        }
+
+        // 2. Clear old items and insert updated items array
+        const { error: delErr } = await supabase
+          .from("order_items")
+          .delete()
+          .eq("order_id", editingOrder.id);
+
+        if (delErr) {
+          toast.error(`Order items deletion failed: ${delErr.message}`);
+          return;
+        }
+
+        const newItemsList = Array.from(orderFormData.items).map((it) => {
           const prodInfo = resolveOrderProduct(undefined, it.product_id, Array.isArray(products) ? products : []);
+          const itemId: string = (it.id && isValidUuid(it.id)) ? (it.id as string) : generateUuid();
           return {
-            id: it.id || `item-${editingOrder.id}-${i}`,
+            id: itemId,
             order_id: editingOrder.id,
             product_id: it.product_id,
             quantity: Math.max(1, Math.round(Number(it.quantity) || 1)),
@@ -767,211 +814,126 @@ export function OrdersPage() {
           };
         });
 
-        const currentOfficerName =
-          (editingOrder.sales_rep_id ? getSalesOfficerById(editingOrder.sales_rep_id)?.full_name : null) ||
-          (editingOrder.sales_rep_id ? getUserName(editingOrder.sales_rep_id) : null) ||
-          (editingOrder.sales_rep_id ? usersMap[String(editingOrder.sales_rep_id)]?.full_name : null) ||
-          editingOrder.sales_rep?.full_name ||
-          editingOrder.sales_rep_name ||
-          profile?.full_name ||
-          user?.user_metadata?.full_name ||
-          "Sales Officer";
+        if (newItemsList.length > 0) {
+          const dbItemsPayload = newItemsList.map((it) =>
+            sanitizeOrderItemPayload({
+              id: it.id,
+              order_id: editingOrder.id,
+              product_id: it.product_id,
+              quantity: it.quantity,
+              unit_price: it.unit_price,
+              discount: it.discount,
+              subtotal: it.subtotal,
+              price_tier: it.price_tier || "DP",
+            }, true)
+          );
+          const { error: itemsErr } = await supabase.from("order_items").insert(dbItemsPayload);
+          if (itemsErr) {
+            toast.error(`Order items insert failed: ${itemsErr.message}`);
+            return;
+          }
+        }
 
-        const updatedOrderRecord: Order & { items?: any[] } = {
-          ...editingOrder,
-          customer_id: orderFormData.customer_id,
-          sales_rep_id: editingOrder.sales_rep_id || profile?.id || user?.id || null,
-          sales_rep_name: currentOfficerName,
-          created_by_name: (editingOrder as any).created_by_name || currentOfficerName,
-          status: (orderFormData.status || editingOrder.status) as any,
-          delivery_date: orderFormData.delivery_date || null,
-          notes: sanitizeFormulaInput(orderFormData.notes) || null,
-          discount: r2(Number(orderFormData.discount || 0)),
-          subtotal: r2(Number(orderFormData.subtotal || 0)),
-          total_amount: newTotal,
-          due_amount: editDue,
-          dueAmount: editDue,
-          paid_amount: editPaid,
-          paidAmount: editPaid,
-          payment_status: editDbPayStatus,
-          paymentStatus: editPayStatus,
-          updated_at: new Date().toISOString(),
-          customer: customer || editingOrder.customer,
-          // Requirement: In Local Storage (STORAGE_KEYS.ORDERS), replace items property completely with current items array
-          order_items: newItemsList,
-          items: Array.from(newItemsList),
-        };
-
-        // 1. Optimistically update local order state and storage (complete replacement)
-        setOrders((prev) => prev.map((item) => (item.id === editingOrder.id ? updatedOrderRecord : item)));
-        const currentStoredOrders = getOrders();
-        const nextStoredOrders = currentStoredOrders.map((item) => (item.id === editingOrder.id ? updatedOrderRecord : item));
-        saveOrders(nextStoredOrders);
-
-        let nextCollections = getCollections();
+        // 3. Handle linked collection if additional payment was made
         if (paidDiff > 0) {
-          const colNumber = generateCollectionNumber(nextCollections);
-          const colId = (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID() : `col-${Date.now()}`;
-          const colCreatedIso = new Date(Date.now() + 1000).toISOString();
-          const details = orderFormData.customer_id ? getCustomerLedgerDetails(orderFormData.customer_id) : null;
-          const prevDueCalc = details ? details.currentDue : Number(customer?.current_due ?? 0);
+          const colNumber = generateCollectionNumber(getCollections());
+          const colId = generateUuid();
+          const colCreatedIso = new Date().toISOString();
+          const prevDueCalc = Number(customer?.current_due ?? 0);
           const remDueCalc = Math.max(0, r2(prevDueCalc - paidDiff));
-          const newCollection: Collection = {
+          const cleanColPayload = sanitizeCollectionPayload({
             id: colId,
             collection_number: colNumber,
             customer_id: orderFormData.customer_id,
             order_id: editingOrder.id,
             amount: paidDiff,
-            payment_method: (orderFormData.payment_method as any) || "Cash",
-            collection_date: orderFormData.order_date || new Date().toISOString(),
-            collected_by: profile?.id ?? null,
-            previous_due: prevDueCalc,
-            remaining_due: remDueCalc,
-            previousDue: prevDueCalc,
-            remainingDue: remDueCalc,
+            payment_method: orderFormData.payment_method || "Cash",
+            collection_date: orderFormData.order_date || colCreatedIso,
+            collected_by: isValidUuid(profile?.id) ? profile?.id : (isValidUuid(user?.id) ? user?.id : null),
             notes: `Payment for order ${editingOrder.order_number} (${editPayStatus})`,
             created_at: colCreatedIso,
-            customer: customer ? { ...customer } : undefined,
-            _unsynced: true,
-            _modifiedAt: Date.now(),
-            is_offline: true,
-          };
-          nextCollections = deduplicateCollections([newCollection, ...nextCollections]);
-          saveCollections(nextCollections);
+          }, true);
 
-          const { error: colErr } = await supabase.from("collections").insert({
-            id: colId,
-            collection_number: colNumber,
-            customer_id: orderFormData.customer_id,
-            order_id: editingOrder.id,
-            amount: paidDiff,
-            payment_method: (orderFormData.payment_method as any) || "Cash",
-            collection_date: orderFormData.order_date || new Date().toISOString(),
-            collected_by: profile?.id ?? null,
-            notes: `Payment for order ${editingOrder.order_number} (${editPayStatus})`,
-            created_at: colCreatedIso,
-          });
+          const { error: colErr } = await supabase.from("collections").insert(cleanColPayload);
           if (colErr) {
-            console.warn("Supabase collection insert on edit notice (retaining unsynced flag):", colErr.message);
-          } else {
-            const currentCols = getCollections();
-            saveCollections(currentCols.map((c) => (c.id === colId ? { ...c, _unsynced: false, is_offline: false } : c)));
+            toast.error(`Payment collection insert failed: ${colErr.message}`);
           }
         }
 
-        // 2b. If order is marked as Cancelled, void any associated collections to prevent orphaned credits
-        if (orderFormData.status === "Cancelled" && editingOrder.status !== "Cancelled") {
-          const { voidedCount, voidedAmount, collections: purgedCols } = voidOrderCollections(editingOrder.id, editingOrder.order_number);
-          nextCollections = purgedCols;
-          if (voidedCount > 0) {
-            toast.info(`Voided ${voidedCount} linked collection(s) (${formatBDT(voidedAmount)}) for cancelled order.`);
-          }
-        }
-
-        // 2c. Recalculate customer due using master recalculateCustomerLedger WITH updated collections
+        // 4. Update customer dues in Supabase
         if (orderFormData.customer_id) {
-          recalculateCustomerLedger(orderFormData.customer_id, nextStoredOrders, nextCollections, { persist: true });
+          const ledgerRes = recalculateCustomerLedger(orderFormData.customer_id, undefined, undefined, { persist: true });
+          await supabase
+            .from("customers")
+            .update({
+              current_due: ledgerRes.currentDue,
+              due_status: ledgerRes.dueStatus,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", orderFormData.customer_id);
         }
-        if (editingOrder.customer_id && editingOrder.customer_id !== orderFormData.customer_id) {
-          recalculateCustomerLedger(editingOrder.customer_id, nextStoredOrders, nextCollections, { persist: true });
-        }
-        setCustomers(getCustomers());
 
-        // 3. Adjust product stock differences only if previous or new status was Delivered
+        // 5. Stock adjustments if delivered
         const wasDelivered = editingOrder.status === "Delivered";
         const isDelivered = orderFormData.status === "Delivered";
+        if (wasDelivered || isDelivered) {
+          const oldItemQtyMap = new Map<string, number>();
+          editingOrder.order_items?.forEach((it) => {
+            oldItemQtyMap.set(it.product_id, (oldItemQtyMap.get(it.product_id) || 0) + Number(it.quantity || 0));
+          });
+          const newItemQtyMap = new Map<string, number>();
+          orderFormData.items.forEach((it) => {
+            newItemQtyMap.set(it.product_id, (newItemQtyMap.get(it.product_id) || 0) + Number(it.quantity || 0));
+          });
 
-        const oldItemQtyMap = new Map<string, number>();
-        editingOrder.order_items?.forEach((it) => {
-          oldItemQtyMap.set(it.product_id, (oldItemQtyMap.get(it.product_id) || 0) + Number(it.quantity || 0));
-        });
-        const newItemQtyMap = new Map<string, number>();
-        orderFormData.items.forEach((it) => {
-          newItemQtyMap.set(it.product_id, (newItemQtyMap.get(it.product_id) || 0) + Number(it.quantity || 0));
-        });
-
-        const allProductIds = new Set([...oldItemQtyMap.keys(), ...newItemQtyMap.keys()]);
-        if (allProductIds.size > 0 && (wasDelivered || isDelivered)) {
+          const allProductIds = new Set([...oldItemQtyMap.keys(), ...newItemQtyMap.keys()]);
           allProductIds.forEach((prodId) => {
             const prevDeducted = wasDelivered ? (oldItemQtyMap.get(prodId) || 0) : 0;
             const nextDeducted = isDelivered ? (newItemQtyMap.get(prodId) || 0) : 0;
             const diff = nextDeducted - prevDeducted;
             if (diff !== 0) {
-              // Positive diff: more items delivered -> deduct stock (-diff)
-              // Negative diff: fewer items delivered -> restore stock (+abs(diff))
               adjustProductStock(prodId, -diff, "Main Warehouse");
             }
           });
-          setProducts(getProducts());
         }
 
-        toast.success(t("updated"));
-        setDialogOpen(false);
-        setEditingOrder(null);
+        // 6. Update local state only AFTER Supabase confirms
+        const currentOfficerName =
+          (editingOrder.sales_rep_id ? getSalesOfficerById(editingOrder.sales_rep_id)?.full_name : null) ||
+          (editingOrder.sales_rep_id ? getUserName(editingOrder.sales_rep_id) : null) ||
+          editingOrder.sales_rep?.full_name ||
+          editingOrder.sales_rep_name ||
+          profile?.full_name ||
+          "Sales Officer";
 
-        // 4. Requirement 1: In Supabase, update order, delete/clear existing order_items, then insert updated items array
-        try {
-          const cleanOrderUpdate = sanitizeOrderPayload({
-            customer_id: orderFormData.customer_id,
-            status: orderFormData.status,
-            order_date: orderFormData.order_date || editingOrder.order_date || new Date().toISOString(),
-            delivery_date: orderFormData.delivery_date ? orderFormData.delivery_date : null,
-            notes: orderFormData.notes?.trim() || null,
-            discount: r2(Number(orderFormData.discount || 0)),
-            subtotal: r2(Number(orderFormData.subtotal || 0)),
-            total_amount: r2(Number(newTotal || 0)),
-            due_amount: r2(Number(editDue || 0)),
-            paid_amount: r2(Number(editPaid || 0)),
-            payment_status: editDbPayStatus,
-            updated_at: new Date().toISOString(),
-          });
+        const updatedOrderRecord: Order = {
+          ...editingOrder,
+          customer_id: orderFormData.customer_id,
+          sales_rep_id: editingOrder.sales_rep_id || profile?.id || user?.id || null,
+          sales_rep_name: currentOfficerName,
+          status: (orderFormData.status || editingOrder.status) as any,
+          delivery_date: formattedDeliveryDate,
+          notes: sanitizeFormulaInput(orderFormData.notes) || null,
+          discount: r2(Number(orderFormData.discount || 0)),
+          subtotal: r2(Number(orderFormData.subtotal || 0)),
+          total_amount: newTotal,
+          due_amount: editDue,
+          paid_amount: editPaid,
+          payment_status: editDbPayStatus,
+          paymentStatus: editPayStatus,
+          updated_at: new Date().toISOString(),
+          customer: customer || editingOrder.customer,
+          order_items: newItemsList,
+        };
 
-          const { error: orderUpdateErr } = await executeWithSchemaResilience("orders", cleanOrderUpdate, (p) =>
-            supabase.from("orders").update(p).eq("id", editingOrder.id),
-          );
-
-          if (orderUpdateErr) {
-            console.warn("Supabase order update notice (retaining unsynced protection):", orderUpdateErr.message);
-            const currentOrders = getOrders();
-            saveOrders(currentOrders.map((o) => (o.id === editingOrder.id ? { ...o, _unsynced: true, is_offline: true, _modifiedAt: Date.now() } : o)));
-          } else {
-            const currentOrders = getOrders();
-            saveOrders(currentOrders.map((o) => (o.id === editingOrder.id ? { ...o, _unsynced: false, is_offline: false, _modifiedAt: Date.now() } : o)));
-          }
-
-          // First delete/clear existing order_items for order_id in Supabase
-          const { error: delErr } = await supabase
-            .from("order_items")
-            .delete()
-            .eq("order_id", editingOrder.id);
-
-          if (delErr) {
-            console.warn("Supabase order_items delete notice:", delErr.message);
-          }
-
-          // Then insert the updated items array (strictly matching physical order_items columns)
-          if (orderFormData.items.length > 0) {
-            const dbItemsPayload = orderFormData.items.map((it) =>
-              sanitizeOrderItemPayload({
-                order_id: editingOrder.id,
-                product_id: it.product_id,
-                quantity: Math.max(1, Math.round(Number(it.quantity) || 1)),
-                unit_price: r2(Number(it.unit_price) || 0),
-                discount: r2(Number(it.discount) || 0),
-                subtotal: r2(Number(it.subtotal) || 0),
-                price_tier: it.price_tier || "DP",
-              }, true),
-            );
-            const { error: itemsErr } = await supabase.from("order_items").insert(dbItemsPayload);
-            if (itemsErr) console.warn("Supabase order_items re-insert notice:", itemsErr.message);
-          }
-        } catch (syncErr: any) {
-          console.warn("Supabase order edit sync exception:", syncErr?.message || syncErr);
-        }
+        setOrders((prev) => prev.map((item) => (item.id === editingOrder.id ? updatedOrderRecord : item)));
+        const storedOrders = getOrders();
+        saveOrders(storedOrders.map((item) => (item.id === editingOrder.id ? updatedOrderRecord : item)));
 
         dispatchGlobalStateUpdate({ customerId: orderFormData.customer_id, type: "order_updated" });
-        window.dispatchEvent(new Event("sales_erp_storage_update"));
-        window.dispatchEvent(new Event("storage"));
+        toast.success(t("updated") || "Order updated successfully");
+        setDialogOpen(false);
+        setEditingOrder(null);
       } else {
         // --- CREATE NEW ORDER ---
         const total = r2(Number(orderFormData.total || 0));
@@ -986,9 +948,9 @@ export function OrdersPage() {
               : "Unpaid";
 
         const orderNumber = generateOrderNumber(orders);
-        const tempId = crypto.randomUUID ? crypto.randomUUID() : `order-${Date.now()}`;
-
+        const realOrderId = generateUuid();
         const currentOfficerName = profile?.full_name || user?.user_metadata?.full_name || (user as any)?.name || "Sales Officer";
+        const repId: string | null = (profile?.id && isValidUuid(profile.id)) ? profile.id : ((user?.id && isValidUuid(user.id)) ? user.id : null);
 
         const additionalCash = (orderFormData as any).additional_paid !== undefined
           ? Number((orderFormData as any).additional_paid)
@@ -996,20 +958,130 @@ export function OrdersPage() {
             ? Math.max(0, r2(paid - Number((orderFormData as any).advance_applied)))
             : paid);
 
-        // CRIT-003: Prevent draft order advance collection asymmetry
         const isDraftWithPayment = (orderFormData.status === "Draft") && additionalCash > 0;
         const effectiveStatus = isDraftWithPayment ? "Pending" : (orderFormData.status || "Pending");
 
-        const newOrderRecord: Order = {
-          id: tempId,
+        // 1. Direct Supabase Order Insertion
+        const dbOrderPayload = sanitizeOrderPayload({
+          id: realOrderId,
           order_number: orderNumber,
           customer_id: orderFormData.customer_id,
-          sales_rep_id: profile?.id || user?.id || null,
+          sales_rep_id: repId,
+          status: effectiveStatus,
+          order_date: orderFormData.order_date || new Date().toISOString(),
+          delivery_date: formattedDeliveryDate,
+          subtotal: r2(Number(orderFormData.subtotal || 0)),
+          discount: r2(Number(orderFormData.discount || 0)),
+          total_amount: total,
+          due_amount: due,
+          paid_amount: paid,
+          payment_status: dbPayStatus,
+          notes: sanitizeFormulaInput(orderFormData.notes) || null,
+        }, true);
+
+        const { error: orderErr } = await supabase.from("orders").insert(dbOrderPayload);
+        if (orderErr) {
+          toast.error(`Order creation failed on server: ${orderErr.message}`);
+          return;
+        }
+
+        // 2. Direct Supabase Order Items Insertion
+        const cleanItemsList = orderFormData.items.map((it) => {
+          const prodInfo = resolveOrderProduct(undefined, it.product_id, Array.isArray(products) ? products : []);
+          const itemId = generateUuid();
+          return {
+            id: itemId,
+            order_id: realOrderId,
+            product_id: it.product_id,
+            quantity: Math.max(1, Math.round(Number(it.quantity) || 1)),
+            unit_price: r2(Number(it.unit_price) || 0),
+            discount: r2(Number(it.discount) || 0),
+            subtotal: r2(Number(it.subtotal) || 0),
+            price_tier: it.price_tier || "Custom",
+            created_at: new Date().toISOString(),
+            product: prodInfo.exists ? prodInfo.product : null,
+          };
+        });
+
+        if (cleanItemsList.length > 0) {
+          const dbItemsPayload = cleanItemsList.map((it) =>
+            sanitizeOrderItemPayload({
+              id: it.id,
+              order_id: realOrderId,
+              product_id: it.product_id,
+              quantity: it.quantity,
+              unit_price: it.unit_price,
+              discount: it.discount,
+              subtotal: it.subtotal,
+              price_tier: it.price_tier || "DP",
+            }, true)
+          );
+          const { error: itemsErr } = await supabase.from("order_items").insert(dbItemsPayload);
+          if (itemsErr) {
+            toast.error(`Order items insertion error: ${itemsErr.message}`);
+            return;
+          }
+        }
+
+        // 3. Record linked collection if cash was received
+        if (additionalCash > 0) {
+          const colNumber = generateCollectionNumber(getCollections());
+          const colId = generateUuid();
+          const colCreatedIso = new Date().toISOString();
+
+          const cleanColPayload = sanitizeCollectionPayload({
+            id: colId,
+            collection_number: colNumber,
+            customer_id: orderFormData.customer_id,
+            order_id: realOrderId,
+            amount: additionalCash,
+            payment_method: orderFormData.payment_method || "Cash",
+            collection_date: orderFormData.order_date || colCreatedIso,
+            collected_by: repId,
+            notes: `Order ${orderNumber} payment (${payStatus})`,
+            created_at: colCreatedIso,
+          }, true);
+
+          const { error: colErr } = await supabase.from("collections").insert(cleanColPayload);
+          if (colErr) {
+            console.warn("Notice inserting collection to Supabase:", colErr.message);
+          }
+        }
+
+        // 4. Update customer current_due in Supabase
+        if (orderFormData.customer_id) {
+          const ledgerRes = recalculateCustomerLedger(orderFormData.customer_id, undefined, undefined, { persist: true });
+          await supabase
+            .from("customers")
+            .update({
+              current_due: ledgerRes.currentDue,
+              due_status: ledgerRes.dueStatus,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", orderFormData.customer_id);
+        }
+
+        // 5. Stock reduction if delivered
+        if (orderFormData.status === "Delivered") {
+          orderFormData.items.forEach((it) => {
+            const qty = Number(it.quantity || 0);
+            if (qty > 0) {
+              adjustProductStock(it.product_id, -qty, "Main Warehouse");
+            }
+          });
+        }
+
+        // 6. Update local state
+        const newOrderRecord: Order = {
+          id: realOrderId,
+          order_number: orderNumber,
+          customer_id: orderFormData.customer_id,
+          sales_rep_id: repId || null,
           sales_rep_name: currentOfficerName,
           created_by_name: currentOfficerName,
           sales_rep: profile ? ({ id: profile.id, full_name: profile.full_name, email: profile.email } as any) : undefined,
           order_date: orderFormData.order_date || new Date().toISOString(),
-          delivery_date: orderFormData.delivery_date ? orderFormData.delivery_date : null,
+          delivery_date: formattedDeliveryDate,
           status: effectiveStatus as any,
           subtotal: r2(Number(orderFormData.subtotal || 0)),
           discount: r2(Number(orderFormData.discount || 0)),
@@ -1023,314 +1095,17 @@ export function OrdersPage() {
           notes: sanitizeFormulaInput(orderFormData.notes) || null,
           created_at: orderFormData.order_date || new Date().toISOString(),
           updated_at: new Date().toISOString(),
-          _unsynced: true,
-          _modifiedAt: Date.now(),
-          is_offline: true,
           customer: customer || undefined,
-          order_items: orderFormData.items.map((it, i) => {
-            const prodInfo = resolveOrderProduct(undefined, it.product_id, Array.isArray(products) ? products : []);
-            return {
-              id: `item-${tempId}-${i}`,
-              order_id: tempId,
-              product_id: it.product_id,
-              quantity: Math.max(1, Math.round(Number(it.quantity) || 1)),
-              unit_price: r2(Number(it.unit_price) || 0),
-              discount: r2(Number(it.discount) || 0),
-              subtotal: r2(Number(it.subtotal) || 0),
-              price_tier: it.price_tier || "Custom",
-              created_at: new Date().toISOString(),
-              product: prodInfo.exists ? prodInfo.product : null,
-            };
-          }),
+          order_items: cleanItemsList,
         };
 
-        // 1. Instant local mutation (outside updater to prevent re-entrant dispatch)
         setOrders((prev) => [newOrderRecord, ...prev]);
         const currentOrders = getOrders();
-        const nextOrders = [newOrderRecord, ...currentOrders.filter((o) => o.id !== tempId)];
-        saveOrders(nextOrders);
-
-        // 1b. Record additional cash payment into Cash/Accounts ledger (Collections)
-        // If payment was covered by existing advance deposit, do NOT create redundant collection
-        let nextCollections = getCollections();
-        let pendingRemoteCollectionPayload: Record<string, any> | null = null;
-
-        if (additionalCash > 0) {
-          const colNumber = generateCollectionNumber(nextCollections);
-          const colId = (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID() : `col-${Date.now()}`;
-          const colCreatedIso = new Date(Date.now() + 1000).toISOString();
-          const details = orderFormData.customer_id
-            ? getCustomerLedgerDetails(orderFormData.customer_id, nextOrders, undefined, { persist: false })
-            : null;
-          const prevDueCalc = details ? details.currentDue : Number(customer?.current_due ?? 0);
-          const remDueCalc = Math.max(0, r2(prevDueCalc - additionalCash));
-          const newCollection: Collection = {
-            id: colId,
-            collection_number: colNumber,
-            customer_id: orderFormData.customer_id,
-            order_id: tempId,
-            amount: additionalCash,
-            payment_method: (orderFormData.payment_method as any) || "Cash",
-            collection_date: orderFormData.order_date || new Date().toISOString(),
-            collected_by: profile?.id || user?.id || null,
-            collector_name: currentOfficerName,
-            collected_by_name: currentOfficerName,
-            collector: profile ? ({ id: profile.id, full_name: profile.full_name, email: profile.email } as any) : undefined,
-            previous_due: prevDueCalc,
-            remaining_due: remDueCalc,
-            previousDue: prevDueCalc,
-            remainingDue: remDueCalc,
-            notes: `Order ${orderNumber} payment (${payStatus})`,
-            created_at: colCreatedIso,
-            customer: customer ? { ...customer } : undefined,
-            _unsynced: true,
-            _modifiedAt: Date.now(),
-            is_offline: true,
-          };
-          nextCollections = deduplicateCollections([newCollection, ...nextCollections]);
-          saveCollections(nextCollections);
-
-          // Defer remote Supabase collection insert until AFTER parent order exists in public.orders (prevents 23503 FK race)
-          pendingRemoteCollectionPayload = {
-            id: colId,
-            collection_number: colNumber,
-            customer_id: orderFormData.customer_id,
-            order_id: tempId,
-            amount: additionalCash,
-            payment_method: (orderFormData.payment_method as any) || "Cash",
-            collection_date: orderFormData.order_date || new Date().toISOString(),
-            collected_by: profile?.id ?? null,
-            notes: `Order ${orderNumber} payment (${payStatus})`,
-            created_at: colCreatedIso,
-          };
-        }
-
-        // 1c. Recalculate customer due using master recalculateCustomerLedger WITH the new collection
-        if (orderFormData.customer_id) {
-          recalculateCustomerLedger(orderFormData.customer_id, nextOrders, nextCollections, { persist: true });
-          setCustomers(getCustomers());
-        }
-
-        // 1d. Deduct product stock & log Stock Out transactions if order status is "Delivered"
-        if (orderFormData.status === "Delivered") {
-          const existingTx = getLocalData<any>(STORAGE_KEYS.TRANSACTIONS, []);
-          const newTransactions: any[] = [];
-          const nowIso = new Date().toISOString();
-
-          orderFormData.items.forEach((it, idx) => {
-            const qty = Number(it.quantity || 0);
-            if (qty <= 0) return;
-
-            // Single source of truth for stock reduction
-            adjustProductStock(it.product_id, -qty, "Main Warehouse");
-
-            const prod = (Array.isArray(products) ? products : []).find((p: Product) => p.id === it.product_id);
-            newTransactions.push({
-              id: (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID() : `tx-${Date.now()}-${idx}`,
-              product_id: it.product_id,
-              transaction_type: "Stock Out",
-              quantity: qty,
-              from_warehouse: "Main Warehouse",
-              to_warehouse: `Customer: ${customer?.name || "Customer"}`,
-              reference: orderNumber,
-              notes: `Order ${orderNumber} marked as Delivered`,
-              performed_by: profile?.id ?? null,
-              transaction_date: nowIso,
-              created_at: nowIso,
-              product: prod,
-            });
-          });
-
-          if (newTransactions.length > 0) {
-            setLocalData(STORAGE_KEYS.TRANSACTIONS, [...newTransactions, ...existingTx]);
-
-            try {
-              const dbTxPayload = newTransactions.map((tx) => sanitizeStockTxPayload(tx, true));
-              supabase
-                .from("stock_transactions")
-                .insert(dbTxPayload)
-                .then(undefined, (err) => console.warn("Supabase stock_transactions insert notice:", err));
-            } catch (txErr) {
-              console.warn("Notice: stock_transactions saved locally, Supabase notice:", txErr);
-            }
-          }
-
-          setProducts(getProducts());
-        }
+        saveOrders([newOrderRecord, ...currentOrders.filter((o) => o.id !== realOrderId)]);
 
         dispatchGlobalStateUpdate({ customerId: orderFormData.customer_id, type: "order_created" });
-        window.dispatchEvent(new Event("sales_erp_storage_update"));
-        window.dispatchEvent(new Event("storage"));
-        toast.success(t("created"));
+        toast.success(t("created") || "Order created successfully");
         setDialogOpen(false);
-
-        // 2. Background persistence: Attempt RPC first, fallback to direct table inserts
-        const dbOrderPayload = sanitizeOrderPayload({
-          id: tempId,
-          order_number: orderNumber,
-          customer_id: orderFormData.customer_id,
-          sales_rep_id: profile?.id ?? null,
-          status: effectiveStatus,
-          order_date: orderFormData.order_date || new Date().toISOString(),
-          subtotal: r2(Number(orderFormData.subtotal || 0)),
-          discount: r2(Number(orderFormData.discount || 0)),
-          total_amount: r2(Number(orderFormData.total || 0)),
-          due_amount: due,
-          paid_amount: paid,
-          payment_status: dbPayStatus,
-          notes: orderFormData.notes?.trim() || null,
-          delivery_date: orderFormData.delivery_date ? orderFormData.delivery_date : null,
-        }, true);
-
-        const persistLinkedCollectionRemotely = async (persistedOrderId: string) => {
-          if (!pendingRemoteCollectionPayload) return;
-          try {
-            const payloadToInsert = sanitizeCollectionPayload({
-              ...pendingRemoteCollectionPayload,
-              order_id: persistedOrderId,
-            }, true);
-            if (persistedOrderId !== tempId) {
-              const cols = getCollections();
-              saveCollections(
-                cols.map((c) => (c.id === pendingRemoteCollectionPayload?.id ? { ...c, order_id: persistedOrderId } : c))
-              );
-            }
-            const { error: colErr } = await executeWithSchemaResilience("collections", payloadToInsert, (p) =>
-              supabase.from("collections").insert(p)
-            );
-            if (colErr) {
-              console.warn("Notice inserting collection to Supabase (retained with unsynced protection):", colErr.message);
-            } else {
-              const cols = getCollections();
-              saveCollections(
-                cols.map((c) => (c.id === pendingRemoteCollectionPayload?.id ? { ...c, order_id: persistedOrderId, _unsynced: false, is_offline: false, _modifiedAt: Date.now() } : c))
-              );
-            }
-          } catch (colEx) {
-            console.warn("Exception inserting linked collection to Supabase:", colEx);
-          }
-        };
-
-        const handleReconcileOrder = (createdServerId: string) => {
-          setOrders((prev) => {
-            const reconciled = prev.map((item) =>
-              item.id === tempId ? { ...item, id: createdServerId, _unsynced: false, is_offline: false, _modifiedAt: Date.now() } : item
-            );
-            return reconciled;
-          });
-          const stored = getOrders();
-          const reconciledStored = stored.map((item) =>
-            item.id === tempId ? { ...item, id: createdServerId, _unsynced: false, is_offline: false, _modifiedAt: Date.now() } : item
-          );
-          saveOrders(reconciledStored);
-        };
-
-        const insertDirectly = async () => {
-          try {
-            const { data, error: orderErr } = await executeWithSchemaResilience("orders", dbOrderPayload, (p) =>
-              supabase.from("orders").insert(p).select("id").single(),
-            );
-            const orderData: any = data;
-
-            if (orderErr) {
-              console.warn("Direct Supabase order insert error (retained in local store with unsynced flag):", orderErr.message);
-              const currentOrders = getOrders();
-              saveOrders(currentOrders.map((o) => (o.id === tempId ? { ...o, _unsynced: true, is_offline: true, _modifiedAt: Date.now() } : o)));
-              return;
-            }
-
-            if (orderData && orderData.id) {
-              const realOrderId = orderData.id;
-              handleReconcileOrder(realOrderId);
-
-              // Insert linked upfront collection AFTER parent order exists in PostgreSQL
-              await persistLinkedCollectionRemotely(realOrderId);
-
-              // Insert line items (strictly matching physical order_items schema)
-              if (orderFormData.items.length > 0) {
-                const dbItemsPayload = orderFormData.items.map((it) =>
-                  sanitizeOrderItemPayload({
-                    order_id: realOrderId,
-                    product_id: it.product_id,
-                    quantity: Math.max(1, Math.round(Number(it.quantity) || 1)),
-                    unit_price: r2(Number(it.unit_price) || 0),
-                    discount: r2(Number(it.discount) || 0),
-                    subtotal: r2(Number(it.subtotal) || 0),
-                    price_tier: it.price_tier || "DP",
-                  }, true),
-                );
-
-                const { error: itemsErr } = await supabase
-                  .from("order_items")
-                  .insert(dbItemsPayload);
-
-                if (itemsErr) {
-                  console.warn("Direct Supabase order_items insert error:", itemsErr.message);
-                }
-              }
-
-              // Update customer current_due in Supabase using master recalculateCustomerLedger
-              if (orderFormData.customer_id) {
-                try {
-                  const ledgerRes = recalculateCustomerLedger(orderFormData.customer_id, undefined, undefined, { persist: true });
-                  const cleanCustUpdate = sanitizeCustomerPayload({
-                    current_due: ledgerRes.currentDue,
-                    due_status: ledgerRes.dueStatus,
-                  });
-                  await supabase
-                    .from("customers")
-                    .update(cleanCustUpdate)
-                    .eq("id", orderFormData.customer_id);
-                } catch (e) {
-                  console.warn("Notice updating remote customer due on direct insert:", e);
-                }
-              }
-            }
-          } catch (directErr: any) {
-            console.warn("Fallback direct order insert exception (persisted locally):", directErr?.message || directErr);
-          }
-        };
-
-        const rpcOrderData = {
-          ...dbOrderPayload,
-          subtotal: String(dbOrderPayload.subtotal),
-          discount: String(dbOrderPayload.discount),
-          total_amount: String(dbOrderPayload.total_amount),
-          due_amount: String(dbOrderPayload.due_amount),
-          paid_amount: String(dbOrderPayload.paid_amount),
-          delivery_date: dbOrderPayload.delivery_date ? dbOrderPayload.delivery_date : null,
-        };
-
-        const rpcItemsInserts = orderFormData.items.map((it) => ({
-          product_id: it.product_id,
-          quantity: String(it.quantity),
-          unit_price: String(it.unit_price),
-          discount: String(r2(Number(it.discount || 0))),
-          subtotal: String(it.subtotal ?? 0),
-          price_tier: it.price_tier ?? "DP",
-        }));
-
-        const invokeRpcOrFallback = async () => {
-          try {
-            const { data, error } = await supabase.rpc("create_order_with_items", {
-              p_order_data: rpcOrderData,
-              p_items: rpcItemsInserts,
-            });
-
-            if (error || !data || !data.id) {
-              if (error) console.warn("RPC create_order_with_items error, falling back to direct table inserts:", error.message);
-              await insertDirectly();
-            } else {
-              handleReconcileOrder(data.id);
-              await persistLinkedCollectionRemotely(data.id);
-            }
-          } catch (err: any) {
-            console.warn("RPC invocation exception, falling back to direct table inserts:", err?.message || err);
-            await insertDirectly();
-          }
-        };
-
-        await invokeRpcOrFallback();
       }
     } catch (e: any) {
       toast.error(e.message || "Failed to save order");

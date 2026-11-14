@@ -601,6 +601,24 @@ export function SfaPage() {
       }
       window.dispatchEvent(new Event("storage"));
     }
+
+    // Background cloud sync to Supabase route_plan table
+    Promise.resolve().then(async () => {
+      try {
+        const payload = next
+          .filter((r) => r.customer_id)
+          .map((r) => ({
+            customer_id: r.customer_id,
+            day_of_week: r.day_of_week || "Monday",
+            notes: r.notes || "",
+          }));
+        if (payload.length > 0) {
+          await supabase.from("route_plan").upsert(payload, { onConflict: "customer_id" });
+        }
+      } catch (err) {
+        console.warn("Route plan remote sync notice:", err);
+      }
+    });
   }
 
   function moveRouteUp(index: number) {
@@ -677,8 +695,7 @@ export function SfaPage() {
   }
 
   function syncRoutesWithCrm() {
-    const crmCusts = getCustomers();
-    const activeCusts = Array.isArray(crmCusts) && crmCusts.length > 0 ? crmCusts : (Array.isArray(customers) ? customers : []);
+    const activeCusts = Array.isArray(customers) && customers.length > 0 ? customers : (getCustomers() || []);
     const sortedCusts = [...activeCusts]
       .filter((c: Customer) => c.is_active !== false)
       .sort((a: Customer, b: Customer) => (a.name || "").localeCompare(b.name || ""));

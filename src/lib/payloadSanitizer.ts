@@ -193,6 +193,74 @@ export const ALLOWED_TABLE_COLUMNS = {
     "created_at",
     "updated_at",
   ]),
+
+  suppliers: new Set([
+    "id",
+    "name",
+    "contact_person",
+    "phone",
+    "email",
+    "address",
+    "opening_balance",
+    "created_at",
+    "updated_at",
+  ]),
+
+  purchase_invoices: new Set([
+    "id",
+    "invoice_number",
+    "supplier_id",
+    "supplier_name",
+    "chalan_number",
+    "invoice_date",
+    "total_amount",
+    "paid_amount",
+    "due_amount",
+    "payment_status",
+    "items",
+    "notes",
+    "created_at",
+    "updated_at",
+  ]),
+
+  supplier_payments: new Set([
+    "id",
+    "payment_number",
+    "supplier_id",
+    "supplier_name",
+    "payment_date",
+    "amount",
+    "payment_method",
+    "reference_no",
+    "notes",
+    "created_at",
+  ]),
+
+  handovers: new Set([
+    "id",
+    "handover_number",
+    "officer_id",
+    "officer_name",
+    "session_date",
+    "total_amount",
+    "cash_amount",
+    "bkash_amount",
+    "cheque_amount",
+    "verification_pin",
+    "status",
+    "collection_ids",
+    "created_at",
+    "verified_at",
+    "verified_by",
+  ]),
+
+  route_plan: new Set([
+    "id",
+    "customer_id",
+    "day_of_week",
+    "notes",
+    "created_at",
+  ]),
 } as const;
 
 export type SupabaseTableName = keyof typeof ALLOWED_TABLE_COLUMNS;
@@ -328,6 +396,8 @@ const FOREIGN_KEY_COLUMNS = new Set([
   "manager_id",
   "user_id",
   "category_id",
+  "supplier_id",
+  "officer_id",
 ]);
 
 /**
@@ -456,11 +526,43 @@ export function sanitizeOrderPayload<T extends Record<string, any>>(raw: T, isIn
   if (sanitized.payment_status && !["Unpaid", "Partial", "Paid"].includes(sanitized.payment_status)) {
     sanitized.payment_status = "Unpaid";
   }
+  // Enforce strictly formatted YYYY-MM-DD or null for delivery_date
+  if (sanitized.delivery_date) {
+    const dStr = String(sanitized.delivery_date).trim();
+    if (dStr === "" || dStr === "null" || dStr === "undefined") {
+      sanitized.delivery_date = null;
+    } else {
+      const match = dStr.match(/^(\d{4}-\d{2}-\d{2})/);
+      sanitized.delivery_date = match ? match[1] : null;
+    }
+  } else {
+    sanitized.delivery_date = null;
+  }
   return sanitized;
 }
 
 export function sanitizeOrderItemPayload<T extends Record<string, any>>(raw: T, isInsert = false): Record<string, any> {
   return sanitizePayload("order_items", raw, { generateIdIfMissing: isInsert });
+}
+
+export function sanitizeSupplierPayload<T extends Record<string, any>>(raw: T, isInsert = false): Record<string, any> {
+  return sanitizePayload("suppliers", raw, { generateIdIfMissing: isInsert });
+}
+
+export function sanitizePurchaseInvoicePayload<T extends Record<string, any>>(raw: T, isInsert = false): Record<string, any> {
+  return sanitizePayload("purchase_invoices", raw, { generateIdIfMissing: isInsert });
+}
+
+export function sanitizeSupplierPaymentPayload<T extends Record<string, any>>(raw: T, isInsert = false): Record<string, any> {
+  return sanitizePayload("supplier_payments", raw, { generateIdIfMissing: isInsert });
+}
+
+export function sanitizeHandoverPayload<T extends Record<string, any>>(raw: T, isInsert = false): Record<string, any> {
+  return sanitizePayload("handovers", raw, { generateIdIfMissing: isInsert });
+}
+
+export function sanitizeRoutePlanPayload<T extends Record<string, any>>(raw: T, isInsert = false): Record<string, any> {
+  return sanitizePayload("route_plan", raw, { generateIdIfMissing: isInsert });
 }
 
 export function sanitizeCollectionPayload<T extends Record<string, any>>(raw: T, isInsert = false): Record<string, any> {

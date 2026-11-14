@@ -37,6 +37,8 @@ import {
   sanitizeCustomerPayload,
   sanitizeOrderPayload,
   executeWithSchemaResilience,
+  generateUuid,
+  isValidUuid,
 } from "@/lib/payloadSanitizer";
 
 export const PAYMENT_METHODS = [
@@ -295,7 +297,7 @@ export function CashCollectionModal({
       const targetOrder: Order | undefined = allOrders.find((o: Order) => o.id === orderId);
       const colId = isEditing
         ? editingCollection!.id
-        : (crypto.randomUUID ? crypto.randomUUID() : `col-${Date.now()}`);
+        : generateUuid();
 
       const finalBank = isCheque ? bankName.trim() || null : null;
       const finalBranch = isCheque ? branchName.trim() || null : null;
@@ -490,8 +492,80 @@ export function CashCollectionModal({
         );
       }
 
+      // 4. Remote Supabase persistence (strictly awaited before declaring success)
+      const cleanColPayload = sanitizeCollectionPayload({
+        id: colId,
+        collection_number: colNum,
+        customer_id: customerId,
+        order_id: orderId || null,
+        amount: amt,
+        payment_method: paymentMethod || "Cash",
+        collection_date: collectionDate ? new Date(collectionDate).toISOString() : new Date().toISOString(),
+        collected_by: isValidUuid(profile?.id) ? profile?.id : null,
+        notes: finalNote || null,
+      }, !isEditing);
+
+      if (isEditing) {
+        const { error: updErr } = await supabase
+          .from("collections")
+          .update(cleanColPayload)
+          .eq("id", colId);
+
+        if (updErr) {
+          toast.error("Cloud collection update error: " + updErr.message);
+          return;
+        }
+      } else {
+        const { error: insErr } = await supabase
+          .from("collections")
+          .insert(cleanColPayload);
+
+        if (insErr) {
+          toast.error("Cloud collection record error: " + insErr.message);
+          return;
+        }
+      }
+
+      // Update customer current_due in Supabase
+      if (targetCustomer) {
+        const cleanCustUpdate = sanitizeCustomerPayload({
+          current_due: updatedCustDue,
+          due_status: updatedCustStatus,
+          updated_at: new Date().toISOString(),
+        });
+        await supabase
+          .from("customers")
+          .update(cleanCustUpdate)
+          .eq("id", targetCustomer.id);
+      }
+
+      // Update order in Supabase if linked
+      if (targetOrder) {
+        const cleanOrdUpdate = sanitizeOrderPayload({
+          paid_amount: updatedOrderPaid,
+          due_amount: updatedOrderDue,
+          payment_status: updatedOrderStatus,
+          updated_at: new Date().toISOString(),
+        });
+        await supabase
+          .from("orders")
+          .update(cleanOrdUpdate)
+          .eq("id", targetOrder.id);
+      }
+
+      // 5. Update local state and close modal ONLY on confirmed server response
       if (targetOrder || (previousOrderId && previousOrderId !== currentOrderId)) {
         saveOrders(nextOrds);
+      }
+
+      const refreshedCols: Collection[] = getLocalData<Collection[]>(STORAGE_KEYS.COLLECTIONS, []);
+      if (isEditing) {
+        const reconciled = refreshedCols.map((item: Collection) =>
+          item.id === colId ? ({ ...collectionRecord, is_offline: false, _unsynced: false, _modifiedAt: Date.now() } as Collection) : item,
+        );
+        saveCollections(reconciled);
+      } else {
+        saveCollections([collectionRecord, ...refreshedCols.filter((c) => c.id !== colId)]);
       }
 
       dispatchGlobalStateUpdate({ customerId: targetCustomer?.id, type: isEditing ? "collection_updated" : "collection_created" });
@@ -499,84 +573,11 @@ export function CashCollectionModal({
         window.dispatchEvent(new Event("sales_erp_storage_update"));
         window.dispatchEvent(new Event("storage"));
       }
+
       toast.success(isEditing ? (t("updated") || "Collection updated successfully") : (t("created") || "Collection recorded successfully"));
       isDirtyRef.current = false;
       onSaved?.(collectionRecord);
       onClose();
-
-      // 4. Remote Supabase persistence (strictly aligned with physical collections schema)
-      try {
-        const cleanColPayload = sanitizeCollectionPayload({
-          collection_number: colNum,
-          customer_id: customerId,
-          order_id: orderId || null,
-          amount: amt,
-          payment_method: paymentMethod || "Cash",
-          collection_date: collectionDate ? new Date(collectionDate).toISOString() : new Date().toISOString(),
-          collected_by: profile?.id || null,
-          notes: finalNote || null,
-        }, !isEditing);
-
-        if (isEditing) {
-          const { error: updErr } = await executeWithSchemaResilience("collections", cleanColPayload, (p) =>
-            supabase.from("collections").update(p).eq("id", colId),
-          );
-          if (updErr) {
-            toast.error("Cloud collection update error: " + updErr.message);
-            return;
-          }
-          const refreshedCols: Collection[] = getLocalData<Collection[]>(STORAGE_KEYS.COLLECTIONS, []);
-          const reconciled: Collection[] = refreshedCols.map((item: Collection) =>
-            item.id === colId ? ({ ...item, is_offline: false, _unsynced: false, _modifiedAt: Date.now() } as Collection) : item,
-          );
-          saveCollections(reconciled);
-        } else {
-          const { data, error: insErr } = await executeWithSchemaResilience("collections", cleanColPayload, (p) =>
-            supabase.from("collections").insert(p).select().single(),
-          );
-          const insertData: any = data;
-
-          if (insErr || !insertData?.id) {
-            toast.error("Cloud collection record error: " + (insErr?.message || "Failed to persist collection"));
-            return;
-          }
-
-          const refreshedCols: Collection[] = getLocalData<Collection[]>(STORAGE_KEYS.COLLECTIONS, []);
-          const reconciled: Collection[] = refreshedCols.map((item: Collection) =>
-            item.id === colId ? ({ ...item, id: insertData.id, is_offline: false, _unsynced: false, _modifiedAt: Date.now() } as Collection) : item,
-          );
-          saveCollections(reconciled);
-        }
-
-        if (targetCustomer) {
-          const cleanCustUpdate = sanitizeCustomerPayload({
-            current_due: updatedCustDue,
-            due_status: updatedCustStatus,
-            updated_at: new Date().toISOString(),
-          });
-          await supabase
-            .from("customers")
-            .update(cleanCustUpdate)
-            .eq("id", targetCustomer.id);
-        }
-
-        if (targetOrder) {
-          const cleanOrdUpdate = sanitizeOrderPayload({
-            paid_amount: updatedOrderPaid,
-            due_amount: updatedOrderDue,
-            payment_status: updatedOrderStatus,
-            updated_at: new Date().toISOString(),
-          });
-          await supabase
-            .from("orders")
-            .update(cleanOrdUpdate)
-            .eq("id", targetOrder.id);
-        }
-
-        dispatchGlobalStateUpdate({ customerId: targetCustomer?.id, type: "collection_synced" });
-      } catch (syncErr: any) {
-        toast.error("Database persistence error: " + (syncErr?.message || syncErr));
-      }
     } catch (e: any) {
       toast.error(e.message || "Failed to record collection");
     } finally {

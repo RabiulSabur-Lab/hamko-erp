@@ -12,6 +12,8 @@ import { SearchableSelect, type SearchableOption } from "@/components/Searchable
 import { formatBDT } from "@/lib/utils";
 import { useRouter } from "@/router";
 import { toast } from "sonner";
+import { supabase } from "@/lib/supabase";
+import { generateUuid } from "@/lib/payloadSanitizer";
 import {
   getSuppliers,
   saveSupplier,
@@ -88,33 +90,41 @@ export function PurchaseInvoice() {
 
   useEffect(() => {
     let mounted = true;
-    const supList = getSuppliers();
-    setSuppliers(supList);
-    const hamko = supList.find((s) => s.name.toLowerCase().includes("hamko")) || supList[0];
-    if (hamko && (!supplierId || !supList.some((s) => s.id === supplierId))) {
-      setSupplierId(hamko.id);
-    }
-    const currentProds = getProducts();
-    setProducts(currentProds);
 
-    if (currentProds.length === 0 || supList.length <= 1) {
-      void pullFreshCloudStateToLocalStore({ force: true, silent: true }).then(() => {
-        if (mounted) {
-          const freshSuppliers = getSuppliers();
-          setSuppliers(freshSuppliers);
-          const freshHamko = freshSuppliers.find((s) => s.name.toLowerCase().includes("hamko")) || freshSuppliers[0];
-          if (freshHamko && (!supplierId || !freshSuppliers.some((s) => s.id === supplierId))) {
-            setSupplierId(freshHamko.id);
+    const fetchLive = async () => {
+      try {
+        const [supRes, prodRes] = await Promise.all([
+          supabase.from("suppliers").select("*").order("name"),
+          supabase.from("products").select("*").order("name"),
+        ]);
+        if (!mounted) return;
+        if (supRes.data && Array.isArray(supRes.data) && supRes.data.length > 0) {
+          setSuppliers(supRes.data as Supplier[]);
+          const hamko = (supRes.data as Supplier[]).find((s) => s.name.toLowerCase().includes("hamko")) || supRes.data[0];
+          if (hamko) {
+            setSupplierId((prev) => prev || hamko.id);
           }
+        } else {
+          setSuppliers(getSuppliers());
+        }
+        if (prodRes.data && Array.isArray(prodRes.data) && prodRes.data.length > 0) {
+          setProducts(prodRes.data as Product[]);
+        } else {
           setProducts(getProducts());
         }
-      });
-    }
+      } catch {
+        if (mounted) {
+          setSuppliers(getSuppliers());
+          setProducts(getProducts());
+        }
+      }
+    };
+
+    fetchLive();
 
     const handleStorage = () => {
       if (!mounted) return;
-      setSuppliers(getSuppliers());
-      setProducts(getProducts());
+      fetchLive();
     };
 
     window.addEventListener("storage", handleStorage);
@@ -256,13 +266,14 @@ export function PurchaseInvoice() {
 
     setSaving(true);
     try {
-      const lineItems: PurchaseInvoiceItem[] = validItems.map((it, idx) => {
+      const invoiceId = generateUuid();
+      const lineItems: PurchaseInvoiceItem[] = validItems.map((it) => {
         const prod = products.find((p) => p.id === it.product_id);
         const qty = Math.max(1, Math.round(Number(it.quantity) || 1));
         const rate = Math.max(0, r2(Number(it.purchase_rate) || 0));
         return {
-          id: `pi-item-${Date.now()}-${idx}`,
-          invoice_id: "",
+          id: generateUuid(),
+          invoice_id: invoiceId,
           product_id: it.product_id,
           product_name: prod?.name || "Product",
           sku_code: prod?.sku_code || "SKU",
@@ -272,8 +283,31 @@ export function PurchaseInvoice() {
         };
       });
 
-      // 1. Save purchase invoice chalan and record ledger/audit trail (handles stock increment internally)
+      // 1. Direct Supabase insertion into purchase_invoices
+      const cleanChalan = {
+        id: invoiceId,
+        invoice_number: invoiceNumber.trim(),
+        supplier_id: selectedSupplier.id,
+        supplier_name: selectedSupplier.name,
+        chalan_number: invoiceNumber.trim(),
+        invoice_date: invoiceDate,
+        total_amount: totalAmount,
+        paid_amount: immediatePaid,
+        due_amount: netPayableAdded,
+        payment_status: netPayableAdded <= 0 ? "paid" : immediatePaid > 0 ? "partial" : "unpaid",
+        items: lineItems,
+        notes: notes.trim() || null,
+      };
+
+      const { error: piErr } = await supabase.from("purchase_invoices").insert(cleanChalan);
+      if (piErr) {
+        toast.error(`Database procurement chalan error: ${piErr.message}`);
+        return;
+      }
+
+      // 2. Save purchase invoice chalan and record ledger/audit trail locally
       savePurchaseInvoice({
+        id: invoiceId,
         invoice_number: invoiceNumber.trim(),
         supplier_id: selectedSupplier.id,
         supplier_name: selectedSupplier.name,
@@ -287,7 +321,7 @@ export function PurchaseInvoice() {
         items: lineItems,
       });
 
-      // 2. Refresh local products state from single source of truth
+      // 3. Refresh local products state from single source of truth
       setProducts(getProducts());
       window.dispatchEvent(new Event("sales_erp_storage_update"));
 

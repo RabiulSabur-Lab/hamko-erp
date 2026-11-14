@@ -5785,7 +5785,10 @@ export function deleteSupplierPayment(paymentId: string): boolean {
  */
 export function getSupplierLedgerDetails(
   supplierId: string,
-  options?: { startDate?: string; endDate?: string }
+  options?: { startDate?: string; endDate?: string },
+  sourceSuppliers?: Supplier[],
+  sourceInvoices?: PurchaseInvoice[],
+  sourcePayments?: SupplierPayment[]
 ): {
   supplier: Supplier | null;
   openingBalance: number;
@@ -5794,7 +5797,7 @@ export function getSupplierLedgerDetails(
   closingPayable: number;
   entries: SupplierLedgerEntry[];
 } {
-  const suppliers = getSuppliers();
+  const suppliers = sourceSuppliers && sourceSuppliers.length > 0 ? sourceSuppliers : getSuppliers();
   const supplier = suppliers.find((s) => s.id === supplierId) || null;
 
   if (!supplier) {
@@ -5809,8 +5812,8 @@ export function getSupplierLedgerDetails(
   }
 
   const baseOpening = r2(Number(supplier.opening_balance || 0));
-  const invoices = getPurchaseInvoices().filter((inv) => inv.supplier_id === supplierId);
-  const payments = getSupplierPayments().filter((pay) => pay.supplier_id === supplierId);
+  const invoices = (sourceInvoices && sourceInvoices.length > 0 ? sourceInvoices : getPurchaseInvoices()).filter((inv) => inv.supplier_id === supplierId);
+  const payments = (sourcePayments && sourcePayments.length > 0 ? sourcePayments : getSupplierPayments()).filter((pay) => pay.supplier_id === supplierId);
 
   // Combine invoices and payments into a chronological sequence
   type RawEvent = {

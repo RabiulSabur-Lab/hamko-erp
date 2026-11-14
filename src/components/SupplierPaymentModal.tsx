@@ -7,6 +7,8 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { formatBDT } from "@/lib/utils";
 import { toast } from "sonner";
+import { supabase } from "@/lib/supabase";
+import { generateUuid } from "@/lib/payloadSanitizer";
 import {
   getSuppliers,
   getPurchaseInvoices,
@@ -166,7 +168,28 @@ export function SupplierPaymentModal({
         finalNotes = finalNotes ? `${finalNotes} (${cashRefNote})` : cashRefNote;
       }
 
+      const paymentId = generateUuid();
+      const dbPaymentMethod = paymentMode.toLowerCase().includes("bank") ? "bank" : paymentMode.toLowerCase().includes("cheque") ? "cheque" : paymentMode.toLowerCase().includes("bkash") ? "mfs" : "cash";
+
+      const { error: spayErr } = await supabase.from("supplier_payments").insert({
+        id: paymentId,
+        payment_number: finalVoucherNumber,
+        reference_no: finalVoucherNumber,
+        supplier_id: selectedSupplier.id,
+        supplier_name: selectedSupplier.name,
+        amount: payAmount,
+        payment_method: dbPaymentMethod,
+        payment_date: paymentDate,
+        notes: finalNotes || null,
+      });
+
+      if (spayErr) {
+        toast.error(`Database supplier payment error: ${spayErr.message}`);
+        return;
+      }
+
       saveSupplierPayment({
+        id: paymentId,
         payment_number: finalVoucherNumber,
         reference_no: finalVoucherNumber,
         supplier_id: selectedSupplier.id,
