@@ -221,8 +221,8 @@ export function OrderCreate() {
     return role.includes("admin");
   }, [profile, user]);
 
-  const [customers, setCustomers] = useState<Customer[]>(() => getCustomers());
-  const [products, setProducts] = useState<Product[]>(() => getProducts());
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
   const [saving, setSaving] = useState(false);
 
   // Form State
@@ -253,15 +253,6 @@ export function OrderCreate() {
     let timeoutId: any;
     let isMounted = true;
 
-    const refreshLocal = () => {
-      clearTimeout(timeoutId);
-      timeoutId = setTimeout(() => {
-        if (!isMounted) return;
-        setCustomers(getCustomers());
-        setProducts(getProducts());
-      }, 100);
-    };
-
     // Live Supabase fetch
     async function fetchLive() {
       try {
@@ -271,25 +262,21 @@ export function OrderCreate() {
         ]);
         if (!isMounted) return;
         if (!cRes.error && Array.isArray(cRes.data) && cRes.data.length > 0) {
-          const enrichedCusts = mergeAndEnrichCustomers(cRes.data as Customer[], { persist: true });
-          setCustomers(enrichedCusts.filter((c) => c.is_active !== false && c.status !== "Inactive"));
+          setCustomers((cRes.data as Customer[]).filter((c) => c.is_active !== false && c.status !== "Inactive"));
         } else if (cRes.error) {
           // Fallback query if joined/extended columns encounter schema issues
           const fbCust = await supabase.from("customers").select("*").order("name", { ascending: true });
           if (!fbCust.error && Array.isArray(fbCust.data) && isMounted) {
-            const enriched = mergeAndEnrichCustomers(fbCust.data as Customer[], { persist: true });
-            setCustomers(enriched.filter((c) => c.is_active !== false && c.status !== "Inactive"));
+            setCustomers((fbCust.data as Customer[]).filter((c) => c.is_active !== false && c.status !== "Inactive"));
           }
         }
 
         if (!pRes.error && Array.isArray(pRes.data) && pRes.data.length > 0) {
-          const reconciledProds = reconcileProductsWithRemote(pRes.data as Product[], { persist: true });
-          setProducts(reconciledProds.filter((p) => p.is_active !== false));
+          setProducts((pRes.data as Product[]).filter((p) => p.is_active !== false));
         } else if (pRes.error) {
           const fbProd = await supabase.from("products").select("*").order("name", { ascending: true });
           if (!fbProd.error && Array.isArray(fbProd.data) && isMounted) {
-            const reconciled = reconcileProductsWithRemote(fbProd.data as Product[], { persist: true });
-            setProducts(reconciled.filter((p) => p.is_active !== false));
+            setProducts((fbProd.data as Product[]).filter((p) => p.is_active !== false));
           }
         }
       } catch (err) {
@@ -315,18 +302,13 @@ export function OrderCreate() {
       console.warn("OrderCreate realtime setup notice:", e);
     }
 
-    window.addEventListener("sales_erp_storage_update", refreshLocal);
-    window.addEventListener("storage", refreshLocal);
     return () => {
       isMounted = false;
-      clearTimeout(timeoutId);
       try {
         if (orderCreateChannel && supabase?.removeChannel) {
           supabase.removeChannel(orderCreateChannel);
         }
       } catch (e) {}
-      window.removeEventListener("sales_erp_storage_update", refreshLocal);
-      window.removeEventListener("storage", refreshLocal);
     };
   }, []);
 
@@ -726,7 +708,7 @@ export function OrderCreate() {
 
     // Backend/submission handler re-validates stock before inserting non-Draft orders
     if (status !== "Draft") {
-      const freshProducts = getProducts();
+      const freshProducts = products;
       const productQuantities = new Map<string, number>();
       for (const it of validItems) {
         const currentSum = productQuantities.get(it.product_id) || 0;
@@ -948,14 +930,7 @@ export function OrderCreate() {
 
         if (ordErr) {
           toast.error(`Server order creation failed: ${ordErr.message}`);
-          // Retain order with unsynced protection in local store
-          const currentOrders = getOrders();
-          saveOrders(currentOrders.map((o) => (o.id === orderId ? { ...o, _unsynced: true, is_offline: true, _modifiedAt: Date.now() } : o)));
           return;
-        } else {
-          // Clear unsynced flag upon successful persistence
-          const currentOrders = getOrders();
-          saveOrders(currentOrders.map((o) => (o.id === orderId ? { ...o, _unsynced: false, is_offline: false, _modifiedAt: Date.now() } : o)));
         }
 
         if (additionalCashPaid > 0) {

@@ -6,6 +6,7 @@ import {
   type Order,
   type Collection,
   type Product,
+  type Customer,
 } from "@/lib/supabase";
 import { useAuth, hasActiveSessionToken } from "@/lib/auth";
 import {
@@ -16,21 +17,6 @@ import {
   type SupabaseFailureKind,
 } from "@/lib/supabaseQuery";
 import { useAutoSync } from "@/hooks/useAutoSync";
-import {
-  getOrders,
-  getCollections,
-  getCustomers,
-  getLocalData,
-  setLocalData,
-  getDeletedIds,
-  mergeAndEnrichCustomers,
-  reconcileOrdersWithRemote,
-  reconcileCollectionsWithRemote,
-  reconcileProductsWithRemote,
-  STORAGE_KEYS,
-  type Customer,
-} from "@/utils/localStore";
-import { pullFreshCloudStateToLocalStore, clearCloudPullThrottle } from "@/utils/cloudSync";
 
 export interface PrevDashboardMetrics {
   prevCollection: number;
@@ -68,17 +54,6 @@ const SKELETON_HARD_CAP_MS = 3500;
 const MIN_AUTO_FETCH_INTERVAL_MS = 1500;
 const MAX_LOCAL_CACHE_ORDERS = 400;
 const MAX_LOCAL_CACHE_COLLECTIONS = 800;
-
-const DASHBOARD_RELEVANT_KEYS = new Set<string>([
-  STORAGE_KEYS.ORDERS,
-  STORAGE_KEYS.DELETED_ORDERS,
-  STORAGE_KEYS.COLLECTIONS,
-  STORAGE_KEYS.DELETED_COLLECTIONS,
-  STORAGE_KEYS.CUSTOMERS,
-  STORAGE_KEYS.DELETED_CUSTOMERS,
-  STORAGE_KEYS.PRODUCTS,
-  STORAGE_KEYS.DELETED_PRODUCTS,
-]);
 
 /**
  * Yields control back to the browser's main thread so rendering and user input never freeze.
@@ -172,46 +147,6 @@ function scheduleIdleTask(cb: () => void): void {
   }
 }
 
-function readCachedDashboardSnapshot() {
-  try {
-    const deletedOrderIds = getDeletedIds(STORAGE_KEYS.DELETED_ORDERS);
-    const cachedOrders: Order[] = getOrders().filter((o) => o && !deletedOrderIds.has(o.id));
-
-    const deletedColIds = getDeletedIds(STORAGE_KEYS.DELETED_COLLECTIONS);
-    const cachedCols: Collection[] = getCollections().filter((c) => c && !deletedColIds.has(c.id));
-
-    const cachedCustomers = getCustomers();
-    const deletedProdIds = getDeletedIds(STORAGE_KEYS.DELETED_PRODUCTS);
-    const rawCachedProducts = getLocalData<Product[]>(STORAGE_KEYS.PRODUCTS, []);
-    const cachedProducts = Array.isArray(rawCachedProducts)
-      ? rawCachedProducts.filter((p) => p && !deletedProdIds.has(String(p.id)))
-      : [];
-
-    const hasAnyCached =
-      cachedOrders.length > 0 ||
-      cachedCols.length > 0 ||
-      cachedCustomers.length > 0 ||
-      cachedProducts.length > 0;
-
-    return {
-      orders: cachedOrders,
-      collections: cachedCols,
-      customers: cachedCustomers,
-      products: cachedProducts,
-      hasAnyCached,
-    };
-  } catch (err) {
-    console.warn("[Dashboard] Failed reading local snapshot, using clean empty defaults:", err);
-    return {
-      orders: [] as Order[],
-      collections: [] as Collection[],
-      customers: [] as Customer[],
-      products: [] as Product[],
-      hasAnyCached: false,
-    };
-  }
-}
-
 function computePreviousMetrics(
   collectionsList: Collection[],
   customersList: Customer[],
@@ -256,23 +191,17 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
   const langRef = useRef(lang);
   langRef.current = lang;
 
-  // Synchronously hydrate once from localStorage if available to avoid skeleton flash
-  const initialSnapshotRef = useRef<ReturnType<typeof readCachedDashboardSnapshot> | null>(null);
-  if (initialSnapshotRef.current === null) {
-    initialSnapshotRef.current = readCachedDashboardSnapshot();
-  }
-
-  const [orders, setOrders] = useState<Order[]>(() => initialSnapshotRef.current!.orders);
-  const [collections, setCollections] = useState<Collection[]>(() => initialSnapshotRef.current!.collections);
-  const [customers, setCustomers] = useState<Customer[]>(() => initialSnapshotRef.current!.customers);
-  const [products, setProducts] = useState<Product[]>(() => initialSnapshotRef.current!.products);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [collections, setCollections] = useState<Collection[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
   const [prevMetrics, setPrevMetrics] = useState<PrevDashboardMetrics>({
     prevCollection: 0,
     prevDue: 0,
     prevCustCount: 0,
   });
 
-  const [loading, setLoading] = useState<boolean>(() => !initialSnapshotRef.current!.hasAnyCached);
+  const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [isFallbackData, setIsFallbackData] = useState<boolean>(false);
   const [lastSynced, setLastSynced] = useState<Date | null>(null);
@@ -282,35 +211,6 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
   const inFlightRef = useRef<Promise<void> | null>(null);
   const lastAutoFetchAtRef = useRef<number>(0);
   const initialFetchedForUserRef = useRef<string | null>(null);
-  const lastToastTimeRef = useRef<number>(0);
-
-  const applyLocalFallback = useCallback(() => {
-    const snap = readCachedDashboardSnapshot();
-    const now = new Date();
-    const pad = (n: number) => String(n).padStart(2, "0");
-    const monthStart = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-01`;
-    const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    const prevMonthStart = `${prevMonth.getFullYear()}-${pad(prevMonth.getMonth() + 1)}-01`;
-    const prevWeekEnd = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
-
-    startTransition(() => {
-      setOrders(snap.orders);
-      setCollections(snap.collections);
-      setCustomers(snap.customers);
-      setProducts(snap.products);
-      setPrevMetrics(
-        computePreviousMetrics(snap.collections, snap.customers, prevMonthStart, monthStart, prevWeekEnd),
-      );
-      setIsFallbackData(false);
-    });
-  }, []);
-
-  const surfaceFailureNotification = useCallback(
-    (_issue: DashboardConnectionIssue, _isManual: boolean, _retryFn: () => void) => {
-      // Suppressed: Never display intrusive warning toasts on the dashboard
-    },
-    [],
-  );
 
   // Stable identity (no session object in deps!) prevents infinite useEffect re-execution loops
   const fetchFromSupabase = useCallback(
@@ -319,9 +219,8 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
         return inFlightRef.current;
       }
 
-      const isColdStart = orders.length === 0 && !initialSnapshotRef.current?.hasAnyCached;
       const nowMs = Date.now();
-      if (!isManual && !isColdStart && nowMs - lastAutoFetchAtRef.current < MIN_AUTO_FETCH_INTERVAL_MS) {
+      if (!isManual && nowMs - lastAutoFetchAtRef.current < MIN_AUTO_FETCH_INTERVAL_MS) {
         return;
       }
       lastAutoFetchAtRef.current = nowMs;
@@ -329,8 +228,6 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
       if (isManual) {
         initialFetchedForUserRef.current = null;
         lastAutoFetchAtRef.current = 0;
-        clearCloudPullThrottle();
-        void pullFreshCloudStateToLocalStore({ force: true, silent: true }).catch(() => null);
         if (mountedRef.current) {
           setRefreshing(true);
         }
@@ -338,12 +235,11 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
 
       const task = (async () => {
         try {
-          // 0. Fast-path when browser reports offline — fall back in 0ms without opening doomed sockets
+          // 0. Fast-path when browser reports offline
           if (typeof navigator !== "undefined" && navigator.onLine === false) {
             if (!mountedRef.current) return;
-            applyLocalFallback();
-            setConnectionIssue(null);
-            setIsFallbackData(false);
+            setLoading(false);
+            setRefreshing(false);
             return;
           }
 
@@ -487,26 +383,18 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
 
           // ── Orders (Cloud-Authoritative) ────────────────────────────────────
           let resolvedOrders: Order[] = [];
-          let shouldCacheOrders = false;
-          const deletedOrderIds = getDeletedIds(STORAGE_KEYS.DELETED_ORDERS);
-          if (!oRes.error && oRes.data !== null) {
-            resolvedOrders = reconcileOrdersWithRemote(oRes.data, { persist: false });
-            shouldCacheOrders = true;
+          if (!oRes.error && Array.isArray(oRes.data)) {
+            resolvedOrders = oRes.data as Order[];
           } else {
             recordFailure("orders", oRes.error);
-            resolvedOrders = getOrders().filter((o) => o && !deletedOrderIds.has(o.id));
           }
 
           // ── Collections (Cloud-Authoritative) ───────────────────────────────
           let resolvedCollections: Collection[] = [];
-          let shouldCacheCollections = false;
-          const deletedColIds = getDeletedIds(STORAGE_KEYS.DELETED_COLLECTIONS);
-          if (!colRes.error && colRes.data !== null) {
-            resolvedCollections = reconcileCollectionsWithRemote(colRes.data, { persist: false });
-            shouldCacheCollections = true;
+          if (!colRes.error && Array.isArray(colRes.data)) {
+            resolvedCollections = colRes.data as Collection[];
           } else {
             recordFailure("collections", colRes.error);
-            resolvedCollections = getCollections().filter((c) => c && !deletedColIds.has(c.id));
           }
 
           // Yield again before customer enrichment & state commit
@@ -515,29 +403,18 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
 
           // ── Customers (Cloud-Authoritative) ─────────────────────────────────
           let resolvedCustomers: Customer[] = [];
-          let shouldCacheCustomers = false;
-          if (!custRes.error && custRes.data !== null) {
-            // Defer localStorage write (`persist: false`) to idle callback so main thread stays silky-smooth
-            resolvedCustomers = mergeAndEnrichCustomers(custRes.data, { persist: false });
-            shouldCacheCustomers = true;
+          if (!custRes.error && Array.isArray(custRes.data)) {
+            resolvedCustomers = custRes.data as Customer[];
           } else {
             recordFailure("customers", custRes.error);
-            resolvedCustomers = getCustomers();
           }
 
           // ── Products (Cloud-Authoritative) ──────────────────────────────────
           let resolvedProducts: Product[] = [];
-          let shouldCacheProducts = false;
-          const deletedProdIds = getDeletedIds(STORAGE_KEYS.DELETED_PRODUCTS);
-          if (!prodRes.error && prodRes.data !== null) {
-            resolvedProducts = reconcileProductsWithRemote(prodRes.data, { persist: false });
-            shouldCacheProducts = true;
+          if (!prodRes.error && Array.isArray(prodRes.data)) {
+            resolvedProducts = prodRes.data as Product[];
           } else {
             recordFailure("products", prodRes.error);
-            const fallbackProds = getLocalData<Product[]>(STORAGE_KEYS.PRODUCTS, []);
-            resolvedProducts = Array.isArray(fallbackProds)
-              ? fallbackProds.filter((p) => p && !deletedProdIds.has(String(p.id)))
-              : [];
           }
 
           const computedPrev = computePreviousMetrics(
@@ -558,22 +435,7 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
             setPrevMetrics(computedPrev);
           });
 
-          // Persist authoritative cache snapshots immediately with reactive storage dispatch
-          if (shouldCacheOrders) {
-            setLocalData(STORAGE_KEYS.ORDERS, resolvedOrders, null, false);
-          }
-          if (shouldCacheCollections) {
-            setLocalData(STORAGE_KEYS.COLLECTIONS, resolvedCollections, null, false);
-          }
-          if (shouldCacheCustomers) {
-            setLocalData(STORAGE_KEYS.CUSTOMERS, resolvedCustomers, null, false);
-          }
-          if (shouldCacheProducts) {
-            setLocalData(STORAGE_KEYS.PRODUCTS, resolvedProducts, null, false);
-          }
-
           // ── Connection diagnostics & user feedback ──────────────────────────
-          // Suppress fallback error banner and warning toasts completely
           setConnectionIssue(null);
           setIsFallbackData(false);
           setLastSynced(new Date());
@@ -591,9 +453,8 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
             );
           }
         } catch (err) {
-          console.warn("Dashboard Supabase fetch error — maintaining local state silently:", err);
+          console.warn("Dashboard Supabase fetch error:", err);
           if (!mountedRef.current) return;
-          applyLocalFallback();
           setConnectionIssue(null);
           setIsFallbackData(false);
         } finally {
@@ -608,27 +469,15 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
       inFlightRef.current = task;
       return task;
     },
-    [applyLocalFallback, surfaceFailureNotification],
+    [],
   );
 
-  // Hard loading timeout: guarantees Dashboard skeleton exits cleanly within 9s on all devices without clobbering active queries
+  // Hard loading timeout: guarantees Dashboard skeleton exits cleanly within 3.5s
   useEffect(() => {
     mountedRef.current = true;
     const watchdog = setTimeout(() => {
       if (mountedRef.current) {
-        setLoading((prevLoading) => {
-          if (prevLoading) {
-            console.warn("[Dashboard] Loading timeout reached (9s). Unlocking UI with fallback state.");
-            // Only apply local fallback if local cache actually has data and no fetch is currently in flight
-            if (!inFlightRef.current) {
-              const snap = readCachedDashboardSnapshot();
-              if (snap.hasAnyCached) {
-                applyLocalFallback();
-              }
-            }
-          }
-          return false;
-        });
+        setLoading(false);
         setRefreshing(false);
       }
     }, SKELETON_HARD_CAP_MS);
@@ -637,9 +486,9 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
       mountedRef.current = false;
       clearTimeout(watchdog);
     };
-  }, [applyLocalFallback]);
+  }, []);
 
-  // Initial cloud fetch from Supabase SSOT (waits for auth session resolution, guarantees 100% parity across incognito/mobile & desktop)
+  // Initial cloud fetch from Supabase SSOT
   useEffect(() => {
     if (authLoading) return;
     const targetKey = userId ?? "__public__";
@@ -694,76 +543,6 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
           // ignore
         }
       }
-    };
-  }, [fetchFromSupabase]);
-
-  // Filtered & debounced listener for local/cross-tab/cloud-pull mutations from other ERP pages
-  useEffect(() => {
-    let debounceTimer: ReturnType<typeof setTimeout> | undefined;
-    let cloudRefetchTimer: ReturnType<typeof setTimeout> | undefined;
-
-    const scheduleLocalSync = () => {
-      if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => {
-        if (!mountedRef.current || inFlightRef.current) return;
-        const snap = readCachedDashboardSnapshot();
-        startTransition(() => {
-          setOrders(snap.orders);
-          setCollections(snap.collections);
-          setCustomers(snap.customers);
-          setProducts(snap.products);
-          if ((eTypeRef.current || "").includes("cloud_")) {
-            setIsFallbackData(false);
-            setConnectionIssue(null);
-            setLastSynced(new Date());
-          }
-        });
-      }, 100);
-    };
-
-    const scheduleCloudRefetch = () => {
-      if (cloudRefetchTimer) clearTimeout(cloudRefetchTimer);
-      cloudRefetchTimer = setTimeout(() => {
-        if (mountedRef.current && !inFlightRef.current) {
-          lastAutoFetchAtRef.current = 0;
-          void fetchFromSupabase(false);
-        }
-      }, 300);
-    };
-
-    const eTypeRef = { current: "" };
-    const handleLocalUpdate = (e: Event) => {
-      const detail = (e as CustomEvent)?.detail;
-      eTypeRef.current = String(detail?.type || "");
-      const detailKey = detail?.key;
-      if (detailKey && !DASHBOARD_RELEVANT_KEYS.has(detailKey)) {
-        return;
-      }
-      scheduleLocalSync();
-
-      // When incoming Realtime CDC payload or fresh cloud pull completes, re-run SSOT verification
-      if (detail?.type === "realtime_cdc" || detail?.type === "cloud_pull_completed") {
-        scheduleCloudRefetch();
-      }
-    };
-
-    const handleCrossTabStorage = (e: StorageEvent) => {
-      if (e.key && !DASHBOARD_RELEVANT_KEYS.has(e.key)) {
-        return;
-      }
-      scheduleLocalSync();
-      scheduleCloudRefetch();
-    };
-
-    window.addEventListener("sales_erp_storage_update", handleLocalUpdate);
-    window.addEventListener("customer_ledger_updated", scheduleLocalSync);
-    window.addEventListener("storage", handleCrossTabStorage);
-    return () => {
-      if (debounceTimer) clearTimeout(debounceTimer);
-      if (cloudRefetchTimer) clearTimeout(cloudRefetchTimer);
-      window.removeEventListener("sales_erp_storage_update", handleLocalUpdate);
-      window.removeEventListener("customer_ledger_updated", scheduleLocalSync);
-      window.removeEventListener("storage", handleCrossTabStorage);
     };
   }, [fetchFromSupabase]);
 

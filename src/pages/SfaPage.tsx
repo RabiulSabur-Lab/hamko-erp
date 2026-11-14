@@ -91,26 +91,11 @@ export function SfaPage() {
   const { profile } = useAuth();
   const { getUserName } = useUsers();
   const [tab, setTab] = useState("visits");
-  const [loading, setLoading] = useState<boolean>(() => {
-    const list = getLocalData<Visit[]>(STORAGE_KEYS.VISITS, []);
-    return Array.isArray(list) ? list.length === 0 : true;
-  });
-  const [visits, setVisits] = useState<Visit[]>(() => {
-    const list = getLocalData<Visit[]>(STORAGE_KEYS.VISITS, []);
-    return Array.isArray(list) ? list : [];
-  });
-  const [customers, setCustomers] = useState<Customer[]>(() => {
-    const list = getCustomers();
-    return Array.isArray(list) ? list : [];
-  });
-  const [targets, setTargets] = useState<SalesTarget[]>(() => {
-    const list = getLocalData<SalesTarget[]>(STORAGE_KEYS.TARGETS, []);
-    return Array.isArray(list) ? list : [];
-  });
-  const [orders, setOrders] = useState<Order[]>(() => {
-    const list = getOrders();
-    return Array.isArray(list) ? list : [];
-  });
+  const [loading, setLoading] = useState<boolean>(true);
+  const [visits, setVisits] = useState<Visit[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [targets, setTargets] = useState<SalesTarget[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [isOfflineMode, setIsOfflineMode] = useState<boolean>(() => typeof navigator !== "undefined" && !navigator.onLine);
 
@@ -176,26 +161,6 @@ export function SfaPage() {
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
 
-    const handleStorage = () => {
-      const tgts = getLocalData<SalesTarget[]>(STORAGE_KEYS.TARGETS, []);
-      setTargets(Array.isArray(tgts) ? [...tgts] : []);
-      const custs = getCustomers();
-      setCustomers(Array.isArray(custs) ? [...custs] : []);
-      const rts = getLocalData<RouteItem[]>(STORAGE_KEYS.ROUTE_PLAN, []);
-      setRoutes(Array.isArray(rts) ? [...rts] : []);
-      const ords = getOrders();
-      setOrders(Array.isArray(ords) ? [...ords] : []);
-      const vsts = getLocalData<Visit[]>(STORAGE_KEYS.VISITS, []);
-      const deletedVisitIds = getDeletedIds(STORAGE_KEYS.DELETED_VISITS);
-      setVisits(Array.isArray(vsts) ? vsts.filter((v: Visit) => !deletedVisitIds.has(String(v.id))) : []);
-      const ars = getAreas();
-      setAreas(Array.isArray(ars) ? [...ars] : []);
-      setLoading(false);
-    };
-
-    window.addEventListener("storage", handleStorage);
-    window.addEventListener("sales_erp_storage_update", handleStorage);
-
     // Supabase Realtime Channel
     const sfaChannel = supabase
       .channel("sfa-page-realtime")
@@ -214,9 +179,11 @@ export function SfaPage() {
       clearTimeout(watchdog);
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
-      supabase.removeChannel(sfaChannel);
-      window.removeEventListener("storage", handleStorage);
-      window.removeEventListener("sales_erp_storage_update", handleStorage);
+      try {
+        if (sfaChannel && supabase?.removeChannel) {
+          supabase.removeChannel(sfaChannel);
+        }
+      } catch (e) {}
     };
   }, []);
 
@@ -224,7 +191,7 @@ export function SfaPage() {
     if (isManual) setLoading(true);
     try {
       const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("SFA fetch timeout")), 3500)
+        setTimeout(() => reject(new Error("SFA fetch timeout")), 4500)
       );
       const [vRes, cRes, tRes, uRes, oRes] = await Promise.race([
         Promise.all([
@@ -237,31 +204,23 @@ export function SfaPage() {
         timeoutPromise,
       ]);
       if (!vRes.error && Array.isArray(vRes.data)) {
-        const reconciledVisits = reconcileVisitsWithRemote(vRes.data as Visit[], { persist: true });
-        setVisits(reconciledVisits);
-      } else {
-        const deletedVisitIds = getDeletedIds(STORAGE_KEYS.DELETED_VISITS);
-        const localVisits = (getLocalData<Visit[]>(STORAGE_KEYS.VISITS, []) || []).filter((v: Visit) => !deletedVisitIds.has(String(v.id)));
-        setVisits(localVisits);
+        setVisits(vRes.data as Visit[]);
       }
       if (!cRes.error && Array.isArray(cRes.data)) {
-        const mergedCusts = mergeAndEnrichCustomers(cRes.data as Customer[]);
-        setCustomers(mergedCusts.filter((c) => c.is_active !== false && c.status !== "Inactive"));
+        setCustomers((cRes.data as Customer[]).filter((c) => c.is_active !== false && c.status !== "Inactive"));
       }
       if (!tRes.error && Array.isArray(tRes.data)) {
-        const reconciledTargets = reconcileSalesTargetsWithRemote(tRes.data as SalesTarget[], { persist: true });
-        setTargets(reconciledTargets);
+        setTargets(tRes.data as SalesTarget[]);
       }
       if (uRes.data) setUsers(uRes.data as UserProfile[]);
 
       if (!oRes.error && Array.isArray(oRes.data)) {
-        const mergedOrders = reconcileOrdersWithRemote(oRes.data as Order[], { persist: true });
-        setOrders(mergedOrders);
+        setOrders(oRes.data as Order[]);
       }
       setIsOfflineMode(false);
       if (isManual) toast.success("SFA data synchronized");
     } catch (err) {
-      console.warn("Using local SFA cache:", err);
+      console.warn("SFA fetch notice:", err);
       setIsOfflineMode(true);
     } finally {
       setLoading(false);

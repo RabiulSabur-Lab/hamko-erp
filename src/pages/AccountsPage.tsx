@@ -230,11 +230,11 @@ export function AccountsPage() {
     }
   }, [isManagerOrAdmin, tab]);
 
-  const [loading, setLoading] = useState(() => getCollections().length === 0);
-  const [collections, setCollections] = useState<Collection[]>(() => getCollections());
-  const [expenses, setExpenses] = useState<Expense[]>(() => syncSupplierPaymentsToExpenses(getExpenses()));
-  const [customers, setCustomers] = useState<Customer[]>(() => getCustomers());
-  const [orders, setOrders] = useState<Order[]>(() => getOrders());
+  const [loading, setLoading] = useState(true);
+  const [collections, setCollections] = useState<Collection[]>([]);
+  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
   const [isOfflineMode, setIsOfflineMode] = useState<boolean>(() => typeof navigator !== "undefined" && !navigator.onLine);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [ledgerOpen, setLedgerOpen] = useState(false);
@@ -345,18 +345,12 @@ export function AccountsPage() {
 
   const loadAccountsData = useCallback(async (isManual = false) => {
     mountedRef.current = true;
-    const isColdStart = getCollections().length === 0;
-    if (isManual || isColdStart) {
+    if (isManual) {
       setLoading(true);
-      try {
-        await triggerGlobalLiveSync({ silent: true });
-      } catch (err) {
-        console.warn("[AccountsPage] Live sync notice:", err);
-      }
     }
     try {
       const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("Accounts fetch timeout")), 3500)
+        setTimeout(() => reject(new Error("Accounts fetch timeout")), 4500)
       );
       const [usersRes, colRes, expRes, cRes, oRes, officersData] = await Promise.race([
         Promise.all([
@@ -433,30 +427,16 @@ export function AccountsPage() {
       }
 
       const allCustomers: Customer[] = (!cRes.error && Array.isArray(cRes.data))
-        ? mergeAndEnrichCustomers(cRes.data as Customer[], { persist: true })
-        : getCustomers();
+        ? (cRes.data as Customer[])
+        : [];
 
-      let resolvedOrdersData = !oRes.error && Array.isArray(oRes.data) && oRes.data.length > 0 ? oRes.data : null;
-      if (!resolvedOrdersData) {
-        try {
-          const fallbackOrdersRes = await supabase.from("orders").select("id, order_number, customer_id, total_amount, paid_amount, due_amount").limit(1000);
-          if (!fallbackOrdersRes.error && Array.isArray(fallbackOrdersRes.data) && fallbackOrdersRes.data.length > 0) {
-            resolvedOrdersData = fallbackOrdersRes.data as any;
-          } else {
-            const bareOrdersRes = await supabase.from("orders").select("*").limit(1000);
-            if (!bareOrdersRes.error && Array.isArray(bareOrdersRes.data)) {
-              resolvedOrdersData = bareOrdersRes.data as any;
-            }
-          }
-        } catch { }
+      let allOrders: Order[] = [];
+      if (!oRes.error && Array.isArray(oRes.data)) {
+        allOrders = oRes.data as unknown as Order[];
       }
-      const allOrders: Order[] = resolvedOrdersData
-        ? reconcileOrdersWithRemote(resolvedOrdersData as unknown as Order[], { persist: true, maxCache: 500 })
-        : getOrders();
 
       if (remoteCols !== null) {
-        const reconciledCols = reconcileCollectionsWithRemote(remoteCols, { persist: false });
-        const enrichedCols: Collection[] = reconciledCols.map((c: Collection) => {
+        const enrichedCols: Collection[] = remoteCols.map((c: Collection) => {
           const resolvedCollectorName = getUserNameRef.current(
             c.collected_by,
             c.collector?.full_name || (c as any).collector_name || (c as any).collected_by_name || (c as any).sales_rep_name || "Sales Officer"
@@ -472,27 +452,18 @@ export function AccountsPage() {
           (a, b) => new Date(b.collection_date || b.created_at || 0).getTime() - new Date(a.collection_date || a.created_at || 0).getTime()
         );
         setCollections(enrichedCols);
-        setLocalData(STORAGE_KEYS.COLLECTIONS, enrichedCols, null, false);
       } else {
-        setCollections(getCollections().filter((c: Collection) => !deletedColIds.has(c.id)));
+        setCollections([]);
       }
 
       const deletedExpIds = getDeletedIds(STORAGE_KEYS.DELETED_EXPENSES);
       let finalExps: Expense[] = [];
       if (!expRes.error && Array.isArray(expRes.data)) {
-        const remoteExps = (expRes.data as Expense[]).filter((e: any) => !deletedExpIds.has(e.id));
-        const localExps = getExpenses().filter((e: Expense) => !deletedExpIds.has(e.id));
-        const remoteExpIds = new Set(remoteExps.map((e) => String(e.id)));
-        const pendingLocalExps = localExps.filter(
-          (le) => !remoteExpIds.has(String(le.id)) && isPendingOfflineRecord(le)
+        finalExps = syncSupplierPaymentsToExpenses(
+          (expRes.data as Expense[]).filter((e: any) => !deletedExpIds.has(e.id))
         );
-        finalExps = syncSupplierPaymentsToExpenses([...pendingLocalExps, ...remoteExps]);
-      } else {
-        const localExps = getExpenses().filter((e: Expense) => !deletedExpIds.has(e.id));
-        finalExps = syncSupplierPaymentsToExpenses(localExps);
       }
       setExpenses(finalExps);
-      setLocalData(STORAGE_KEYS.EXPENSES, finalExps, null, false);
 
       if (!cRes.error && Array.isArray(cRes.data)) {
         setCustomers(allCustomers);
@@ -505,7 +476,7 @@ export function AccountsPage() {
         toast.success(lang === "bn" ? "অ্যাকাউন্টস ডাটা সফলভাবে সিন্ক হয়েছে" : "Accounts data synchronized with cloud");
       }
     } catch (err) {
-      console.warn("Using cached accounts data due to network error:", err);
+      console.warn("Accounts fetch notice:", err);
       setIsOfflineMode(true);
     } finally {
       if (mountedRef.current) setLoading(false);
@@ -557,45 +528,6 @@ export function AccountsPage() {
       supabase.removeChannel(accChannel);
     };
   }, [loadAccountsData]);
-
-  useEffect(() => {
-    const handleStorageUpdate = () => {
-      mountedRef.current = true;
-      const currentMap = buildUserLookupMap(profileRef.current);
-      setUsersMap((prev) => ({ ...prev, ...currentMap }));
-      setSalesOfficers(getLocalSalesOfficers());
-      const deletedColIds = getDeletedIds(STORAGE_KEYS.DELETED_COLLECTIONS);
-      const updatedCols = getCollections().filter((c) => !deletedColIds.has(c.id));
-      setCollections([...updatedCols]);
-
-      const deletedExpIds = getDeletedIds(STORAGE_KEYS.DELETED_EXPENSES);
-      const updatedExps = syncSupplierPaymentsToExpenses(getExpenses().filter((e) => !deletedExpIds.has(e.id)));
-      setExpenses([...updatedExps]);
-
-      setLoading(false);
-
-      const updatedCusts: Customer[] = getCustomers();
-      setCustomers([...updatedCusts]);
-
-      const updatedOrds: Order[] = getOrders();
-      setOrders([...updatedOrds]);
-
-      // Debounced background check for convergence
-      if (typeof navigator !== "undefined" && navigator.onLine) {
-        void loadAccountsData(false);
-      }
-    };
-
-    window.addEventListener("storage", handleStorageUpdate);
-    window.addEventListener("sales_erp_storage_update", handleStorageUpdate);
-    window.addEventListener("customer_ledger_updated", handleStorageUpdate);
-
-    return () => {
-      window.removeEventListener("storage", handleStorageUpdate);
-      window.removeEventListener("sales_erp_storage_update", handleStorageUpdate);
-      window.removeEventListener("customer_ledger_updated", handleStorageUpdate);
-    };
-  }, []);
 
   const { dueMap, totalDue } = useMemo(() => {
     const uniqueCols = deduplicateCollections(collections);

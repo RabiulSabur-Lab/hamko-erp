@@ -75,6 +75,8 @@ export function SupplierLedger() {
   const { query, navigate } = useRouter();
 
   const [suppliers, setSuppliers] = useState<Supplier[]>(() => getSuppliers());
+  const [purchaseInvoices, setPurchaseInvoices] = useState<PurchaseInvoice[]>([]);
+  const [supplierPayments, setSupplierPayments] = useState<SupplierPayment[]>([]);
   const [selectedSupplierId, setSelectedSupplierId] = useState<string>(() => {
     const list = getSuppliers();
     const hamko = list.find((s) => s.name.toLowerCase().includes("hamko")) || list[0];
@@ -126,18 +128,29 @@ export function SupplierLedger() {
     const fetchRemoteData = async () => {
       try {
         const timeoutPromise = new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error("SupplierLedger fetch timeout")), 3500)
+          setTimeout(() => reject(new Error("SupplierLedger fetch timeout")), 4500)
         );
-        await Promise.race([
-          pullFreshCloudStateToLocalStore({ force: true, silent: true }),
+        const [supRes, invRes, payRes] = await Promise.race([
+          Promise.all([
+            supabase.from("suppliers").select("*").order("name"),
+            supabase.from("purchase_invoices").select("*").order("invoice_date", { ascending: false }),
+            supabase.from("supplier_payments").select("*").order("payment_date", { ascending: false }),
+          ]),
           timeoutPromise,
         ]);
         if (mounted) {
-          const freshList = getSuppliers();
-          setSuppliers(freshList);
-          const freshHamko = freshList.find((s) => s.name.toLowerCase().includes("hamko")) || freshList[0];
-          if (freshHamko && (!selectedSupplierId || !freshList.some((s) => s.id === selectedSupplierId))) {
-            setSelectedSupplierId(freshHamko.id);
+          if (!supRes.error && Array.isArray(supRes.data)) {
+            setSuppliers(supRes.data);
+            const hamko = supRes.data.find((s) => s.name.toLowerCase().includes("hamko")) || supRes.data[0];
+            if (hamko && (!selectedSupplierId || !supRes.data.some((s) => s.id === selectedSupplierId))) {
+              setSelectedSupplierId(hamko.id);
+            }
+          }
+          if (!invRes.error && Array.isArray(invRes.data)) {
+            setPurchaseInvoices(invRes.data);
+          }
+          if (!payRes.error && Array.isArray(payRes.data)) {
+            setSupplierPayments(payRes.data);
           }
           setDataVersion((v) => v + 1);
           setIsOfflineMode(false);
@@ -154,11 +167,23 @@ export function SupplierLedger() {
 
     void fetchRemoteData();
 
+    const chan = supabase
+      .channel("supplier-ledger-page-realtime")
+      .on("postgres_changes", { event: "*", schema: "public", table: "suppliers" }, () => void fetchRemoteData())
+      .on("postgres_changes", { event: "*", schema: "public", table: "purchase_invoices" }, () => void fetchRemoteData())
+      .on("postgres_changes", { event: "*", schema: "public", table: "supplier_payments" }, () => void fetchRemoteData())
+      .subscribe();
+
     return () => {
       mounted = false;
       clearTimeout(watchdog);
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
+      try {
+        if (chan && supabase?.removeChannel) {
+          supabase.removeChannel(chan);
+        }
+      } catch (e) {}
     };
   }, []);
 
@@ -168,30 +193,6 @@ export function SupplierLedger() {
       setSelectedSupplierId(query.supplier);
     }
   }, [query.supplier]);
-
-  // Subscribe to storage update events and realtime channels
-  useEffect(() => {
-    const handleStorage = () => {
-      setSuppliers(getSuppliers());
-      setDataVersion((v) => v + 1);
-      setLoading(false);
-    };
-    window.addEventListener("storage", handleStorage);
-    window.addEventListener("sales_erp_storage_update", handleStorage);
-
-    const chan = supabase
-      .channel("supplier-ledger-page-realtime")
-      .on("postgres_changes", { event: "*", schema: "public", table: "suppliers" }, handleStorage)
-      .on("postgres_changes", { event: "*", schema: "public", table: "purchase_invoices" }, handleStorage)
-      .on("postgres_changes", { event: "*", schema: "public", table: "supplier_payments" }, handleStorage)
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(chan);
-      window.removeEventListener("storage", handleStorage);
-      window.removeEventListener("sales_erp_storage_update", handleStorage);
-    };
-  }, []);
 
   const ledgerData = useMemo(() => {
     if (!selectedSupplierId) {
@@ -212,7 +213,8 @@ export function SupplierLedger() {
   // Invoices for this supplier with dynamic payment allocations
   const supplierInvoices = useMemo(() => {
     if (!selectedSupplierId) return [];
-    let list = getPurchaseInvoices().filter((inv) => inv.supplier_id === selectedSupplierId);
+    const sourceInvs = purchaseInvoices.length > 0 ? purchaseInvoices : getPurchaseInvoices();
+    let list = sourceInvs.filter((inv) => inv.supplier_id === selectedSupplierId);
     if (startDate) {
       list = list.filter((inv) => (inv.invoice_date || inv.created_at.slice(0, 10)) >= startDate);
     }
@@ -220,7 +222,7 @@ export function SupplierLedger() {
       list = list.filter((inv) => (inv.invoice_date || inv.created_at.slice(0, 10)) <= endDate);
     }
     return list;
-  }, [selectedSupplierId, suppliers, startDate, endDate, dataVersion]);
+  }, [selectedSupplierId, suppliers, purchaseInvoices, startDate, endDate, dataVersion]);
 
   // Combined accounting ledger with cumulative running balance and dynamic opening balance
   const procurementLedger = useMemo<{
@@ -234,8 +236,10 @@ export function SupplierLedger() {
       return { entries: [], openingBalance: 0, totalPurchases: 0, totalPayments: 0, closingBalance: 0 };
     }
 
-    const invoices = getPurchaseInvoices().filter((inv) => inv.supplier_id === selectedSupplierId);
-    const payments = getSupplierPayments().filter((pay) => pay.supplier_id === selectedSupplierId);
+    const sourceInvs = purchaseInvoices.length > 0 ? purchaseInvoices : getPurchaseInvoices();
+    const sourcePayments = supplierPayments.length > 0 ? supplierPayments : getSupplierPayments();
+    const invoices = sourceInvs.filter((inv) => inv.supplier_id === selectedSupplierId);
+    const payments = sourcePayments.filter((pay) => pay.supplier_id === selectedSupplierId);
 
     type RawEvent = {
       id: string;

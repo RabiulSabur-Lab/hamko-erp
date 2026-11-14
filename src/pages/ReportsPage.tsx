@@ -125,28 +125,12 @@ export function ReportsPage() {
     }
   }, [startDate, endDate]);
 
-  // 1. Initial State loaded synchronously from active LocalStore with zero delay
-  const [orders, setOrders] = useState<any[]>(() => {
-    const deletedIds = getDeletedIds(STORAGE_KEYS.DELETED_ORDERS);
-    return getOrders().filter((o: any) => !deletedIds.has(o.id));
-  });
-
-  const [collections, setCollections] = useState<any[]>(() => {
-    const deletedIds = getDeletedIds(STORAGE_KEYS.DELETED_COLLECTIONS);
-    return getCollections().filter((c: any) => !deletedIds.has(c.id));
-  });
-
-  const [customers, setCustomers] = useState<Customer[]>(() => getCustomers());
-
-  const [expenses, setExpenses] = useState<any[]>(() => {
-    const deletedIds = getDeletedIds(STORAGE_KEYS.DELETED_EXPENSES);
-    return getExpenses().filter((e: any) => !deletedIds.has(e.id));
-  });
-
-  const [products, setProducts] = useState<any[]>(() => {
-    const deletedIds = getDeletedIds(STORAGE_KEYS.DELETED_PRODUCTS);
-    return getProducts().filter((p: any) => !deletedIds.has(p.id));
-  });
+  // 1. Initial State
+  const [orders, setOrders] = useState<any[]>([]);
+  const [collections, setCollections] = useState<any[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [expenses, setExpenses] = useState<any[]>([]);
+  const [products, setProducts] = useState<any[]>([]);
 
   // 2. Read-only remote sync function: NEVER mutates LocalStore or emits storage events (prevents infinite loop)
   const syncRemoteData = useCallback(async () => {
@@ -237,7 +221,6 @@ export function ReportsPage() {
         };
       };
 
-      // Merge remote and pending local orders and persist silently
       if (oSettled.status === "fulfilled" && !oSettled.value.error && Array.isArray(oSettled.value.data)) {
         const deletedIds = getDeletedIds(STORAGE_KEYS.DELETED_ORDERS);
         const validRemote = oSettled.value.data
@@ -246,11 +229,9 @@ export function ReportsPage() {
             ...o,
             customer: enrichEmbeddedCustomer(o.customer),
           }));
-        const reconciledOrders = reconcileOrdersWithRemote(validRemote, { persist: true });
-        setOrders(reconciledOrders);
+        setOrders(validRemote);
       }
 
-      // Merge remote and local collections without destructive truncation
       if (cSettled.status === "fulfilled" && !cSettled.value.error && Array.isArray(cSettled.value.data)) {
         const deletedIds = getDeletedIds(STORAGE_KEYS.DELETED_COLLECTIONS);
         const validRemote = cSettled.value.data
@@ -259,42 +240,23 @@ export function ReportsPage() {
             ...c,
             customer: enrichEmbeddedCustomer(c.customer),
           }));
-        const reconciledCols = reconcileCollectionsWithRemote(validRemote, { persist: true });
-        setCollections(reconciledCols);
+        setCollections(validRemote);
       }
 
-      // Merge remote customers and persist silently so local store stays cloud-authoritative
       if (custSettled.status === "fulfilled" && !custSettled.value.error && Array.isArray(custSettled.value.data)) {
-        const mergedCusts = mergeAndEnrichCustomers(custSettled.value.data as unknown as Customer[], { persist: true });
-        setCustomers(mergedCusts);
+        setCustomers(custSettled.value.data as unknown as Customer[]);
       }
 
-      // Merge remote expenses without firing recursive storage events
       if (eSettled.status === "fulfilled" && !eSettled.value.error && Array.isArray(eSettled.value.data)) {
         const deletedIds = getDeletedIds(STORAGE_KEYS.DELETED_EXPENSES);
         const validRemote = eSettled.value.data.filter((e: any) => !deletedIds.has(e.id));
-        const remoteIdSet = new Set(validRemote.map((e: any) => String(e.id)));
-        const currentLocal = getExpenses().filter((e: any) => !deletedIds.has(e.id));
-        const pendingLocal = currentLocal.filter(
-          (le: any) => !remoteIdSet.has(String(le.id)) && isPendingOfflineRecord(le),
-        );
-        const mergedExps = [...pendingLocal, ...validRemote];
-        setExpenses(mergedExps);
-        setLocalData(STORAGE_KEYS.EXPENSES, mergedExps, null, true);
+        setExpenses(validRemote);
       }
 
-      // Merge remote products without firing recursive storage events
       if (pSettled.status === "fulfilled" && !pSettled.value.error && Array.isArray(pSettled.value.data)) {
         const deletedIds = getDeletedIds(STORAGE_KEYS.DELETED_PRODUCTS);
         const validRemote = pSettled.value.data.filter((p: any) => !deletedIds.has(p.id));
-        const remoteIdSet = new Set(validRemote.map((p: any) => String(p.id)));
-        const currentLocal = getProducts().filter((p: any) => !deletedIds.has(p.id));
-        const pendingLocal = currentLocal.filter(
-          (lp: any) => !remoteIdSet.has(String(lp.id)) && isPendingOfflineRecord(lp),
-        );
-        const mergedProds = [...pendingLocal, ...validRemote];
-        setProducts(mergedProds);
-        setLocalData(STORAGE_KEYS.PRODUCTS, mergedProds, null, true);
+        setProducts(validRemote);
       }
     } catch (err) {
       console.warn("Reports remote sync notice:", err);
@@ -309,7 +271,6 @@ export function ReportsPage() {
     void syncRemoteData();
   });
 
-  // 3. Stable lifecycle: fetch once on mount, and listen to localStore updates reactively (read-only)
   useEffect(() => {
     let mounted = true;
     syncRemoteData();
@@ -319,34 +280,33 @@ export function ReportsPage() {
       if (mounted) setLoading(false);
     }, 3500);
 
-    const handleStorageUpdate = () => {
-      if (!mounted) return;
-      setLoading(false);
-      const deletedOrderIds = getDeletedIds(STORAGE_KEYS.DELETED_ORDERS);
-      setOrders(getOrders().filter((o: any) => !deletedOrderIds.has(o.id)));
-
-      const deletedColIds = getDeletedIds(STORAGE_KEYS.DELETED_COLLECTIONS);
-      setCollections(getCollections().filter((c: any) => !deletedColIds.has(c.id)));
-
-      setCustomers(getCustomers());
-
-      const deletedExpIds = getDeletedIds(STORAGE_KEYS.DELETED_EXPENSES);
-      setExpenses(getExpenses().filter((e: any) => !deletedExpIds.has(e.id)));
-
-      const deletedProdIds = getDeletedIds(STORAGE_KEYS.DELETED_PRODUCTS);
-      setProducts(getProducts().filter((p: any) => !deletedProdIds.has(p.id)));
-    };
-
-    window.addEventListener("storage", handleStorageUpdate);
-    window.addEventListener("sales_erp_storage_update", handleStorageUpdate);
-    window.addEventListener("customer_ledger_updated", handleStorageUpdate);
+    const rChannel = supabase
+      .channel("reports-page-realtime")
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => {
+        if (mounted) void syncRemoteData();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "collections" }, () => {
+        if (mounted) void syncRemoteData();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "expenses" }, () => {
+        if (mounted) void syncRemoteData();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "customers" }, () => {
+        if (mounted) void syncRemoteData();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "products" }, () => {
+        if (mounted) void syncRemoteData();
+      })
+      .subscribe();
 
     return () => {
       mounted = false;
       clearTimeout(watchdog);
-      window.removeEventListener("storage", handleStorageUpdate);
-      window.removeEventListener("sales_erp_storage_update", handleStorageUpdate);
-      window.removeEventListener("customer_ledger_updated", handleStorageUpdate);
+      try {
+        if (rChannel && supabase?.removeChannel) {
+          supabase.removeChannel(rChannel);
+        }
+      } catch (e) {}
     };
   }, [syncRemoteData]);
 

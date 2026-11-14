@@ -271,23 +271,17 @@ export function OrdersPage() {
     if (!o) return false;
     return Boolean(currentUserId && o.sales_rep_id && o.sales_rep_id === currentUserId);
   };
-  const [loading, setLoading] = useState(() => getOrders().length === 0);
-  const [orders, setOrders] = useState<Order[]>(() => cleanCorruptedStoredOrders());
+  const [loading, setLoading] = useState(true);
+  const [orders, setOrders] = useState<Order[]>([]);
   const [isOfflineMode, setIsOfflineMode] = useState<boolean>(() => typeof navigator !== "undefined" && !navigator.onLine);
-  const [customers, setCustomers] = useState<Customer[]>(() => {
-    const list = getCustomers();
-    return Array.isArray(list) ? list : [];
-  });
-  const [products, setProducts] = useState<Product[]>(() => {
-    const list = getProducts();
-    return Array.isArray(list) ? list : [];
-  });
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
   const [search, setSearch] = useState(() => query.search || "");
   const [statusFilter, setStatusFilter] = useState("");
   const [areas, setAreas] = useState<Area[]>(() => getAreas());
   const [areaFilter, setAreaFilter] = useState("");
   const { getUserName, getSalesOfficerById, salesOfficers: contextOfficers } = useUsers();
-  const [salesOfficers, setSalesOfficers] = useState<ManagedUser[]>(() => getLocalSalesOfficers());
+  const [salesOfficers, setSalesOfficers] = useState<ManagedUser[]>([]);
   const [officerFilter, setOfficerFilter] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [viewOpen, setViewOpen] = useState(false);
@@ -370,18 +364,12 @@ export function OrdersPage() {
 
   async function load(isManual = false) {
     isMountedRef.current = true;
-    const isColdStart = getOrders().length === 0;
-    if (isManual || isColdStart) {
+    if (isManual) {
       setLoading(true);
-      try {
-        await triggerGlobalLiveSync({ silent: true });
-      } catch (err) {
-        console.warn("[OrdersPage] Live sync pull notice:", err);
-      }
     }
     try {
       const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("Orders fetch timeout")), 3500)
+        setTimeout(() => reject(new Error("Orders fetch timeout")), 4500)
       );
       const [usersQueryRes, oRes, cRes, pRes, officersData] = await Promise.race([
         Promise.all([
@@ -537,107 +525,26 @@ export function OrdersPage() {
           remoteOrders.map((o) => (o.order_number ? String(o.order_number).trim().toUpperCase() : "")).filter(Boolean)
         );
 
-        // Preserve pending local orders that have not yet been synced to Supabase
-        const currentLocal = cleanCorruptedStoredOrders().filter((o: any) => !deletedIds.has(o.id));
-        const localByNum = new Map<string, Order>();
-        const localById = new Map<string, Order>();
-        currentLocal.forEach((lo) => {
-          if (lo.id) localById.set(String(lo.id), lo);
-          if (lo.order_number) localByNum.set(String(lo.order_number).trim().toUpperCase(), lo);
-        });
-
-        // Enrich remote orders if remote has missing line items but local copy has them
-        const enrichedRemoteOrders = remoteOrders.map((ro) => {
-          const hasItems = (ro.order_items && ro.order_items.length > 0) || ((ro as any).items && (ro as any).items.length > 0);
-          if (!hasItems) {
-            const num = ro.order_number ? String(ro.order_number).trim().toUpperCase() : "";
-            const matchedLocal = (ro.id ? localById.get(String(ro.id)) : undefined) || (num ? localByNum.get(num) : undefined);
-            if (matchedLocal && ((matchedLocal.order_items && matchedLocal.order_items.length > 0) || ((matchedLocal as any).items && (matchedLocal as any).items.length > 0))) {
-              const items = matchedLocal.order_items || (matchedLocal as any).items;
-              return {
-                ...ro,
-                order_items: items,
-                items: items,
-              };
-            }
-          }
-          return ro;
-        });
-
-        // Ensure all local orders not yet on remote are strictly preserved (Additive-Only local-first)
-        const localOrdersNotOnRemote = currentLocal.filter((lo) => {
-          const num = lo.order_number ? String(lo.order_number).trim().toUpperCase() : "";
-          return !remoteIdSet.has(String(lo.id)) && (!num || !remoteOrderNumSet.has(num));
-        });
-
-        const mergedOrders = [...localOrdersNotOnRemote, ...enrichedRemoteOrders].map((ord) => {
-          const repName =
-            (ord.sales_rep_id ? getSalesOfficerById(ord.sales_rep_id)?.full_name : null) ||
-            (ord.sales_rep_id ? getUserName(ord.sales_rep_id) : null) ||
-            (ord.sales_rep_id ? updatedUsersMap[String(ord.sales_rep_id)]?.full_name : null) ||
-            ord.sales_rep?.full_name ||
-            ord.sales_rep_name ||
-            (ord as any).created_by_name ||
-            null;
-          return {
-            ...ord,
-            sales_rep_name: repName || ord.sales_rep_name || null,
-            created_by_name: repName || (ord as any).created_by_name || null,
-          } as Order;
-        }).sort(
+        const sortedOrders = remoteOrders.sort(
           (a, b) => new Date(b.order_date || b.created_at || 0).getTime() - new Date(a.order_date || a.created_at || 0).getTime()
         );
 
-        setOrders(mergedOrders);
-        saveOrders(mergedOrders);
+        setOrders(sortedOrders);
         setIsOfflineMode(false);
         if (isManual) {
-          toast.success(`Live sync: ${mergedOrders.length} orders synchronized`);
+          toast.success(`Live sync: ${sortedOrders.length} orders synchronized`);
         }
       } else {
-        // Fallback to local storage when remote Supabase fetch fails or is offline
-        const fallbackOrders = cleanCorruptedStoredOrders();
-        setOrders(fallbackOrders);
-        if (typeof navigator !== "undefined" && !navigator.onLine) {
-          setIsOfflineMode(true);
-        }
+        setOrders([]);
       }
       if (!cRes.error && Array.isArray(cRes.data)) {
-        const mergedCusts = mergeAndEnrichCustomers(cRes.data as Customer[]);
-        setCustomers(mergedCusts);
+        setCustomers(cRes.data as Customer[]);
       }
       if (!pRes.error && Array.isArray(pRes.data)) {
-        const localProds = getProducts();
-        const localMap = new Map(localProds.map((p) => [String(p.id), p]));
-        const mergedProds: Product[] = (pRes.data as Product[]).map((rp: any) => {
-          const loc = localMap.get(String(rp.id));
-          let candidateTiers = rp.price_tiers;
-          if (typeof candidateTiers === "string") {
-            try { candidateTiers = JSON.parse(candidateTiers); } catch { candidateTiers = null; }
-          }
-          const hasRemoteTiers = Array.isArray(candidateTiers) && candidateTiers.length > 0;
-
-          let locTiers = loc?.price_tiers;
-          if (typeof locTiers === "string") {
-            try { locTiers = JSON.parse(locTiers); } catch { locTiers = null; }
-          }
-          const hasLocTiers = Array.isArray(locTiers) && (locTiers ?? []).length > 0;
-
-          const resolvedPriceTiers = hasRemoteTiers
-            ? candidateTiers
-            : (hasLocTiers ? (locTiers ?? []) : (Array.isArray(candidateTiers) ? candidateTiers : []));
-
-          return {
-            ...rp,
-            price_tiers: resolvedPriceTiers,
-            purchase_cost: (loc as any)?.purchase_cost ?? rp.purchase_cost ?? rp.distributor_price,
-          } as Product;
-        });
-        setProducts(mergedProds);
-        setLocalData(STORAGE_KEYS.PRODUCTS, mergedProds);
+        setProducts(pRes.data as Product[]);
       }
     } catch (err) {
-      console.warn("Using cached orders data due to network error:", err);
+      console.warn("Orders fetch notice:", err);
       setIsOfflineMode(true);
     } finally {
       setLoading(false);
@@ -691,41 +598,6 @@ export function OrdersPage() {
           supabase.removeChannel(ordChannel);
         }
       } catch (e) { }
-    };
-  }, []);
-
-  useEffect(() => {
-    const handleStorageUpdate = () => {
-      isMountedRef.current = true;
-      const currentMap = buildUserLookupMap(profile);
-      setUsersMap((prev) => ({ ...prev, ...currentMap }));
-      setSalesOfficers(getLocalSalesOfficers());
-      const cleaned = cleanCorruptedStoredOrders();
-      const deletedIds = getDeletedIds(STORAGE_KEYS.DELETED_ORDERS);
-      const updated = cleaned.filter((o: Order) => !deletedIds.has(o.id));
-      setOrders([...updated]);
-      setLoading(false);
-
-      const custs = getCustomers();
-      if (Array.isArray(custs)) setCustomers([...custs]);
-      const prods = getProducts();
-      if (Array.isArray(prods)) setProducts([...prods]);
-      setAreas(getAreas());
-
-      // Debounced background check for convergence
-      if (typeof navigator !== "undefined" && navigator.onLine) {
-        void load(false);
-      }
-    };
-
-    window.addEventListener("storage", handleStorageUpdate);
-    window.addEventListener("sales_erp_storage_update", handleStorageUpdate);
-    window.addEventListener("customer_ledger_updated", handleStorageUpdate);
-
-    return () => {
-      window.removeEventListener("storage", handleStorageUpdate);
-      window.removeEventListener("sales_erp_storage_update", handleStorageUpdate);
-      window.removeEventListener("customer_ledger_updated", handleStorageUpdate);
     };
   }, []);
 
@@ -1614,21 +1486,16 @@ export function OrdersPage() {
   }
 
   const proceedDeleteOrder = (id: string) => {
-    const o = orders.find((ord) => String(ord.id) === String(id)) || getOrders().find((ord) => String(ord.id) === String(id));
-    const updated = deleteOrder(id);
+    const o = orders.find((ord) => String(ord.id) === String(id));
+    const updated = deleteOrder(id, orders);
     if ((updated as any)?.success === false) {
       toast.error((updated as any)?.error || "Failed to delete order");
       return;
     }
-    setOrders([...updated]); // Spread operator creates a new array reference to force immediate React re-render
-    setCustomers(getCustomers());
-    setProducts(getProducts());
+    setOrders((prev) => prev.filter((ord) => String(ord.id) !== String(id)));
     if (o?.customer_id) {
       recalculateCustomerLedger(o.customer_id, updated, undefined, { persist: true });
     }
-    dispatchGlobalStateUpdate({ customerId: o?.customer_id, type: "order_deleted", recordId: id });
-    window.dispatchEvent(new Event("sales_erp_storage_update"));
-    window.dispatchEvent(new Event("storage"));
     toast.success(t("deleted"));
   };
 

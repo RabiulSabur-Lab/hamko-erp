@@ -23,9 +23,7 @@ import { Loader2 } from "lucide-react";
 import { App as CapacitorApp } from "@capacitor/app";
 import { Capacitor } from "@capacitor/core";
 import { ErrorBoundary } from "./components/ErrorBoundary";
-import { initRealtimeSync, cleanupRealtimeSync, reconnectRealtimeSync } from "./services/realtimeSync";
-import { pullFreshCloudStateToLocalStore } from "./utils/cloudSync";
-import { getOrders, getCustomers, getProducts } from "./utils/localStore";
+import { initRealtimeSync, reconnectRealtimeSync } from "./services/realtimeSync";
 import { AppUpdateModal } from "./components/AppUpdateModal";
 import { checkForAppUpdate, type AppUpdateCheckResult } from "./services/appUpdateService";
 
@@ -94,18 +92,6 @@ export function App() {
   const [updateInfo, setUpdateInfo] = useState<AppUpdateCheckResult | null>(null);
   const [showUpdateModal, setShowUpdateModal] = useState(false);
 
-  // Master Global Cold-Start Bootstrap Hydration
-  const [isBootstrapped, setIsBootstrapped] = useState<boolean>(() => {
-    try {
-      const orders = getOrders();
-      const custs = getCustomers();
-      const prods = getProducts();
-      return orders.length > 0 || custs.length > 0 || prods.length > 0;
-    } catch {
-      return true;
-    }
-  });
-
   // In-App Mobile Update Checker (on startup, app resume, and manual trigger)
   useEffect(() => {
     let isMounted = true;
@@ -152,16 +138,8 @@ export function App() {
         if (state.isActive) {
           // Immediately check for native APK update against hosted version.json
           void performUpdateCheck(false);
-          // Force immediate full cloud sync upon native resume
-          void pullFreshCloudStateToLocalStore({ force: true, silent: true });
           // Force WebSocket channel reconnection to fix broken real-time connections
           void reconnectRealtimeSync("capacitor_native_foreground_resume");
-          // Dispatch storage event to trigger unread notification refresh
-          if (typeof window !== "undefined") {
-            window.dispatchEvent(
-              new CustomEvent("sales_erp_storage_update", { detail: { table: "notifications" } }),
-            );
-          }
         }
       }).then((handle) => {
         listenerHandle = handle;
@@ -185,48 +163,12 @@ export function App() {
     };
   }, []);
 
-  // Centralized Global Realtime & Cross-Device Cloud Sync
+  // Centralized Global Realtime Subscription
   useEffect(() => {
-    void initRealtimeSync();
-    if (!session) {
-      setIsBootstrapped(true);
-      return;
+    if (session) {
+      void initRealtimeSync();
     }
-
-    if (isBootstrapped) {
-      // Warm start: cached state rendered immediately, sync silently in background
-      void pullFreshCloudStateToLocalStore({ force: true, silent: true });
-      return;
-    }
-
-    let isMounted = true;
-    // Hard 3.5s timeout: ensure splash screen unlocks even if network hangs or offline
-    const timeout = setTimeout(() => {
-      if (isMounted) {
-        setIsBootstrapped(true);
-      }
-    }, 3500);
-
-    const runMasterBootstrap = async () => {
-      try {
-        await pullFreshCloudStateToLocalStore({ force: true, silent: false });
-      } catch (err) {
-        console.warn("[App] Master global bootstrap notice:", err);
-      } finally {
-        clearTimeout(timeout);
-        if (isMounted) {
-          setIsBootstrapped(true);
-        }
-      }
-    };
-
-    void runMasterBootstrap();
-
-    return () => {
-      isMounted = false;
-      clearTimeout(timeout);
-    };
-  }, [session, isBootstrapped]);
+  }, [session]);
 
   // Hard 6.5-second fallback timeout: Force UI unlock and render login if initialization stalls on mobile
   useEffect(() => {
@@ -382,31 +324,6 @@ export function App() {
       return (
         <div className="flex h-screen items-center justify-center">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        </div>
-      );
-    }
-
-    if (session && !isBootstrapped) {
-      return (
-        <div className="flex h-screen w-full flex-col items-center justify-center bg-background px-4">
-          <div className="flex flex-col items-center max-w-sm text-center space-y-4">
-            <div className="relative flex items-center justify-center">
-              <div className="h-16 w-16 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-sm border border-primary/20">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-              </div>
-            </div>
-            <div className="space-y-1">
-              <h2 className="text-xl font-bold tracking-tight text-foreground">
-                Hamko ERP
-              </h2>
-              <p className="text-sm text-muted-foreground animate-pulse">
-                Synchronizing workspace data...
-              </p>
-            </div>
-            <div className="w-48 h-1 bg-muted rounded-full overflow-hidden">
-              <div className="h-full bg-primary animate-pulse w-full rounded-full" />
-            </div>
-          </div>
         </div>
       );
     }

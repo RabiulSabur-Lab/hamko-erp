@@ -74,10 +74,10 @@ export function CustomersPage() {
     const ownerId = c.assigned_to || (c as any).created_by || (c as any).sales_rep_id;
     return Boolean(currentUserId && ownerId && ownerId === currentUserId);
   };
-  const [loading, setLoading] = useState(() => getCustomers().length === 0);
-  const [customers, setCustomers] = useState<Customer[]>(() => getCustomers());
-  const [orders, setOrders] = useState<Order[]>(() => getOrders());
-  const [collections, setCollections] = useState<Collection[]>(() => getCollections());
+  const [loading, setLoading] = useState(true);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [collections, setCollections] = useState<Collection[]>([]);
   const [territories, setTerritories] = useState<Territory[]>([]);
   const [isOfflineMode, setIsOfflineMode] = useState<boolean>(() => typeof navigator !== "undefined" && !navigator.onLine);
   const [search, setSearch] = useState(() => query.search || "");
@@ -113,15 +113,6 @@ export function CustomersPage() {
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
 
-    const handleStorage = () => {
-      const freshCusts = getCustomers();
-      setCustomers(freshCusts);
-      setLoading(false);
-      setOrders(getOrders());
-      setCollections(getCollections());
-      setAreas(getAreas());
-    };
-
     const custChannel = supabase
       .channel("customers-page-realtime")
       .on("postgres_changes", { event: "*", schema: "public", table: "customers" }, () => loadData())
@@ -129,18 +120,16 @@ export function CustomersPage() {
       .on("postgres_changes", { event: "*", schema: "public", table: "collections" }, () => loadData())
       .subscribe();
 
-    window.addEventListener("storage", handleStorage);
-    window.addEventListener("sales_erp_storage_update", handleStorage);
-    window.addEventListener("customer_ledger_updated", handleStorage);
     return () => {
       mountedRef.current = false;
       clearTimeout(watchdog);
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
-      supabase.removeChannel(custChannel);
-      window.removeEventListener("storage", handleStorage);
-      window.removeEventListener("sales_erp_storage_update", handleStorage);
-      window.removeEventListener("customer_ledger_updated", handleStorage);
+      try {
+        if (custChannel && supabase?.removeChannel) {
+          supabase.removeChannel(custChannel);
+        }
+      } catch (e) {}
     };
   }, []);
 
@@ -151,18 +140,12 @@ export function CustomersPage() {
 
   async function loadData(isManual = false) {
     mountedRef.current = true;
-    const isColdStart = getCustomers().length === 0;
-    if (isManual || isColdStart) {
+    if (isManual) {
       setLoading(true);
-      try {
-        await triggerGlobalLiveSync({ silent: true });
-      } catch (err) {
-        console.warn("[CustomersPage] Live sync notice:", err);
-      }
     }
     try {
       const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("Customers fetch timeout")), 3500)
+        setTimeout(() => reject(new Error("Customers fetch timeout")), 4500)
       );
       const [cRes, tRes, oRes, colRes] = await Promise.race([
         Promise.all([
@@ -185,22 +168,19 @@ export function CustomersPage() {
       }
 
       if (custData && mountedRef.current) {
-        const merged = mergeAndEnrichCustomers(custData, { persist: true });
-        setCustomers(Array.isArray(merged) ? merged : []);
+        setCustomers(Array.isArray(custData) ? custData : []);
         if (isManual) {
-          toast.success(`Live sync: ${merged.length} customers/outlets synchronized`);
+          toast.success(`Live sync: ${custData.length} customers/outlets synchronized`);
         }
       }
       if (tRes.data && mountedRef.current) {
         setTerritories(tRes.data);
       }
       if (!oRes.error && Array.isArray(oRes.data)) {
-        const merged = reconcileOrdersWithRemote(oRes.data as unknown as Order[], { persist: true, maxCache: 500 });
-        if (mountedRef.current) setOrders(merged);
+        if (mountedRef.current) setOrders(oRes.data as unknown as Order[]);
       }
       if (!colRes.error && Array.isArray(colRes.data)) {
-        const merged = reconcileCollectionsWithRemote(colRes.data as unknown as Collection[], { persist: true, maxCache: 1000 });
-        if (mountedRef.current) setCollections(merged);
+        if (mountedRef.current) setCollections(colRes.data as unknown as Collection[]);
       }
       setIsOfflineMode(false);
     } catch (err) {
@@ -1009,21 +989,18 @@ export function CustomersPage() {
         customer={editing}
         existingCustomers={customers}
         onSaved={(savedCustomer) => {
-          setCustomers(() => {
-            const list = getCustomers();
-            if (savedCustomer) {
-              const idx = list.findIndex((c) => c.id === savedCustomer.id);
+          if (savedCustomer) {
+            setCustomers((prev) => {
+              const idx = prev.findIndex((c) => c.id === savedCustomer.id);
               if (idx >= 0) {
-                list[idx] = { ...list[idx], ...savedCustomer };
-              } else {
-                list.unshift(savedCustomer);
+                const next = [...prev];
+                next[idx] = { ...next[idx], ...savedCustomer };
+                return next;
               }
-            }
-            return [...list];
-          });
-          try {
-            window.dispatchEvent(new CustomEvent("sales_erp_storage_update"));
-          } catch {}
+              return [savedCustomer, ...prev];
+            });
+          }
+          void loadData(false);
         }}
       />
 

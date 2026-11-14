@@ -58,21 +58,9 @@ export function InventoryPage() {
     rawRole === "super_admin" ||
     (Boolean(user?.email?.toLowerCase().includes("admin")) && !rawRole.includes("officer"));
 
-  const [loading, setLoading] = useState(() => getLocalData(STORAGE_KEYS.PRODUCTS).length === 0);
+  const [loading, setLoading] = useState(true);
   const [isOfflineMode, setIsOfflineMode] = useState<boolean>(() => typeof navigator !== "undefined" && !navigator.onLine);
-  const [products, setProducts] = useState<Product[]>(() => {
-    const deletedIds = getDeletedIds(STORAGE_KEYS.DELETED_PRODUCTS);
-    const cachedCategories: any[] = getLocalData(STORAGE_KEYS.CATEGORIES, []);
-    const catMap = new Map(cachedCategories.map((c) => [c.id, c]));
-    return [...getLocalData<Product[]>(STORAGE_KEYS.PRODUCTS, [])]
-      .filter((p) => !deletedIds.has(p.id))
-      .map((p: any) => ({
-        ...p,
-        purchase_cost: p.purchase_cost ?? p.distributor_price ?? p.purchase_price ?? null,
-        category: (p.category_id && catMap.has(p.category_id)) ? catMap.get(p.category_id) : (p.category || null),
-      }))
-      .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
-  });
+  const [products, setProducts] = useState<Product[]>([]);
   const [search, setSearch] = useState(() => query.search || "");
   const [statusFilter, setStatusFilter] = useState<"all" | "low" | "out">("all");
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -109,27 +97,6 @@ export function InventoryPage() {
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
 
-    const handleStorage = () => {
-      mountedRef.current = true;
-      const deletedIds = getDeletedIds(STORAGE_KEYS.DELETED_PRODUCTS);
-      const cachedCategories: any[] = getLocalData(STORAGE_KEYS.CATEGORIES, []);
-      const catMap = new Map(cachedCategories.map((c) => [c.id, c]));
-      const refreshed = getLocalData<Product[]>(STORAGE_KEYS.PRODUCTS, [])
-        .filter((p: any) => !deletedIds.has(p.id))
-        .map((p: any) => ({
-          ...p,
-          purchase_cost: p.purchase_cost ?? p.distributor_price ?? p.purchase_price ?? null,
-          category: (p.category_id && catMap.has(p.category_id)) ? catMap.get(p.category_id) : (p.category || null),
-        }));
-      setProducts([...refreshed].sort((a, b) => (a.name || "").localeCompare(b.name || "")));
-      setLoading(false);
-
-      // Debounced background check for convergence
-      if (typeof navigator !== "undefined" && navigator.onLine) {
-        void loadData(false);
-      }
-    };
-
     const invChannel = supabase
       .channel("inventory-page-realtime")
       .on("postgres_changes", { event: "*", schema: "public", table: "products" }, () => loadData())
@@ -138,16 +105,16 @@ export function InventoryPage() {
       .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => loadData())
       .subscribe();
 
-    window.addEventListener("storage", handleStorage);
-    window.addEventListener("sales_erp_storage_update", handleStorage);
     return () => {
       mountedRef.current = false;
       clearTimeout(watchdog);
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
-      supabase.removeChannel(invChannel);
-      window.removeEventListener("storage", handleStorage);
-      window.removeEventListener("sales_erp_storage_update", handleStorage);
+      try {
+        if (invChannel && supabase?.removeChannel) {
+          supabase.removeChannel(invChannel);
+        }
+      } catch (e) {}
     };
   }, []);
 
@@ -159,18 +126,12 @@ export function InventoryPage() {
 
   async function loadData(isManual = false) {
     mountedRef.current = true;
-    const isColdStart = getProducts().length === 0;
-    if (isManual || isColdStart) {
+    if (isManual) {
       setLoading(true);
-      try {
-        await triggerGlobalLiveSync({ silent: true });
-      } catch (err) {
-        console.warn("[InventoryPage] Live sync notice:", err);
-      }
     }
     try {
       const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("Inventory fetch timeout")), 3500)
+        setTimeout(() => reject(new Error("Inventory fetch timeout")), 4500)
       );
       const [pRes, cRes, invRes] = await Promise.race([
         Promise.all([
@@ -181,18 +142,8 @@ export function InventoryPage() {
         timeoutPromise,
       ]);
 
-      if (!cRes.error && Array.isArray(cRes.data)) {
-        setLocalData(STORAGE_KEYS.CATEGORIES, cRes.data, null, false);
-      }
-
-      if (!invRes.error && Array.isArray(invRes.data)) {
-        setLocalData(STORAGE_KEYS.INVENTORY, invRes.data, null, false);
-      }
-
-      const cachedCategories: any[] = !cRes.error && Array.isArray(cRes.data)
-        ? cRes.data
-        : getLocalData(STORAGE_KEYS.CATEGORIES, []);
-      const catMap = new Map(cachedCategories.map((c) => [c.id, c]));
+      const catList: any[] = !cRes.error && Array.isArray(cRes.data) ? cRes.data : [];
+      const catMap = new Map(catList.map((c) => [c.id, c]));
 
       let rawProductList: any[] | null = !pRes.error && Array.isArray(pRes.data) && pRes.data.length > 0 ? pRes.data : null;
       if (!rawProductList) {
@@ -206,14 +157,10 @@ export function InventoryPage() {
       if (rawProductList) {
         const deletedIds = getDeletedIds(STORAGE_KEYS.DELETED_PRODUCTS);
         const filtered = (rawProductList as Product[]).filter((p) => !deletedIds.has(p.id));
-        const currentLocal = getLocalData<any[]>(STORAGE_KEYS.PRODUCTS, []);
-        const localMap = new Map<string, any>((Array.isArray(currentLocal) ? currentLocal : []).map((p: any) => [String(p.id), p]));
 
         const enriched = filtered.map((p: any) => {
-          const loc = localMap.get(String(p.id));
           const remoteStock = Number(p.stock_quantity ?? p.stock ?? 0);
-          const effectiveStock = remoteStock;
-          const resolvedCost = loc?.purchase_cost ?? (p as any).purchase_cost ?? p.distributor_price ?? loc?.distributor_price ?? loc?.purchase_price ?? null;
+          const resolvedCost = p.purchase_cost ?? p.distributor_price ?? p.purchase_price ?? null;
 
           return {
             ...p,
@@ -221,21 +168,20 @@ export function InventoryPage() {
             distributor_price: resolvedCost ?? p.distributor_price,
             purchase_price: resolvedCost,
             cost_price: resolvedCost,
-            stock_quantity: effectiveStock,
-            stock: effectiveStock,
+            stock_quantity: remoteStock,
+            stock: remoteStock,
             category: (p.category_id && catMap.has(p.category_id)) ? catMap.get(p.category_id) : (p.category || null),
           };
         });
         const sorted = enriched.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
         if (mountedRef.current) setProducts(sorted);
-        setLocalData(STORAGE_KEYS.PRODUCTS, sorted, null, false);
         setIsOfflineMode(false);
         if (isManual) {
           toast.success(lang === "bn" ? `লাইভ সিন্ক: ${sorted.length}টি পণ্য লোড হয়েছে` : `Live sync: ${sorted.length} products loaded from cloud`);
         }
       }
     } catch (err) {
-      console.warn("Using local inventory cache:", err);
+      console.warn("Inventory fetch notice:", err);
       setIsOfflineMode(true);
     } finally {
       if (mountedRef.current) setLoading(false);

@@ -100,17 +100,8 @@ export function ProductsPage() {
 
   const canManageProducts = !isSalesOfficer;
   const [loading, setLoading] = useState(true);
-  const [products, setProducts] = useState<Product[]>(() => {
-    const deletedIds = getDeletedIds(STORAGE_KEYS.DELETED_PRODUCTS);
-    const stored = getLocalData<Product[]>(STORAGE_KEYS.PRODUCTS, []);
-    return (Array.isArray(stored) ? stored : [])
-      .filter((p: Product) => !deletedIds.has(p.id))
-      .sort((a: Product, b: Product) => (a.name || "").localeCompare(b.name || ""));
-  });
-  const [categories, setCategories] = useState<Category[]>(() => {
-    const stored = getLocalData<Category[]>(STORAGE_KEYS.CATEGORIES, []);
-    return Array.isArray(stored) ? stored : [];
-  });
+  const [products, setProducts] = useState<Product[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [search, setSearch] = useState(() => query.search || "");
   const [catFilter, setCatFilter] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -139,22 +130,6 @@ export function ProductsPage() {
       }
     }, 3500);
 
-    const handleStorage = () => {
-      mountedRef.current = true;
-      const deletedIds = getDeletedIds(STORAGE_KEYS.DELETED_PRODUCTS);
-      const storedProds = getLocalData<Product[]>(STORAGE_KEYS.PRODUCTS, []);
-      const refreshed = (Array.isArray(storedProds) ? storedProds : []).filter((p: Product) => !deletedIds.has(p.id));
-      setProducts([...refreshed].sort((a: Product, b: Product) => (a.name || "").localeCompare(b.name || "")));
-      setLoading(false);
-      const refreshedCats = getLocalData<Category[]>(STORAGE_KEYS.CATEGORIES, []);
-      if (Array.isArray(refreshedCats)) setCategories(refreshedCats);
-
-      // Debounced background check for convergence
-      if (typeof navigator !== "undefined" && navigator.onLine) {
-        void loadData(false);
-      }
-    };
-
     const prodChannel = supabase
       .channel("products-page-realtime")
       .on("postgres_changes", { event: "*", schema: "public", table: "products" }, () => loadData())
@@ -163,14 +138,14 @@ export function ProductsPage() {
       .on("postgres_changes", { event: "*", schema: "public", table: "stock_transactions" }, () => loadData())
       .subscribe();
 
-    window.addEventListener("storage", handleStorage);
-    window.addEventListener("sales_erp_storage_update", handleStorage);
     return () => {
       mountedRef.current = false;
       clearTimeout(watchdog);
-      supabase.removeChannel(prodChannel);
-      window.removeEventListener("storage", handleStorage);
-      window.removeEventListener("sales_erp_storage_update", handleStorage);
+      try {
+        if (prodChannel && supabase?.removeChannel) {
+          supabase.removeChannel(prodChannel);
+        }
+      } catch (e) {}
     };
   }, []);
 
@@ -187,18 +162,12 @@ export function ProductsPage() {
 
   async function loadData(isManual = false) {
     mountedRef.current = true;
-    const isColdStart = getProducts().length === 0;
-    if (isManual || isColdStart) {
+    if (isManual) {
       setLoading(true);
-      try {
-        await triggerGlobalLiveSync({ silent: true });
-      } catch (err) {
-        console.warn("[ProductsPage] Live sync notice:", err);
-      }
     }
     try {
       const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("Products fetch timeout")), 3500)
+        setTimeout(() => reject(new Error("Products fetch timeout")), 4500)
       );
       const [pRes, cRes] = await Promise.race([
         Promise.all([
@@ -213,11 +182,9 @@ export function ProductsPage() {
       let cats: Category[] = categories;
       if (cRes.data && Array.isArray(cRes.data)) {
         cats = cRes.data as Category[];
-        if (mountedRef.current) setCategories(cRes.data as Category[]);
-        setLocalData(STORAGE_KEYS.CATEGORIES, cRes.data, null, true);
+        if (mountedRef.current) setCategories(cats);
       }
       const catMap = new Map<string, Category>(cats.map((c: Category) => [c.id, c]));
-
       const deletedIds = getDeletedIds(STORAGE_KEYS.DELETED_PRODUCTS);
 
       let rawProductList: any[] | null = !pRes.error && Array.isArray(pRes.data) && pRes.data.length > 0 ? pRes.data : null;
@@ -231,46 +198,22 @@ export function ProductsPage() {
 
       if (rawProductList) {
         const validRemote = (rawProductList as Product[]).filter((p: Product) => !deletedIds.has(p.id));
-        const storedLocal = getLocalData<Product[]>(STORAGE_KEYS.PRODUCTS, []);
-        const currentLocal = (Array.isArray(storedLocal) ? storedLocal : []).filter((p: Product) => !deletedIds.has(p.id));
 
-        // Preserve local purchase_price and ensure category is always populated from category_id
-        const localMap = new Map<string, Product>(currentLocal.map((p: Product) => [String(p.id), p]));
         const enrichedRemote: Product[] = validRemote.map((rp: any) => {
-          const loc = localMap.get(String(rp.id));
           const resolvedCat = (rp.category_id && catMap.has(rp.category_id))
             ? catMap.get(rp.category_id)
-            : (rp.category || loc?.category || null);
+            : (rp.category || null);
           const remoteStock = Number(rp.stock_quantity ?? (rp as any)?.stock ?? 0);
-          const effectiveStock = remoteStock;
+          const resolvedCost = rp.purchase_cost ?? rp.distributor_price ?? rp.purchase_price ?? null;
+          const resolvedDp = rp.unit_price ?? rp.dealer_price ?? rp.dp_price ?? rp.price ?? 0;
 
-          const resolvedCost = (loc as any)?.purchase_cost ?? rp.purchase_cost ?? rp.distributor_price ?? (loc as any)?.distributor_price ?? (loc as any)?.purchase_price ?? null;
-          const resolvedDp = rp.unit_price ?? rp.dealer_price ?? rp.dp_price ?? rp.price ?? (loc as any)?.unit_price ?? (loc as any)?.dp_price ?? 0;
-
-          // Preserve price_tiers from remote or localStore
           let candidateTiers: any = rp.price_tiers;
           if (typeof candidateTiers === "string") {
             try { candidateTiers = JSON.parse(candidateTiers); } catch { candidateTiers = undefined; }
           }
-          const safeCandidateTiers = Array.isArray(candidateTiers) ? (candidateTiers ?? []) : [];
+          let resolvedPriceTiers = Array.isArray(candidateTiers) ? candidateTiers : [];
 
-          let locTiers: any = loc?.price_tiers;
-          if (typeof locTiers === "string") {
-            try { locTiers = JSON.parse(locTiers); } catch { locTiers = undefined; }
-          }
-          const safeLocTiers = Array.isArray(locTiers) ? (locTiers ?? []) : [];
-
-          let resolvedPriceTiers = safeCandidateTiers.length >= 7
-            ? safeCandidateTiers
-            : (safeLocTiers.length >= 7
-              ? (safeLocTiers ?? [])
-              : (safeCandidateTiers.length > 0
-                ? safeCandidateTiers
-                : (safeLocTiers ?? [])));
-
-          // If product only has a subset of default tiers (e.g. only D10, B12), expand to all 7 default tiers
           if (
-            Array.isArray(resolvedPriceTiers) &&
             resolvedPriceTiers.length > 0 &&
             resolvedPriceTiers.length < 7 &&
             resolvedPriceTiers.every((t: any) => DEFAULT_TIER_NAMES.includes(formatTierLabel(t.name).toUpperCase() as any)) &&
@@ -295,8 +238,8 @@ export function ProductsPage() {
             distributor_price: resolvedCost ?? rp.distributor_price,
             purchase_price: resolvedCost,
             cost_price: resolvedCost,
-            stock_quantity: effectiveStock,
-            stock: effectiveStock,
+            stock_quantity: remoteStock,
+            stock: remoteStock,
             price_tiers: resolvedPriceTiers,
           } as Product;
         });
@@ -306,7 +249,6 @@ export function ProductsPage() {
         );
 
         if (mountedRef.current) setProducts(merged);
-        setLocalData(STORAGE_KEYS.PRODUCTS, merged, null, true);
         if (isManual) {
           toast.success(lang === "bn" ? `ক্লাউড ডাটাবেজ থেকে ${merged.length}টি পণ্য সিন্ক হয়েছে` : `Live sync: ${merged.length} products loaded from cloud`);
         }
