@@ -12,8 +12,8 @@ import { pullFreshCloudStateToLocalStore } from "@/utils/cloudSync";
 export function useAutoSync(
   onSync: () => void | Promise<void>,
   enabled = true,
-  debounceMs = 1200,
-  pollIntervalMs = 7000,
+  debounceMs = 5000,
+  pollIntervalMs = 0, // Disabled periodic polling loop to prevent Supabase Disk IO exhaustion; real-time CDC handles live updates
 ) {
   const lastSyncRef = useRef<number>(0);
   const onSyncRef = useRef(onSync);
@@ -28,7 +28,7 @@ export function useAutoSync(
         lastSyncRef.current = now;
         try {
           if (forceCloudPull) {
-            void pullFreshCloudStateToLocalStore({ force: true, silent: true });
+            void pullFreshCloudStateToLocalStore({ force: false, silent: true });
           }
           void onSyncRef.current();
         } catch (e) {
@@ -37,9 +37,9 @@ export function useAutoSync(
       }
     };
 
-    // Periodic state convergence polling loop
+    // Periodic state convergence polling loop (disabled by default; runs only if explicitly configured >= 60s)
     let intervalId: ReturnType<typeof setInterval> | null = null;
-    if (pollIntervalMs > 0) {
+    if (pollIntervalMs >= 60000) {
       intervalId = setInterval(() => {
         if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
         if (typeof navigator !== "undefined" && navigator.onLine === false) return;

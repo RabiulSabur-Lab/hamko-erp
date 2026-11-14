@@ -516,7 +516,7 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
           lastAutoFetchAtRef.current = 0;
           void fetchFromSupabase(false);
         }
-      }, 250);
+      }, 2000);
     };
 
     let channel: any = null;
