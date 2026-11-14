@@ -109,6 +109,9 @@ export function InventoryPage() {
           category: (p.category_id && catMap.has(p.category_id)) ? catMap.get(p.category_id) : (p.category || null),
         }));
       setProducts([...refreshed].sort((a, b) => (a.name || "").localeCompare(b.name || "")));
+      if (refreshed.length > 0) {
+        setLoading(false);
+      }
 
       // Always trigger live server fetch so secondary devices converge with cloud
       void loadData(false);
@@ -140,7 +143,8 @@ export function InventoryPage() {
 
   async function loadData(isManual = false) {
     mountedRef.current = true;
-    if (isManual) {
+    const isColdStart = getProducts().length === 0;
+    if (isManual || isColdStart) {
       setLoading(true);
       try {
         await triggerGlobalLiveSync({ silent: true });

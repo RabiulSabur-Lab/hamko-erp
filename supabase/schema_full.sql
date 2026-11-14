@@ -2828,5 +2828,71 @@ CREATE POLICY roles_public_read ON public.roles
 -- strict Row Level Security policies.
 -- =============================================================================
 
+-- =============================================================================
+-- Migration: 20261114170000_create_procurement_tables.sql
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS public.suppliers (
+  id text PRIMARY KEY,
+  name text NOT NULL,
+  company_name text,
+  phone text,
+  email text,
+  address text,
+  contact_person text,
+  opening_balance numeric DEFAULT 0,
+  current_payable numeric DEFAULT 0,
+  notes text,
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.purchase_invoices (
+  id text PRIMARY KEY,
+  invoice_number text NOT NULL,
+  supplier_id text,
+  supplier_name text,
+  invoice_date date DEFAULT CURRENT_DATE,
+  warehouse text DEFAULT 'Main Warehouse',
+  total_amount numeric DEFAULT 0,
+  paid_amount numeric DEFAULT 0,
+  due_amount numeric DEFAULT 0,
+  status text DEFAULT 'Received',
+  notes text,
+  items jsonb DEFAULT '[]'::jsonb,
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.supplier_payments (
+  id text PRIMARY KEY,
+  payment_number text NOT NULL,
+  supplier_id text,
+  supplier_name text,
+  amount numeric DEFAULT 0,
+  payment_mode text DEFAULT 'Cash',
+  reference_no text,
+  payment_date date DEFAULT CURRENT_DATE,
+  notes text,
+  invoice_id text,
+  chalan_id text,
+  payment_type text DEFAULT 'Payment',
+  bank_name text,
+  cheque_no text,
+  cheque_date text,
+  transaction_id text,
+  reason text,
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now()
+);
+
+ALTER TABLE IF EXISTS public.suppliers DISABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.purchase_invoices DISABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.supplier_payments DISABLE ROW LEVEL SECURITY;
+
+GRANT ALL ON TABLE public.suppliers TO anon, authenticated;
+GRANT ALL ON TABLE public.purchase_invoices TO anon, authenticated;
+GRANT ALL ON TABLE public.supplier_payments TO anon, authenticated;
+
+
 
 

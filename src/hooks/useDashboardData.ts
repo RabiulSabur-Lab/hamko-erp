@@ -319,8 +319,9 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
         return inFlightRef.current;
       }
 
+      const isColdStart = orders.length === 0 && !initialSnapshotRef.current?.hasAnyCached;
       const nowMs = Date.now();
-      if (!isManual && nowMs - lastAutoFetchAtRef.current < MIN_AUTO_FETCH_INTERVAL_MS) {
+      if (!isManual && !isColdStart && nowMs - lastAutoFetchAtRef.current < MIN_AUTO_FETCH_INTERVAL_MS) {
         return;
       }
       lastAutoFetchAtRef.current = nowMs;
@@ -557,32 +558,18 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
             setPrevMetrics(computedPrev);
           });
 
-          // Persist bounded cache snapshots asynchronously during browser idle time
-          if (shouldCacheOrders || shouldCacheCollections || shouldCacheCustomers || shouldCacheProducts) {
-            scheduleIdleTask(() => {
-              if (shouldCacheOrders) {
-                setLocalData(
-                  STORAGE_KEYS.ORDERS,
-                  resolvedOrders.slice(0, MAX_LOCAL_CACHE_ORDERS),
-                  null,
-                  true,
-                );
-              }
-              if (shouldCacheCollections) {
-                setLocalData(
-                  STORAGE_KEYS.COLLECTIONS,
-                  resolvedCollections.slice(0, MAX_LOCAL_CACHE_COLLECTIONS),
-                  null,
-                  true,
-                );
-              }
-              if (shouldCacheCustomers) {
-                setLocalData(STORAGE_KEYS.CUSTOMERS, resolvedCustomers, null, true);
-              }
-              if (shouldCacheProducts) {
-                setLocalData(STORAGE_KEYS.PRODUCTS, resolvedProducts, null, true);
-              }
-            });
+          // Persist authoritative cache snapshots immediately with reactive storage dispatch
+          if (shouldCacheOrders) {
+            setLocalData(STORAGE_KEYS.ORDERS, resolvedOrders, null, false);
+          }
+          if (shouldCacheCollections) {
+            setLocalData(STORAGE_KEYS.COLLECTIONS, resolvedCollections, null, false);
+          }
+          if (shouldCacheCustomers) {
+            setLocalData(STORAGE_KEYS.CUSTOMERS, resolvedCustomers, null, false);
+          }
+          if (shouldCacheProducts) {
+            setLocalData(STORAGE_KEYS.PRODUCTS, resolvedProducts, null, false);
           }
 
           // ── Connection diagnostics & user feedback ──────────────────────────

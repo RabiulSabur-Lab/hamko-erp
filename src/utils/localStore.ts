@@ -1752,7 +1752,7 @@ export function mergeAndEnrichCustomers(
       (a.outlet_name || a.name || "").localeCompare(b.outlet_name || b.name || "")
     );
     if (options?.persist !== false) {
-      setLocalData(STORAGE_KEYS.CUSTOMERS, result, null, true);
+      setLocalData(STORAGE_KEYS.CUSTOMERS, result, null, false);
     }
     return result;
   }
@@ -1762,7 +1762,7 @@ export function mergeAndEnrichCustomers(
   );
 
   if (options?.persist !== false) {
-    setLocalData(STORAGE_KEYS.CUSTOMERS, merged, null, true);
+    setLocalData(STORAGE_KEYS.CUSTOMERS, merged, null, false);
   }
   return merged;
 }
@@ -1841,7 +1841,7 @@ export function reconcileOrdersWithRemote(
       excludeCancelled: false,
     }) as Order[];
     if (options?.persist !== false) {
-      setLocalData(STORAGE_KEYS.ORDERS, result, null, true);
+      setLocalData(STORAGE_KEYS.ORDERS, result, null, false);
     }
     return result;
   }
@@ -1865,7 +1865,7 @@ export function reconcileOrdersWithRemote(
   ) as Order[];
 
   if (options?.persist !== false) {
-    setLocalData(STORAGE_KEYS.ORDERS, reconciled, null, true);
+    setLocalData(STORAGE_KEYS.ORDERS, reconciled, null, false);
   }
   return reconciled;
 }
@@ -1927,7 +1927,7 @@ export function reconcileCollectionsWithRemote(
     });
     const result = deduplicateCollections(Array.from(map.values()));
     if (options?.persist !== false) {
-      setLocalData(STORAGE_KEYS.COLLECTIONS, result, null, true);
+      setLocalData(STORAGE_KEYS.COLLECTIONS, result, null, false);
     }
     return result;
   }
@@ -1948,7 +1948,7 @@ export function reconcileCollectionsWithRemote(
   );
 
   if (options?.persist !== false) {
-    setLocalData(STORAGE_KEYS.COLLECTIONS, reconciled, null, true);
+    setLocalData(STORAGE_KEYS.COLLECTIONS, reconciled, null, false);
   }
   return reconciled;
 }
@@ -2021,7 +2021,7 @@ export function reconcileProductsWithRemote(
     });
     const result = Array.from(map.values()).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
     if (options?.persist !== false) {
-      setLocalData(STORAGE_KEYS.PRODUCTS, result, null, true);
+      setLocalData(STORAGE_KEYS.PRODUCTS, result, null, false);
     }
     return result;
   }
@@ -2039,7 +2039,7 @@ export function reconcileProductsWithRemote(
 
   const reconciled = [...localNotOnRemote, ...validRemote].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
   if (options?.persist !== false) {
-    setLocalData(STORAGE_KEYS.PRODUCTS, reconciled, null, true);
+    setLocalData(STORAGE_KEYS.PRODUCTS, reconciled, null, false);
   }
   return reconciled;
 }
@@ -2067,7 +2067,7 @@ export function reconcileCategoriesWithRemote(
     }
     const result = Array.from(map.values()).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
     if (options?.persist !== false) {
-      setLocalData(STORAGE_KEYS.CATEGORIES, result, null, true);
+      setLocalData(STORAGE_KEYS.CATEGORIES, result, null, false);
     }
     return result;
   }
@@ -2078,7 +2078,7 @@ export function reconcileCategoriesWithRemote(
   );
   const reconciled = [...localNotOnRemote, ...validRemote].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
   if (options?.persist !== false) {
-    setLocalData(STORAGE_KEYS.CATEGORIES, reconciled, null, true);
+    setLocalData(STORAGE_KEYS.CATEGORIES, reconciled, null, false);
   }
   return reconciled;
 }
@@ -2113,7 +2113,7 @@ export function reconcileExpensesWithRemote(
       (a, b) => new Date(b.expense_date || b.created_at || 0).getTime() - new Date(a.expense_date || a.created_at || 0).getTime(),
     );
     if (options?.persist !== false) {
-      setLocalData(STORAGE_KEYS.EXPENSES, result, null, true);
+      setLocalData(STORAGE_KEYS.EXPENSES, result, null, false);
     }
     return result;
   }
@@ -2126,7 +2126,7 @@ export function reconcileExpensesWithRemote(
     (a, b) => new Date(b.expense_date || b.created_at || 0).getTime() - new Date(a.expense_date || a.created_at || 0).getTime(),
   );
   if (options?.persist !== false) {
-    setLocalData(STORAGE_KEYS.EXPENSES, reconciled, null, true);
+    setLocalData(STORAGE_KEYS.EXPENSES, reconciled, null, false);
   }
   return reconciled;
 }
@@ -2161,7 +2161,7 @@ export function reconcileVisitsWithRemote(
       (a, b) => new Date(b.visit_date || b.created_at || 0).getTime() - new Date(a.visit_date || a.created_at || 0).getTime(),
     );
     if (options?.persist !== false) {
-      setLocalData(STORAGE_KEYS.VISITS, result, null, true);
+      setLocalData(STORAGE_KEYS.VISITS, result, null, false);
     }
     return result;
   }
@@ -2174,7 +2174,7 @@ export function reconcileVisitsWithRemote(
     (a, b) => new Date(b.visit_date || b.created_at || 0).getTime() - new Date(a.visit_date || a.created_at || 0).getTime(),
   );
   if (options?.persist !== false) {
-    setLocalData(STORAGE_KEYS.VISITS, reconciled, null, true);
+    setLocalData(STORAGE_KEYS.VISITS, reconciled, null, false);
   }
   return reconciled;
 }
@@ -2213,7 +2213,7 @@ export function reconcileAreasWithRemote(
     }
     const result = Array.from(map.values()).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
     if (options?.persist !== false) {
-      setLocalData(STORAGE_KEYS.AREAS, result, null, true);
+      setLocalData(STORAGE_KEYS.AREAS, result, null, false);
     }
     return result;
   }
@@ -2224,7 +2224,7 @@ export function reconcileAreasWithRemote(
   );
   const reconciled = [...localNotOnRemote, ...validRemote].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
   if (options?.persist !== false) {
-    setLocalData(STORAGE_KEYS.AREAS, reconciled, null, true);
+    setLocalData(STORAGE_KEYS.AREAS, reconciled, null, false);
   }
   return reconciled;
 }
@@ -2253,7 +2253,7 @@ export function reconcileInventoryWithRemote(
   }
   const result = Array.from(map.values());
   if (options?.persist !== false) {
-    setLocalData(STORAGE_KEYS.INVENTORY, result, null, true);
+    setLocalData(STORAGE_KEYS.INVENTORY, result, null, false);
   }
   return result;
 }
@@ -2287,7 +2287,7 @@ export function reconcileSuppliersWithRemote(
     }
     const result = Array.from(map.values());
     if (options?.persist !== false) {
-      setLocalData(STORAGE_KEYS.SUPPLIERS, result, null, true);
+      setLocalData(STORAGE_KEYS.SUPPLIERS, result, null, false);
     }
     return result;
   }
@@ -2299,7 +2299,7 @@ export function reconcileSuppliersWithRemote(
   const reconciled = [...localNotOnRemote, ...validRemote];
   const finalResult = reconciled.length > 0 ? reconciled : DEFAULT_SUPPLIERS;
   if (options?.persist !== false) {
-    setLocalData(STORAGE_KEYS.SUPPLIERS, finalResult, null, true);
+    setLocalData(STORAGE_KEYS.SUPPLIERS, finalResult, null, false);
   }
   return finalResult;
 }
@@ -2331,7 +2331,7 @@ export function reconcilePurchaseInvoicesWithRemote(
       (a, b) => new Date(b.invoice_date || b.created_at || 0).getTime() - new Date(a.invoice_date || a.created_at || 0).getTime(),
     );
     if (options?.persist !== false) {
-      setLocalData(STORAGE_KEYS.PURCHASE_INVOICES, result, null, true);
+      setLocalData(STORAGE_KEYS.PURCHASE_INVOICES, result, null, false);
     }
     return result;
   }
@@ -2344,7 +2344,7 @@ export function reconcilePurchaseInvoicesWithRemote(
     (a, b) => new Date(b.invoice_date || b.created_at || 0).getTime() - new Date(a.invoice_date || a.created_at || 0).getTime(),
   );
   if (options?.persist !== false) {
-    setLocalData(STORAGE_KEYS.PURCHASE_INVOICES, reconciled, null, true);
+    setLocalData(STORAGE_KEYS.PURCHASE_INVOICES, reconciled, null, false);
   }
   return reconciled;
 }
@@ -2376,7 +2376,7 @@ export function reconcileSupplierPaymentsWithRemote(
       (a, b) => new Date(b.payment_date || b.created_at || 0).getTime() - new Date(a.payment_date || a.created_at || 0).getTime(),
     );
     if (options?.persist !== false) {
-      setLocalData(STORAGE_KEYS.SUPPLIER_PAYMENTS, result, null, true);
+      setLocalData(STORAGE_KEYS.SUPPLIER_PAYMENTS, result, null, false);
     }
     return result;
   }
@@ -2389,7 +2389,7 @@ export function reconcileSupplierPaymentsWithRemote(
     (a, b) => new Date(b.payment_date || b.created_at || 0).getTime() - new Date(a.payment_date || a.created_at || 0).getTime(),
   );
   if (options?.persist !== false) {
-    setLocalData(STORAGE_KEYS.SUPPLIER_PAYMENTS, reconciled, null, true);
+    setLocalData(STORAGE_KEYS.SUPPLIER_PAYMENTS, reconciled, null, false);
   }
   return reconciled;
 }
@@ -2422,7 +2422,7 @@ export function reconcileSalesTargetsWithRemote(
     }
     const result = Array.from(map.values());
     if (options?.persist !== false) {
-      setLocalData(STORAGE_KEYS.TARGETS, result, null, true);
+      setLocalData(STORAGE_KEYS.TARGETS, result, null, false);
     }
     return result;
   }
@@ -2433,7 +2433,7 @@ export function reconcileSalesTargetsWithRemote(
   );
   const reconciled = [...localNotOnRemote, ...validRemote];
   if (options?.persist !== false) {
-    setLocalData(STORAGE_KEYS.TARGETS, reconciled, null, true);
+    setLocalData(STORAGE_KEYS.TARGETS, reconciled, null, false);
   }
   return reconciled;
 }
@@ -2468,7 +2468,7 @@ export function reconcileNotificationsWithRemote(
       (a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime(),
     );
     if (options?.persist !== false) {
-      setLocalData(STORAGE_KEYS.NOTIFICATIONS, result, null, true);
+      setLocalData(STORAGE_KEYS.NOTIFICATIONS, result, null, false);
     }
     return result;
   }
@@ -2481,7 +2481,7 @@ export function reconcileNotificationsWithRemote(
     (a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime(),
   );
   if (options?.persist !== false) {
-    setLocalData(STORAGE_KEYS.NOTIFICATIONS, reconciled, null, true);
+    setLocalData(STORAGE_KEYS.NOTIFICATIONS, reconciled, null, false);
   }
   return reconciled;
 }
@@ -2516,7 +2516,7 @@ export function reconcileUsersWithRemote(
       (a, b) => (a.full_name || "").localeCompare(b.full_name || ""),
     );
     if (options?.persist !== false) {
-      setLocalData(STORAGE_KEYS.USERS, result, null, true);
+      setLocalData(STORAGE_KEYS.USERS, result, null, false);
     }
     return result;
   }
@@ -2529,7 +2529,7 @@ export function reconcileUsersWithRemote(
     (a, b) => (a.full_name || "").localeCompare(b.full_name || ""),
   );
   if (options?.persist !== false) {
-    setLocalData(STORAGE_KEYS.USERS, reconciled, null, true);
+    setLocalData(STORAGE_KEYS.USERS, reconciled, null, false);
   }
   return reconciled;
 }
@@ -2569,7 +2569,7 @@ export function reconcileStockTransactionsWithRemote(
   );
 
   if (options?.persist !== false) {
-    setLocalData(STORAGE_KEYS.TRANSACTIONS, result, null, true);
+    setLocalData(STORAGE_KEYS.TRANSACTIONS, result, null, false);
   }
   return result;
 }

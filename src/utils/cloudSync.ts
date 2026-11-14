@@ -1325,7 +1325,7 @@ export async function pullFreshCloudStateToLocalStore(options?: {
           () =>
             supabase
               .from("users")
-              .select("id, email, full_name, role, role_name, phone, is_active, created_at, updated_at")
+              .select("id, email, full_name, role_name, phone, is_active, created_at, updated_at")
               .order("full_name", { ascending: true })
               .limit(1000),
           10000,
@@ -1354,7 +1354,7 @@ export async function pullFreshCloudStateToLocalStore(options?: {
             supabase
               .from("stock_transactions")
               .select("*")
-              .order("created_at", { ascending: false })
+              .order("transaction_date", { ascending: false })
               .limit(2500),
           10000,
           "Cloud pull stock transactions",

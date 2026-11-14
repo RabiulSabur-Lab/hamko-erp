@@ -344,7 +344,8 @@ export function AccountsPage() {
 
   const loadAccountsData = useCallback(async (isManual = false) => {
     mountedRef.current = true;
-    if (isManual) {
+    const isColdStart = getCollections().length === 0;
+    if (isManual || isColdStart) {
       setLoading(true);
       try {
         await triggerGlobalLiveSync({ silent: true });
@@ -546,6 +547,10 @@ export function AccountsPage() {
       const deletedExpIds = getDeletedIds(STORAGE_KEYS.DELETED_EXPENSES);
       const updatedExps = syncSupplierPaymentsToExpenses(getExpenses().filter((e) => !deletedExpIds.has(e.id)));
       setExpenses([...updatedExps]);
+
+      if (updatedCols.length > 0 || updatedExps.length > 0) {
+        setLoading(false);
+      }
 
       const updatedCusts: Customer[] = getCustomers();
       setCustomers([...updatedCusts]);

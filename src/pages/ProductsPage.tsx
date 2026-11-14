@@ -26,6 +26,7 @@ import {
   saveDeletedId,
   r2,
   getOrders,
+  getProducts,
   isPendingOfflineRecord,
   dispatchGlobalStateUpdate,
 } from "@/utils/localStore";
@@ -137,6 +138,9 @@ export function ProductsPage() {
       const storedProds = getLocalData<Product[]>(STORAGE_KEYS.PRODUCTS, []);
       const refreshed = (Array.isArray(storedProds) ? storedProds : []).filter((p: Product) => !deletedIds.has(p.id));
       setProducts([...refreshed].sort((a: Product, b: Product) => (a.name || "").localeCompare(b.name || "")));
+      if (refreshed.length > 0) {
+        setLoading(false);
+      }
       const refreshedCats = getLocalData<Category[]>(STORAGE_KEYS.CATEGORIES, []);
       if (Array.isArray(refreshedCats)) setCategories(refreshedCats);
 
@@ -175,7 +179,8 @@ export function ProductsPage() {
 
   async function loadData(isManual = false) {
     mountedRef.current = true;
-    if (isManual) {
+    const isColdStart = getProducts().length === 0;
+    if (isManual || isColdStart) {
       setLoading(true);
       try {
         await triggerGlobalLiveSync({ silent: true });

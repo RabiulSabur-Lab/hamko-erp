@@ -369,7 +369,8 @@ export function OrdersPage() {
 
   async function load(isManual = false) {
     isMountedRef.current = true;
-    if (isManual) {
+    const isColdStart = getOrders().length === 0;
+    if (isManual || isColdStart) {
       setLoading(true);
       try {
         await triggerGlobalLiveSync({ silent: true });
@@ -378,258 +379,258 @@ export function OrdersPage() {
       }
     }
     try {
-        const [usersQueryRes, oRes, cRes, pRes, officersData] = await Promise.all([
-          supabase.from("users").select("id, full_name, email, role_name"),
-          supabase.from("orders").select("*, order_items(*), customer:customers(name, current_due, address, city, phone, trade_license_number)").order("order_date", { ascending: false }),
-          supabase.from("customers").select("*").order("name"),
-          supabase.from("products").select("*").order("name"),
-          fetchActiveSalesOfficers(),
-        ]);
-        if (!isMountedRef.current) return;
+      const [usersQueryRes, oRes, cRes, pRes, officersData] = await Promise.all([
+        supabase.from("users").select("id, full_name, email, role_name"),
+        supabase.from("orders").select("*, order_items(*), customer:customers(name, current_due, address, city, phone, trade_license_number)").order("order_date", { ascending: false }),
+        supabase.from("customers").select("*").order("name"),
+        supabase.from("products").select("*").order("name"),
+        fetchActiveSalesOfficers(),
+      ]);
+      if (!isMountedRef.current) return;
 
-        let resolvedOrderData: any[] | null = !oRes.error && Array.isArray(oRes.data) && oRes.data.length > 0 ? oRes.data : null;
-        if (!resolvedOrderData) {
-          console.warn("Orders primary join query notice, attempting fallback queries:", oRes?.error?.message);
-          const fallbackRes = await supabase
+      let resolvedOrderData: any[] | null = !oRes.error && Array.isArray(oRes.data) && oRes.data.length > 0 ? oRes.data : null;
+      if (!resolvedOrderData) {
+        console.warn("Orders primary join query notice, attempting fallback queries:", oRes?.error?.message);
+        const fallbackRes = await supabase
+          .from("orders")
+          .select("*, order_items(*), customer:customers(name, current_due, phone)")
+          .order("order_date", { ascending: false });
+        if (!fallbackRes.error && Array.isArray(fallbackRes.data) && fallbackRes.data.length > 0) {
+          resolvedOrderData = fallbackRes.data;
+        } else {
+          // Robust flat query fallbacks: eliminate PostgREST relationship dependency
+          const flatRes = await supabase
             .from("orders")
-            .select("*, order_items(*), customer:customers(name, current_due, phone)")
+            .select("*, order_items(*)")
             .order("order_date", { ascending: false });
-          if (!fallbackRes.error && Array.isArray(fallbackRes.data) && fallbackRes.data.length > 0) {
-            resolvedOrderData = fallbackRes.data;
+          if (!flatRes.error && Array.isArray(flatRes.data)) {
+            resolvedOrderData = flatRes.data;
           } else {
-            // Robust flat query fallbacks: eliminate PostgREST relationship dependency
-            const flatRes = await supabase
+            const bareRes = await supabase
               .from("orders")
-              .select("*, order_items(*)")
+              .select("*")
               .order("order_date", { ascending: false });
-            if (!flatRes.error && Array.isArray(flatRes.data)) {
-              resolvedOrderData = flatRes.data;
-            } else {
-              const bareRes = await supabase
-                .from("orders")
-                .select("*")
-                .order("order_date", { ascending: false });
-              if (!bareRes.error && Array.isArray(bareRes.data)) {
-                resolvedOrderData = bareRes.data;
-              }
+            if (!bareRes.error && Array.isArray(bareRes.data)) {
+              resolvedOrderData = bareRes.data;
             }
           }
         }
+      }
 
-        // Build enriched user lookup map from database query, officers list, and orders
-        const updatedUsersMap: Record<string, UserLookupInfo> = { ...buildUserLookupMap(profile) };
+      // Build enriched user lookup map from database query, officers list, and orders
+      const updatedUsersMap: Record<string, UserLookupInfo> = { ...buildUserLookupMap(profile) };
 
-        if (!usersQueryRes.error && Array.isArray(usersQueryRes.data)) {
-          usersQueryRes.data.forEach((u: any) => {
-            if (u.id) {
-              updatedUsersMap[String(u.id)] = {
-                id: String(u.id),
-                full_name: u.full_name || u.name || "",
-                email: u.email,
-                role_name: u.role_name,
-              };
-            }
-          });
-        }
+      if (!usersQueryRes.error && Array.isArray(usersQueryRes.data)) {
+        usersQueryRes.data.forEach((u: any) => {
+          if (u.id) {
+            updatedUsersMap[String(u.id)] = {
+              id: String(u.id),
+              full_name: u.full_name || u.name || "",
+              email: u.email,
+              role_name: u.role_name,
+            };
+          }
+        });
+      }
 
-        if (Array.isArray(officersData) && officersData.length > 0) {
-          officersData.forEach((so) => {
-            if (so.id) {
-              updatedUsersMap[String(so.id)] = {
-                id: String(so.id),
-                full_name: so.full_name || updatedUsersMap[String(so.id)]?.full_name || "",
-                email: so.email || updatedUsersMap[String(so.id)]?.email,
-                role_name: so.role_name || updatedUsersMap[String(so.id)]?.role_name,
-              };
-            }
-          });
-          setSalesOfficers(officersData);
-        }
+      if (Array.isArray(officersData) && officersData.length > 0) {
+        officersData.forEach((so) => {
+          if (so.id) {
+            updatedUsersMap[String(so.id)] = {
+              id: String(so.id),
+              full_name: so.full_name || updatedUsersMap[String(so.id)]?.full_name || "",
+              email: so.email || updatedUsersMap[String(so.id)]?.email,
+              role_name: so.role_name || updatedUsersMap[String(so.id)]?.role_name,
+            };
+          }
+        });
+        setSalesOfficers(officersData);
+      }
 
-        if (resolvedOrderData) {
-          resolvedOrderData.forEach((ord) => {
-            if (ord.sales_rep_id && ord.sales_rep?.full_name) {
-              updatedUsersMap[String(ord.sales_rep_id)] = {
-                id: String(ord.sales_rep_id),
-                full_name: ord.sales_rep.full_name,
-                email: ord.sales_rep.email || updatedUsersMap[String(ord.sales_rep_id)]?.email,
-              };
-            }
-          });
-        }
+      if (resolvedOrderData) {
+        resolvedOrderData.forEach((ord) => {
+          if (ord.sales_rep_id && ord.sales_rep?.full_name) {
+            updatedUsersMap[String(ord.sales_rep_id)] = {
+              id: String(ord.sales_rep_id),
+              full_name: ord.sales_rep.full_name,
+              email: ord.sales_rep.email || updatedUsersMap[String(ord.sales_rep_id)]?.email,
+            };
+          }
+        });
+      }
 
-        setUsersMap(updatedUsersMap);
+      setUsersMap(updatedUsersMap);
 
-        if (resolvedOrderData) {
-          const deletedIds = getDeletedIds(STORAGE_KEYS.DELETED_ORDERS);
-          const rawOrders = (resolvedOrderData as Order[]).filter((o: any) => !deletedIds.has(o.id));
-          // Clean duplicate line items defensively and fix any inflated totals
-          const remoteOrders = rawOrders.map((ord) => {
-            const rawItems = ord.order_items || (ord as any).items;
-            const repName =
-              (ord.sales_rep_id ? getSalesOfficerById(ord.sales_rep_id)?.full_name : null) ||
-              (ord.sales_rep_id ? getUserName(ord.sales_rep_id) : null) ||
-              (ord.sales_rep_id ? updatedUsersMap[String(ord.sales_rep_id)]?.full_name : null) ||
-              ord.sales_rep?.full_name ||
-              ord.sales_rep_name ||
-              (ord as any).created_by_name ||
-              null;
+      if (resolvedOrderData) {
+        const deletedIds = getDeletedIds(STORAGE_KEYS.DELETED_ORDERS);
+        const rawOrders = (resolvedOrderData as Order[]).filter((o: any) => !deletedIds.has(o.id));
+        // Clean duplicate line items defensively and fix any inflated totals
+        const remoteOrders = rawOrders.map((ord) => {
+          const rawItems = ord.order_items || (ord as any).items;
+          const repName =
+            (ord.sales_rep_id ? getSalesOfficerById(ord.sales_rep_id)?.full_name : null) ||
+            (ord.sales_rep_id ? getUserName(ord.sales_rep_id) : null) ||
+            (ord.sales_rep_id ? updatedUsersMap[String(ord.sales_rep_id)]?.full_name : null) ||
+            ord.sales_rep?.full_name ||
+            ord.sales_rep_name ||
+            (ord as any).created_by_name ||
+            null;
 
-            if (rawItems && Array.isArray(rawItems) && rawItems.length > 0) {
-              const cleanItems: OrderItem[] = deduplicateOrderItems(rawItems).map((item: any, idx: number) => {
-                const prodInfo = resolveOrderProduct(item.product, item.product_id, pRes.data || []);
-                return {
-                  id: item.id || `item-${ord.id}-${idx}`,
-                  order_id: item.order_id || ord.id,
-                  product_id: item.product_id || "",
-                  quantity: Number(item.quantity) || 1,
-                  unit_price: Number(item.unit_price) || 0,
-                  discount: Number(item.discount) || 0,
-                  subtotal: Number(item.subtotal) || 0,
-                  price_tier: item.price_tier || "Custom",
-                  created_at: item.created_at || ord.created_at || new Date().toISOString(),
-                  product: prodInfo.exists ? prodInfo.product : null,
-                };
-              });
-              const itemsSubtotal = r2(cleanItems.reduce((sum: number, it: any) => sum + Number(it.subtotal || 0), 0));
-              const disc = Number(ord.discount) || 0;
-              const cloudTotal = Number(ord.total_amount) || 0;
-              const newSubtotal = Number(ord.subtotal) > 0 ? Number(ord.subtotal) : itemsSubtotal;
-              const newTotal = cloudTotal > 0 ? cloudTotal : r2(Math.max(0, newSubtotal - disc));
-              const paid = Number(ord.paid_amount) || 0;
-              const newDue = ord.due_amount !== undefined && ord.due_amount !== null
-                ? Number(ord.due_amount)
-                : r2(Math.max(0, newTotal - paid));
-              const resolvedCustomer = ord.customer || (Array.isArray(cRes.data) ? cRes.data.find((c: any) => c.id === ord.customer_id) : undefined);
+          if (rawItems && Array.isArray(rawItems) && rawItems.length > 0) {
+            const cleanItems: OrderItem[] = deduplicateOrderItems(rawItems).map((item: any, idx: number) => {
+              const prodInfo = resolveOrderProduct(item.product, item.product_id, pRes.data || []);
               return {
-                ...ord,
-                customer: resolvedCustomer || ord.customer,
-                sales_rep_name: repName || ord.sales_rep_name || null,
-                created_by_name: repName || (ord as any).created_by_name || null,
-                order_items: cleanItems,
-                items: cleanItems,
-                subtotal: newSubtotal,
-                total_amount: newTotal,
-                paid_amount: paid,
-                paidAmount: paid,
-                due_amount: newDue,
-                dueAmount: newDue,
-              } as Order;
-            }
+                id: item.id || `item-${ord.id}-${idx}`,
+                order_id: item.order_id || ord.id,
+                product_id: item.product_id || "",
+                quantity: Number(item.quantity) || 1,
+                unit_price: Number(item.unit_price) || 0,
+                discount: Number(item.discount) || 0,
+                subtotal: Number(item.subtotal) || 0,
+                price_tier: item.price_tier || "Custom",
+                created_at: item.created_at || ord.created_at || new Date().toISOString(),
+                product: prodInfo.exists ? prodInfo.product : null,
+              };
+            });
+            const itemsSubtotal = r2(cleanItems.reduce((sum: number, it: any) => sum + Number(it.subtotal || 0), 0));
+            const disc = Number(ord.discount) || 0;
+            const cloudTotal = Number(ord.total_amount) || 0;
+            const newSubtotal = Number(ord.subtotal) > 0 ? Number(ord.subtotal) : itemsSubtotal;
+            const newTotal = cloudTotal > 0 ? cloudTotal : r2(Math.max(0, newSubtotal - disc));
+            const paid = Number(ord.paid_amount) || 0;
+            const newDue = ord.due_amount !== undefined && ord.due_amount !== null
+              ? Number(ord.due_amount)
+              : r2(Math.max(0, newTotal - paid));
             const resolvedCustomer = ord.customer || (Array.isArray(cRes.data) ? cRes.data.find((c: any) => c.id === ord.customer_id) : undefined);
             return {
               ...ord,
               customer: resolvedCustomer || ord.customer,
               sales_rep_name: repName || ord.sales_rep_name || null,
               created_by_name: repName || (ord as any).created_by_name || null,
+              order_items: cleanItems,
+              items: cleanItems,
+              subtotal: newSubtotal,
+              total_amount: newTotal,
+              paid_amount: paid,
+              paidAmount: paid,
+              due_amount: newDue,
+              dueAmount: newDue,
             } as Order;
-          });
-          const remoteIdSet = new Set(remoteOrders.map((o) => String(o.id)));
-          const remoteOrderNumSet = new Set(
-            remoteOrders.map((o) => (o.order_number ? String(o.order_number).trim().toUpperCase() : "")).filter(Boolean)
-          );
-
-          // Preserve pending local orders that have not yet been synced to Supabase
-          const currentLocal = cleanCorruptedStoredOrders().filter((o: any) => !deletedIds.has(o.id));
-          const localByNum = new Map<string, Order>();
-          const localById = new Map<string, Order>();
-          currentLocal.forEach((lo) => {
-            if (lo.id) localById.set(String(lo.id), lo);
-            if (lo.order_number) localByNum.set(String(lo.order_number).trim().toUpperCase(), lo);
-          });
-
-          // Enrich remote orders if remote has missing line items but local copy has them
-          const enrichedRemoteOrders = remoteOrders.map((ro) => {
-            const hasItems = (ro.order_items && ro.order_items.length > 0) || ((ro as any).items && (ro as any).items.length > 0);
-            if (!hasItems) {
-              const num = ro.order_number ? String(ro.order_number).trim().toUpperCase() : "";
-              const matchedLocal = (ro.id ? localById.get(String(ro.id)) : undefined) || (num ? localByNum.get(num) : undefined);
-              if (matchedLocal && ((matchedLocal.order_items && matchedLocal.order_items.length > 0) || ((matchedLocal as any).items && (matchedLocal as any).items.length > 0))) {
-                const items = matchedLocal.order_items || (matchedLocal as any).items;
-                return {
-                  ...ro,
-                  order_items: items,
-                  items: items,
-                };
-              }
-            }
-            return ro;
-          });
-
-          // Ensure all local orders not yet on remote are strictly preserved (Additive-Only local-first)
-          const localOrdersNotOnRemote = currentLocal.filter((lo) => {
-            const num = lo.order_number ? String(lo.order_number).trim().toUpperCase() : "";
-            return !remoteIdSet.has(String(lo.id)) && (!num || !remoteOrderNumSet.has(num));
-          });
-
-          const mergedOrders = [...localOrdersNotOnRemote, ...enrichedRemoteOrders].map((ord) => {
-            const repName =
-              (ord.sales_rep_id ? getSalesOfficerById(ord.sales_rep_id)?.full_name : null) ||
-              (ord.sales_rep_id ? getUserName(ord.sales_rep_id) : null) ||
-              (ord.sales_rep_id ? updatedUsersMap[String(ord.sales_rep_id)]?.full_name : null) ||
-              ord.sales_rep?.full_name ||
-              ord.sales_rep_name ||
-              (ord as any).created_by_name ||
-              null;
-            return {
-              ...ord,
-              sales_rep_name: repName || ord.sales_rep_name || null,
-              created_by_name: repName || (ord as any).created_by_name || null,
-            } as Order;
-          }).sort(
-            (a, b) => new Date(b.order_date || b.created_at || 0).getTime() - new Date(a.order_date || a.created_at || 0).getTime()
-          );
-
-          setOrders(mergedOrders);
-          saveOrders(mergedOrders);
-          if (isManual) {
-            toast.success(`Live sync: ${mergedOrders.length} orders synchronized`);
           }
-        } else {
-          // Fallback to local storage when remote Supabase fetch fails or is offline
-          const fallbackOrders = cleanCorruptedStoredOrders();
-          setOrders(fallbackOrders);
-        }
-        if (!cRes.error && Array.isArray(cRes.data)) {
-          const mergedCusts = mergeAndEnrichCustomers(cRes.data as Customer[]);
-          setCustomers(mergedCusts);
-        }
-        if (!pRes.error && Array.isArray(pRes.data)) {
-          const localProds = getProducts();
-          const localMap = new Map(localProds.map((p) => [String(p.id), p]));
-          const mergedProds: Product[] = (pRes.data as Product[]).map((rp: any) => {
-            const loc = localMap.get(String(rp.id));
-            let candidateTiers = rp.price_tiers;
-            if (typeof candidateTiers === "string") {
-              try { candidateTiers = JSON.parse(candidateTiers); } catch { candidateTiers = null; }
+          const resolvedCustomer = ord.customer || (Array.isArray(cRes.data) ? cRes.data.find((c: any) => c.id === ord.customer_id) : undefined);
+          return {
+            ...ord,
+            customer: resolvedCustomer || ord.customer,
+            sales_rep_name: repName || ord.sales_rep_name || null,
+            created_by_name: repName || (ord as any).created_by_name || null,
+          } as Order;
+        });
+        const remoteIdSet = new Set(remoteOrders.map((o) => String(o.id)));
+        const remoteOrderNumSet = new Set(
+          remoteOrders.map((o) => (o.order_number ? String(o.order_number).trim().toUpperCase() : "")).filter(Boolean)
+        );
+
+        // Preserve pending local orders that have not yet been synced to Supabase
+        const currentLocal = cleanCorruptedStoredOrders().filter((o: any) => !deletedIds.has(o.id));
+        const localByNum = new Map<string, Order>();
+        const localById = new Map<string, Order>();
+        currentLocal.forEach((lo) => {
+          if (lo.id) localById.set(String(lo.id), lo);
+          if (lo.order_number) localByNum.set(String(lo.order_number).trim().toUpperCase(), lo);
+        });
+
+        // Enrich remote orders if remote has missing line items but local copy has them
+        const enrichedRemoteOrders = remoteOrders.map((ro) => {
+          const hasItems = (ro.order_items && ro.order_items.length > 0) || ((ro as any).items && (ro as any).items.length > 0);
+          if (!hasItems) {
+            const num = ro.order_number ? String(ro.order_number).trim().toUpperCase() : "";
+            const matchedLocal = (ro.id ? localById.get(String(ro.id)) : undefined) || (num ? localByNum.get(num) : undefined);
+            if (matchedLocal && ((matchedLocal.order_items && matchedLocal.order_items.length > 0) || ((matchedLocal as any).items && (matchedLocal as any).items.length > 0))) {
+              const items = matchedLocal.order_items || (matchedLocal as any).items;
+              return {
+                ...ro,
+                order_items: items,
+                items: items,
+              };
             }
-            const hasRemoteTiers = Array.isArray(candidateTiers) && candidateTiers.length > 0;
+          }
+          return ro;
+        });
 
-            let locTiers = loc?.price_tiers;
-            if (typeof locTiers === "string") {
-              try { locTiers = JSON.parse(locTiers); } catch { locTiers = null; }
-            }
-            const hasLocTiers = Array.isArray(locTiers) && (locTiers ?? []).length > 0;
+        // Ensure all local orders not yet on remote are strictly preserved (Additive-Only local-first)
+        const localOrdersNotOnRemote = currentLocal.filter((lo) => {
+          const num = lo.order_number ? String(lo.order_number).trim().toUpperCase() : "";
+          return !remoteIdSet.has(String(lo.id)) && (!num || !remoteOrderNumSet.has(num));
+        });
 
-            const resolvedPriceTiers = hasRemoteTiers
-              ? candidateTiers
-              : (hasLocTiers ? (locTiers ?? []) : (Array.isArray(candidateTiers) ? candidateTiers : []));
+        const mergedOrders = [...localOrdersNotOnRemote, ...enrichedRemoteOrders].map((ord) => {
+          const repName =
+            (ord.sales_rep_id ? getSalesOfficerById(ord.sales_rep_id)?.full_name : null) ||
+            (ord.sales_rep_id ? getUserName(ord.sales_rep_id) : null) ||
+            (ord.sales_rep_id ? updatedUsersMap[String(ord.sales_rep_id)]?.full_name : null) ||
+            ord.sales_rep?.full_name ||
+            ord.sales_rep_name ||
+            (ord as any).created_by_name ||
+            null;
+          return {
+            ...ord,
+            sales_rep_name: repName || ord.sales_rep_name || null,
+            created_by_name: repName || (ord as any).created_by_name || null,
+          } as Order;
+        }).sort(
+          (a, b) => new Date(b.order_date || b.created_at || 0).getTime() - new Date(a.order_date || a.created_at || 0).getTime()
+        );
 
-            return {
-              ...rp,
-              price_tiers: resolvedPriceTiers,
-              purchase_cost: (loc as any)?.purchase_cost ?? rp.purchase_cost ?? rp.distributor_price,
-            } as Product;
-          });
-          setProducts(mergedProds);
-          setLocalData(STORAGE_KEYS.PRODUCTS, mergedProds);
+        setOrders(mergedOrders);
+        saveOrders(mergedOrders);
+        if (isManual) {
+          toast.success(`Live sync: ${mergedOrders.length} orders synchronized`);
         }
-      } catch (err) {
-        console.warn("Using cached orders data due to network error:", err);
-      } finally {
-        setLoading(false);
+      } else {
+        // Fallback to local storage when remote Supabase fetch fails or is offline
+        const fallbackOrders = cleanCorruptedStoredOrders();
+        setOrders(fallbackOrders);
       }
+      if (!cRes.error && Array.isArray(cRes.data)) {
+        const mergedCusts = mergeAndEnrichCustomers(cRes.data as Customer[]);
+        setCustomers(mergedCusts);
+      }
+      if (!pRes.error && Array.isArray(pRes.data)) {
+        const localProds = getProducts();
+        const localMap = new Map(localProds.map((p) => [String(p.id), p]));
+        const mergedProds: Product[] = (pRes.data as Product[]).map((rp: any) => {
+          const loc = localMap.get(String(rp.id));
+          let candidateTiers = rp.price_tiers;
+          if (typeof candidateTiers === "string") {
+            try { candidateTiers = JSON.parse(candidateTiers); } catch { candidateTiers = null; }
+          }
+          const hasRemoteTiers = Array.isArray(candidateTiers) && candidateTiers.length > 0;
+
+          let locTiers = loc?.price_tiers;
+          if (typeof locTiers === "string") {
+            try { locTiers = JSON.parse(locTiers); } catch { locTiers = null; }
+          }
+          const hasLocTiers = Array.isArray(locTiers) && (locTiers ?? []).length > 0;
+
+          const resolvedPriceTiers = hasRemoteTiers
+            ? candidateTiers
+            : (hasLocTiers ? (locTiers ?? []) : (Array.isArray(candidateTiers) ? candidateTiers : []));
+
+          return {
+            ...rp,
+            price_tiers: resolvedPriceTiers,
+            purchase_cost: (loc as any)?.purchase_cost ?? rp.purchase_cost ?? rp.distributor_price,
+          } as Product;
+        });
+        setProducts(mergedProds);
+        setLocalData(STORAGE_KEYS.PRODUCTS, mergedProds);
+      }
+    } catch (err) {
+      console.warn("Using cached orders data due to network error:", err);
+    } finally {
+      setLoading(false);
     }
+  }
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -662,7 +663,7 @@ export function OrdersPage() {
         if (ordChannel && supabase?.removeChannel) {
           supabase.removeChannel(ordChannel);
         }
-      } catch (e) {}
+      } catch (e) { }
     };
   }, []);
 
@@ -676,6 +677,9 @@ export function OrdersPage() {
       const deletedIds = getDeletedIds(STORAGE_KEYS.DELETED_ORDERS);
       const updated = cleaned.filter((o: Order) => !deletedIds.has(o.id));
       setOrders([...updated]);
+      if (updated.length > 0) {
+        setLoading(false);
+      }
       const custs = getCustomers();
       if (Array.isArray(custs)) setCustomers([...custs]);
       const prods = getProducts();

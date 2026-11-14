@@ -101,7 +101,11 @@ export function CustomersPage() {
     loadData();
 
     const handleStorage = () => {
-      setCustomers(getCustomers());
+      const freshCusts = getCustomers();
+      setCustomers(freshCusts);
+      if (freshCusts.length > 0) {
+        setLoading(false);
+      }
       setOrders(getOrders());
       setCollections(getCollections());
       setAreas(getAreas());
@@ -133,7 +137,8 @@ export function CustomersPage() {
 
   async function loadData(isManual = false) {
     mountedRef.current = true;
-    if (isManual) {
+    const isColdStart = getCustomers().length === 0;
+    if (isManual || isColdStart) {
       setLoading(true);
       try {
         await triggerGlobalLiveSync({ silent: true });
