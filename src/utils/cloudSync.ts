@@ -990,8 +990,18 @@ export async function pullFreshCloudStateToLocalStore(options?: {
     return { synced: false, updatedTables: [], offline: true, error: null };
   }
 
+  const hasCachedData = (() => {
+    try {
+      const orders = localStorage.getItem("orders");
+      const custs = localStorage.getItem("customers");
+      return Boolean((orders && orders !== "[]") || (custs && custs !== "[]"));
+    } catch {
+      return false;
+    }
+  })();
+
   const now = Date.now();
-  if (options?.force) {
+  if (options?.force || !hasCachedData) {
     lastCloudPullAt = 0;
   } else if (now - lastCloudPullAt < 1500) {
     return inFlightCloudPull ?? { synced: false, updatedTables: [], error: null };

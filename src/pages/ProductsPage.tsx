@@ -132,20 +132,27 @@ export function ProductsPage() {
     mountedRef.current = true;
     loadData();
 
+    // Watchdog timer: automatically release loading spinner within 3.5s
+    const watchdog = setTimeout(() => {
+      if (mountedRef.current) {
+        setLoading(false);
+      }
+    }, 3500);
+
     const handleStorage = () => {
       mountedRef.current = true;
       const deletedIds = getDeletedIds(STORAGE_KEYS.DELETED_PRODUCTS);
       const storedProds = getLocalData<Product[]>(STORAGE_KEYS.PRODUCTS, []);
       const refreshed = (Array.isArray(storedProds) ? storedProds : []).filter((p: Product) => !deletedIds.has(p.id));
       setProducts([...refreshed].sort((a: Product, b: Product) => (a.name || "").localeCompare(b.name || "")));
-      if (refreshed.length > 0) {
-        setLoading(false);
-      }
+      setLoading(false);
       const refreshedCats = getLocalData<Category[]>(STORAGE_KEYS.CATEGORIES, []);
       if (Array.isArray(refreshedCats)) setCategories(refreshedCats);
 
-      // Trigger live network fetch so secondary devices converge with cloud
-      void loadData(false);
+      // Debounced background check for convergence
+      if (typeof navigator !== "undefined" && navigator.onLine) {
+        void loadData(false);
+      }
     };
 
     const prodChannel = supabase
@@ -160,6 +167,7 @@ export function ProductsPage() {
     window.addEventListener("sales_erp_storage_update", handleStorage);
     return () => {
       mountedRef.current = false;
+      clearTimeout(watchdog);
       supabase.removeChannel(prodChannel);
       window.removeEventListener("storage", handleStorage);
       window.removeEventListener("sales_erp_storage_update", handleStorage);
@@ -189,9 +197,15 @@ export function ProductsPage() {
       }
     }
     try {
-      const [pRes, cRes] = await Promise.all([
-        supabase.from("products").select("*, category:categories(*)").order("name", { ascending: true }),
-        supabase.from("categories").select("*").order("name"),
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Products fetch timeout")), 3500)
+      );
+      const [pRes, cRes] = await Promise.race([
+        Promise.all([
+          supabase.from("products").select("*, category:categories(*)").order("name", { ascending: true }),
+          supabase.from("categories").select("*").order("name"),
+        ]),
+        timeoutPromise,
       ]);
 
       if (!mountedRef.current) return;
@@ -1071,42 +1085,42 @@ export function ProductsPage() {
                           >
                             {formatBDT(p.unit_price ?? (p as any).dp_price ?? (p as any).selling_price ?? (p as any).price ?? (p as any).dealer_price ?? 0)}
                           </TableCell>
-                        {canManageProducts && (
-                          <TableCell className="text-right whitespace-nowrap">
-                            <div className="flex justify-end gap-1">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleEditProduct(p);
-                                }}
-                                title={t("edit")}
-                                aria-label={`Edit ${p.name}`}
-                              >
-                                <Pencil className="h-3.5 w-3.5" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  remove(p);
-                                }}
-                                title={t("delete")}
-                                aria-label={`Delete ${p.name}`}
-                              >
-                                <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                              </Button>
-                            </div>
-                          </TableCell>
-                        )}
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </div>
+                          {canManageProducts && (
+                            <TableCell className="text-right whitespace-nowrap">
+                              <div className="flex justify-end gap-1">
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleEditProduct(p);
+                                  }}
+                                  title={t("edit")}
+                                  aria-label={`Edit ${p.name}`}
+                                >
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    remove(p);
+                                  }}
+                                  title={t("delete")}
+                                  aria-label={`Delete ${p.name}`}
+                                >
+                                  <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                          )}
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
             </div>
           )}
         </CardContent>

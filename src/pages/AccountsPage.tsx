@@ -235,6 +235,7 @@ export function AccountsPage() {
   const [expenses, setExpenses] = useState<Expense[]>(() => syncSupplierPaymentsToExpenses(getExpenses()));
   const [customers, setCustomers] = useState<Customer[]>(() => getCustomers());
   const [orders, setOrders] = useState<Order[]>(() => getOrders());
+  const [isOfflineMode, setIsOfflineMode] = useState<boolean>(() => typeof navigator !== "undefined" && !navigator.onLine);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [ledgerOpen, setLedgerOpen] = useState(false);
   const [selectedLedgerCustomer, setSelectedLedgerCustomer] = useState<Customer | null>(null);
@@ -354,13 +355,19 @@ export function AccountsPage() {
       }
     }
     try {
-      const [usersRes, colRes, expRes, cRes, oRes, officersData] = await Promise.all([
-        supabase.from("users").select("id, full_name, email, role_name"),
-        supabase.from("collections").select(SUPABASE_TABLE_SELECTS.collections).order("collection_date", { ascending: false }),
-        supabase.from("expenses").select("*").order("expense_date", { ascending: false }),
-        supabase.from("customers").select("*").order("name"),
-        supabase.from("orders").select(SUPABASE_TABLE_SELECTS.ordersWithItemsAndCustomer).order("order_date", { ascending: false }).limit(1000),
-        fetchActiveSalesOfficers(),
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Accounts fetch timeout")), 3500)
+      );
+      const [usersRes, colRes, expRes, cRes, oRes, officersData] = await Promise.race([
+        Promise.all([
+          supabase.from("users").select("id, full_name, email, role_name"),
+          supabase.from("collections").select(SUPABASE_TABLE_SELECTS.collections).order("collection_date", { ascending: false }),
+          supabase.from("expenses").select("*").order("expense_date", { ascending: false }),
+          supabase.from("customers").select("*").order("name"),
+          supabase.from("orders").select(SUPABASE_TABLE_SELECTS.ordersWithItemsAndCustomer).order("order_date", { ascending: false }).limit(1000),
+          fetchActiveSalesOfficers(),
+        ]),
+        timeoutPromise,
       ]);
       if (!mountedRef.current) return;
 
@@ -465,7 +472,7 @@ export function AccountsPage() {
           (a, b) => new Date(b.collection_date || b.created_at || 0).getTime() - new Date(a.collection_date || a.created_at || 0).getTime()
         );
         setCollections(enrichedCols);
-        setLocalData(STORAGE_KEYS.COLLECTIONS, enrichedCols, null, true);
+        setLocalData(STORAGE_KEYS.COLLECTIONS, enrichedCols, null, false);
       } else {
         setCollections(getCollections().filter((c: Collection) => !deletedColIds.has(c.id)));
       }
@@ -485,7 +492,7 @@ export function AccountsPage() {
         finalExps = syncSupplierPaymentsToExpenses(localExps);
       }
       setExpenses(finalExps);
-      setLocalData(STORAGE_KEYS.EXPENSES, finalExps, null, true);
+      setLocalData(STORAGE_KEYS.EXPENSES, finalExps, null, false);
 
       if (!cRes.error && Array.isArray(cRes.data)) {
         setCustomers(allCustomers);
@@ -493,11 +500,13 @@ export function AccountsPage() {
       if (!oRes.error && Array.isArray(oRes.data)) {
         setOrders(allOrders);
       }
+      setIsOfflineMode(false);
       if (isManual) {
         toast.success(lang === "bn" ? "অ্যাকাউন্টস ডাটা সফলভাবে সিন্ক হয়েছে" : "Accounts data synchronized with cloud");
       }
     } catch (err) {
       console.warn("Using cached accounts data due to network error:", err);
+      setIsOfflineMode(true);
     } finally {
       if (mountedRef.current) setLoading(false);
     }
@@ -511,6 +520,18 @@ export function AccountsPage() {
   useEffect(() => {
     mountedRef.current = true;
     void loadAccountsData(false);
+
+    // Watchdog timer: automatically release loading spinner within 3.5s
+    const watchdog = setTimeout(() => {
+      if (mountedRef.current) {
+        setLoading(false);
+      }
+    }, 3500);
+
+    const handleOnline = () => setIsOfflineMode(false);
+    const handleOffline = () => setIsOfflineMode(true);
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
 
     const accChannel = supabase
       .channel("accounts-page-realtime")
@@ -530,6 +551,9 @@ export function AccountsPage() {
 
     return () => {
       mountedRef.current = false;
+      clearTimeout(watchdog);
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
       supabase.removeChannel(accChannel);
     };
   }, [loadAccountsData]);
@@ -548,9 +572,7 @@ export function AccountsPage() {
       const updatedExps = syncSupplierPaymentsToExpenses(getExpenses().filter((e) => !deletedExpIds.has(e.id)));
       setExpenses([...updatedExps]);
 
-      if (updatedCols.length > 0 || updatedExps.length > 0) {
-        setLoading(false);
-      }
+      setLoading(false);
 
       const updatedCusts: Customer[] = getCustomers();
       setCustomers([...updatedCusts]);
@@ -558,8 +580,10 @@ export function AccountsPage() {
       const updatedOrds: Order[] = getOrders();
       setOrders([...updatedOrds]);
 
-      // Trigger live network fetch so secondary devices converge with cloud
-      void loadAccountsData(false);
+      // Debounced background check for convergence
+      if (typeof navigator !== "undefined" && navigator.onLine) {
+        void loadAccountsData(false);
+      }
     };
 
     window.addEventListener("storage", handleStorageUpdate);
@@ -1155,6 +1179,12 @@ export function AccountsPage() {
       </div>
 
       <div className="flex flex-col gap-2 sm:flex-row sm:justify-end sm:items-center">
+        {isOfflineMode && (
+          <Badge variant="outline" className="gap-1 border-amber-500/40 bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400">
+            <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+            Offline Mode
+          </Badge>
+        )}
         <Button variant="outline" size="sm" onClick={() => loadAccountsData(true)} disabled={loading} title="Live cloud sync" className="gap-1.5">
           <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin text-primary' : ''}`} />
           <span className="hidden sm:inline">{loading ? "Syncing..." : "Live Sync"}</span>

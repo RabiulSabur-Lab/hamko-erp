@@ -64,7 +64,7 @@ interface SafeQueryResult<T> {
   error: unknown;
 }
 
-const SKELETON_HARD_CAP_MS = 9000;
+const SKELETON_HARD_CAP_MS = 3500;
 const MIN_AUTO_FETCH_INTERVAL_MS = 1500;
 const MAX_LOCAL_CACHE_ORDERS = 400;
 const MAX_LOCAL_CACHE_COLLECTIONS = 800;

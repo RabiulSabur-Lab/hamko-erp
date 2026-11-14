@@ -79,6 +79,7 @@ export function CustomersPage() {
   const [orders, setOrders] = useState<Order[]>(() => getOrders());
   const [collections, setCollections] = useState<Collection[]>(() => getCollections());
   const [territories, setTerritories] = useState<Territory[]>([]);
+  const [isOfflineMode, setIsOfflineMode] = useState<boolean>(() => typeof navigator !== "undefined" && !navigator.onLine);
   const [search, setSearch] = useState(() => query.search || "");
   const [typeFilter, setTypeFilter] = useState("");
   const [dueFilter, setDueFilter] = useState("");
@@ -100,12 +101,22 @@ export function CustomersPage() {
     mountedRef.current = true;
     loadData();
 
+    // Watchdog timer: automatically release loading spinner within 3.5s
+    const watchdog = setTimeout(() => {
+      if (mountedRef.current) {
+        setLoading(false);
+      }
+    }, 3500);
+
+    const handleOnline = () => setIsOfflineMode(false);
+    const handleOffline = () => setIsOfflineMode(true);
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
     const handleStorage = () => {
       const freshCusts = getCustomers();
       setCustomers(freshCusts);
-      if (freshCusts.length > 0) {
-        setLoading(false);
-      }
+      setLoading(false);
       setOrders(getOrders());
       setCollections(getCollections());
       setAreas(getAreas());
@@ -123,6 +134,9 @@ export function CustomersPage() {
     window.addEventListener("customer_ledger_updated", handleStorage);
     return () => {
       mountedRef.current = false;
+      clearTimeout(watchdog);
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
       supabase.removeChannel(custChannel);
       window.removeEventListener("storage", handleStorage);
       window.removeEventListener("sales_erp_storage_update", handleStorage);
@@ -147,11 +161,17 @@ export function CustomersPage() {
       }
     }
     try {
-      const [cRes, tRes, oRes, colRes] = await Promise.all([
-        supabase.from("customers").select("*, territory:territories(*)").order("name", { ascending: true }),
-        supabase.from("territories").select("*").order("name"),
-        supabase.from("orders").select(SUPABASE_TABLE_SELECTS.ordersWithItemsAndCustomer).order("order_date", { ascending: false }).limit(1000),
-        supabase.from("collections").select(SUPABASE_TABLE_SELECTS.collections).order("collection_date", { ascending: false }).limit(2000),
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Customers fetch timeout")), 3500)
+      );
+      const [cRes, tRes, oRes, colRes] = await Promise.race([
+        Promise.all([
+          supabase.from("customers").select("*, territory:territories(*)").order("name", { ascending: true }),
+          supabase.from("territories").select("*").order("name"),
+          supabase.from("orders").select(SUPABASE_TABLE_SELECTS.ordersWithItemsAndCustomer).order("order_date", { ascending: false }).limit(1000),
+          supabase.from("collections").select(SUPABASE_TABLE_SELECTS.collections).order("collection_date", { ascending: false }).limit(2000),
+        ]),
+        timeoutPromise,
       ]);
       if (!mountedRef.current) return;
 
@@ -182,8 +202,10 @@ export function CustomersPage() {
         const merged = reconcileCollectionsWithRemote(colRes.data as unknown as Collection[], { persist: true, maxCache: 1000 });
         if (mountedRef.current) setCollections(merged);
       }
+      setIsOfflineMode(false);
     } catch (err) {
       console.warn("Using local customer cache due to fetch error:", err);
+      setIsOfflineMode(true);
     } finally {
       setLoading(false);
     }
@@ -565,7 +587,13 @@ export function CustomersPage() {
             ))}
           </Select>
         </div>
-        <div className="flex gap-2 w-full sm:w-auto justify-end">
+        <div className="flex gap-2 w-full sm:w-auto justify-end items-center">
+          {isOfflineMode && (
+            <Badge variant="outline" className="gap-1 border-amber-500/40 bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400">
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+              Offline Mode
+            </Badge>
+          )}
           <Button variant="outline" size="sm" onClick={() => loadData(true)} disabled={loading} title="Live cloud sync" className="gap-1.5">
             <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin text-primary' : ''}`} />
             <span className="hidden sm:inline">{loading ? "Syncing..." : "Live Sync"}</span>

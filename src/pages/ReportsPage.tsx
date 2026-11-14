@@ -314,8 +314,14 @@ export function ReportsPage() {
     let mounted = true;
     syncRemoteData();
 
+    // Watchdog timer: automatically release loading spinner within 3.5s
+    const watchdog = setTimeout(() => {
+      if (mounted) setLoading(false);
+    }, 3500);
+
     const handleStorageUpdate = () => {
       if (!mounted) return;
+      setLoading(false);
       const deletedOrderIds = getDeletedIds(STORAGE_KEYS.DELETED_ORDERS);
       setOrders(getOrders().filter((o: any) => !deletedOrderIds.has(o.id)));
 
@@ -337,6 +343,7 @@ export function ReportsPage() {
 
     return () => {
       mounted = false;
+      clearTimeout(watchdog);
       window.removeEventListener("storage", handleStorageUpdate);
       window.removeEventListener("sales_erp_storage_update", handleStorageUpdate);
       window.removeEventListener("customer_ledger_updated", handleStorageUpdate);

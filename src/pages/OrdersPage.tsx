@@ -273,6 +273,7 @@ export function OrdersPage() {
   };
   const [loading, setLoading] = useState(() => getOrders().length === 0);
   const [orders, setOrders] = useState<Order[]>(() => cleanCorruptedStoredOrders());
+  const [isOfflineMode, setIsOfflineMode] = useState<boolean>(() => typeof navigator !== "undefined" && !navigator.onLine);
   const [customers, setCustomers] = useState<Customer[]>(() => {
     const list = getCustomers();
     return Array.isArray(list) ? list : [];
@@ -379,12 +380,18 @@ export function OrdersPage() {
       }
     }
     try {
-      const [usersQueryRes, oRes, cRes, pRes, officersData] = await Promise.all([
-        supabase.from("users").select("id, full_name, email, role_name"),
-        supabase.from("orders").select("*, order_items(*), customer:customers(name, current_due, address, city, phone, trade_license_number)").order("order_date", { ascending: false }),
-        supabase.from("customers").select("*").order("name"),
-        supabase.from("products").select("*").order("name"),
-        fetchActiveSalesOfficers(),
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Orders fetch timeout")), 3500)
+      );
+      const [usersQueryRes, oRes, cRes, pRes, officersData] = await Promise.race([
+        Promise.all([
+          supabase.from("users").select("id, full_name, email, role_name"),
+          supabase.from("orders").select("*, order_items(*), customer:customers(name, current_due, address, city, phone, trade_license_number)").order("order_date", { ascending: false }),
+          supabase.from("customers").select("*").order("name"),
+          supabase.from("products").select("*").order("name"),
+          fetchActiveSalesOfficers(),
+        ]),
+        timeoutPromise,
       ]);
       if (!isMountedRef.current) return;
 
@@ -583,6 +590,7 @@ export function OrdersPage() {
 
         setOrders(mergedOrders);
         saveOrders(mergedOrders);
+        setIsOfflineMode(false);
         if (isManual) {
           toast.success(`Live sync: ${mergedOrders.length} orders synchronized`);
         }
@@ -590,6 +598,9 @@ export function OrdersPage() {
         // Fallback to local storage when remote Supabase fetch fails or is offline
         const fallbackOrders = cleanCorruptedStoredOrders();
         setOrders(fallbackOrders);
+        if (typeof navigator !== "undefined" && !navigator.onLine) {
+          setIsOfflineMode(true);
+        }
       }
       if (!cRes.error && Array.isArray(cRes.data)) {
         const mergedCusts = mergeAndEnrichCustomers(cRes.data as Customer[]);
@@ -627,6 +638,7 @@ export function OrdersPage() {
       }
     } catch (err) {
       console.warn("Using cached orders data due to network error:", err);
+      setIsOfflineMode(true);
     } finally {
       setLoading(false);
     }
@@ -636,6 +648,18 @@ export function OrdersPage() {
     isMountedRef.current = true;
     let isMounted = true;
     void load(false);
+
+    // Watchdog timer: automatically release loading spinner within 3.5s
+    const watchdog = setTimeout(() => {
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
+    }, 3500);
+
+    const handleOnline = () => setIsOfflineMode(false);
+    const handleOffline = () => setIsOfflineMode(true);
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
 
     const ordChannel = supabase
       .channel("orders-page-realtime")
@@ -659,6 +683,9 @@ export function OrdersPage() {
     return () => {
       isMounted = false;
       isMountedRef.current = false;
+      clearTimeout(watchdog);
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
       try {
         if (ordChannel && supabase?.removeChannel) {
           supabase.removeChannel(ordChannel);
@@ -677,17 +704,18 @@ export function OrdersPage() {
       const deletedIds = getDeletedIds(STORAGE_KEYS.DELETED_ORDERS);
       const updated = cleaned.filter((o: Order) => !deletedIds.has(o.id));
       setOrders([...updated]);
-      if (updated.length > 0) {
-        setLoading(false);
-      }
+      setLoading(false);
+
       const custs = getCustomers();
       if (Array.isArray(custs)) setCustomers([...custs]);
       const prods = getProducts();
       if (Array.isArray(prods)) setProducts([...prods]);
       setAreas(getAreas());
 
-      // Trigger live network fetch so secondary devices converge with cloud
-      void load(false);
+      // Debounced background check for convergence
+      if (typeof navigator !== "undefined" && navigator.onLine) {
+        void load(false);
+      }
     };
 
     window.addEventListener("storage", handleStorageUpdate);
@@ -1713,7 +1741,13 @@ export function OrdersPage() {
             ))}
           </Select>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
+          {isOfflineMode && (
+            <Badge variant="outline" className="gap-1 border-amber-500/40 bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400">
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+              Offline Mode
+            </Badge>
+          )}
           <Button variant="outline" size="sm" onClick={() => load(true)} disabled={loading} title="Live cloud sync" className="gap-1.5">
             <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin text-primary' : ''}`} />
             <span className="hidden sm:inline">{loading ? "Syncing..." : "Live Sync"}</span>

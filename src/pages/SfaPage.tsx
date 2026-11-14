@@ -112,6 +112,7 @@ export function SfaPage() {
     return Array.isArray(list) ? list : [];
   });
   const [users, setUsers] = useState<UserProfile[]>([]);
+  const [isOfflineMode, setIsOfflineMode] = useState<boolean>(() => typeof navigator !== "undefined" && !navigator.onLine);
 
   // Route Plan State
   const [routes, setRoutes] = useState<RouteItem[]>(() => {
@@ -165,6 +166,16 @@ export function SfaPage() {
   useEffect(() => {
     loadData();
 
+    // Watchdog timer: automatically release loading spinner within 3.5s
+    const watchdog = setTimeout(() => {
+      setLoading(false);
+    }, 3500);
+
+    const handleOnline = () => setIsOfflineMode(false);
+    const handleOffline = () => setIsOfflineMode(true);
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
     const handleStorage = () => {
       const tgts = getLocalData<SalesTarget[]>(STORAGE_KEYS.TARGETS, []);
       setTargets(Array.isArray(tgts) ? [...tgts] : []);
@@ -179,6 +190,7 @@ export function SfaPage() {
       setVisits(Array.isArray(vsts) ? vsts.filter((v: Visit) => !deletedVisitIds.has(String(v.id))) : []);
       const ars = getAreas();
       setAreas(Array.isArray(ars) ? [...ars] : []);
+      setLoading(false);
     };
 
     window.addEventListener("storage", handleStorage);
@@ -199,20 +211,30 @@ export function SfaPage() {
       .subscribe();
 
     return () => {
+      clearTimeout(watchdog);
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
       supabase.removeChannel(sfaChannel);
       window.removeEventListener("storage", handleStorage);
       window.removeEventListener("sales_erp_storage_update", handleStorage);
     };
   }, []);
 
-  async function loadData() {
+  async function loadData(isManual = false) {
+    if (isManual) setLoading(true);
     try {
-      const [vRes, cRes, tRes, uRes, oRes] = await Promise.all([
-        supabase.from("visits").select("*, customer:customers(name, address)").order("visit_date", { ascending: false }).limit(1000),
-        supabase.from("customers").select("*").order("name"),
-        supabase.from("sales_targets").select("*").order("period_start", { ascending: false }).limit(1000),
-        supabase.from("users").select("*").order("full_name"),
-        supabase.from("orders").select("*, customer:customers(name, current_due), sales_rep:users(full_name), order_items(*, product:products(name, sku_code, unit_price))").order("order_date", { ascending: false }),
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("SFA fetch timeout")), 3500)
+      );
+      const [vRes, cRes, tRes, uRes, oRes] = await Promise.race([
+        Promise.all([
+          supabase.from("visits").select("*, customer:customers(name, address)").order("visit_date", { ascending: false }).limit(1000),
+          supabase.from("customers").select("*").order("name"),
+          supabase.from("sales_targets").select("*").order("period_start", { ascending: false }).limit(1000),
+          supabase.from("users").select("*").order("full_name"),
+          supabase.from("orders").select("*, customer:customers(name, current_due), sales_rep:users(full_name), order_items(*, product:products(name, sku_code, unit_price))").order("order_date", { ascending: false }),
+        ]),
+        timeoutPromise,
       ]);
       if (!vRes.error && Array.isArray(vRes.data)) {
         const reconciledVisits = reconcileVisitsWithRemote(vRes.data as Visit[], { persist: true });
@@ -236,8 +258,11 @@ export function SfaPage() {
         const mergedOrders = reconcileOrdersWithRemote(oRes.data as Order[], { persist: true });
         setOrders(mergedOrders);
       }
+      setIsOfflineMode(false);
+      if (isManual) toast.success("SFA data synchronized");
     } catch (err) {
       console.warn("Using local SFA cache:", err);
+      setIsOfflineMode(true);
     } finally {
       setLoading(false);
     }
@@ -795,6 +820,23 @@ export function SfaPage() {
 
       {/* Action Buttons */}
       <div className="flex flex-wrap items-center justify-end gap-2">
+          {isOfflineMode && (
+            <Badge variant="outline" className="gap-1 border-amber-500/40 bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400">
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+              Offline Mode
+            </Badge>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => loadData(true)}
+            disabled={loading}
+            title="Live cloud sync"
+            className="gap-1.5"
+          >
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin text-primary' : ''}`} />
+            <span className="hidden sm:inline">{loading ? "Syncing..." : "Live Sync"}</span>
+          </Button>
           <Button
             size="sm"
             variant="outline"

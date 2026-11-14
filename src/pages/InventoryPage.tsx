@@ -59,6 +59,7 @@ export function InventoryPage() {
     (Boolean(user?.email?.toLowerCase().includes("admin")) && !rawRole.includes("officer"));
 
   const [loading, setLoading] = useState(() => getLocalData(STORAGE_KEYS.PRODUCTS).length === 0);
+  const [isOfflineMode, setIsOfflineMode] = useState<boolean>(() => typeof navigator !== "undefined" && !navigator.onLine);
   const [products, setProducts] = useState<Product[]>(() => {
     const deletedIds = getDeletedIds(STORAGE_KEYS.DELETED_PRODUCTS);
     const cachedCategories: any[] = getLocalData(STORAGE_KEYS.CATEGORIES, []);
@@ -96,6 +97,18 @@ export function InventoryPage() {
     mountedRef.current = true;
     void loadData();
 
+    // Watchdog timer: automatically release loading spinner within 3.5s
+    const watchdog = setTimeout(() => {
+      if (mountedRef.current) {
+        setLoading(false);
+      }
+    }, 3500);
+
+    const handleOnline = () => setIsOfflineMode(false);
+    const handleOffline = () => setIsOfflineMode(true);
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
     const handleStorage = () => {
       mountedRef.current = true;
       const deletedIds = getDeletedIds(STORAGE_KEYS.DELETED_PRODUCTS);
@@ -109,12 +122,12 @@ export function InventoryPage() {
           category: (p.category_id && catMap.has(p.category_id)) ? catMap.get(p.category_id) : (p.category || null),
         }));
       setProducts([...refreshed].sort((a, b) => (a.name || "").localeCompare(b.name || "")));
-      if (refreshed.length > 0) {
-        setLoading(false);
-      }
+      setLoading(false);
 
-      // Always trigger live server fetch so secondary devices converge with cloud
-      void loadData(false);
+      // Debounced background check for convergence
+      if (typeof navigator !== "undefined" && navigator.onLine) {
+        void loadData(false);
+      }
     };
 
     const invChannel = supabase
@@ -129,6 +142,9 @@ export function InventoryPage() {
     window.addEventListener("sales_erp_storage_update", handleStorage);
     return () => {
       mountedRef.current = false;
+      clearTimeout(watchdog);
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
       supabase.removeChannel(invChannel);
       window.removeEventListener("storage", handleStorage);
       window.removeEventListener("sales_erp_storage_update", handleStorage);
@@ -153,18 +169,24 @@ export function InventoryPage() {
       }
     }
     try {
-      const [pRes, cRes, invRes] = await Promise.all([
-        supabase.from("products").select("*, category:categories(*)").order("name", { ascending: true }),
-        supabase.from("categories").select("*").order("name"),
-        supabase.from("inventory").select(SUPABASE_TABLE_SELECTS.inventory).limit(1000),
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Inventory fetch timeout")), 3500)
+      );
+      const [pRes, cRes, invRes] = await Promise.race([
+        Promise.all([
+          supabase.from("products").select("*, category:categories(*)").order("name", { ascending: true }),
+          supabase.from("categories").select("*").order("name"),
+          supabase.from("inventory").select(SUPABASE_TABLE_SELECTS.inventory).limit(1000),
+        ]),
+        timeoutPromise,
       ]);
 
       if (!cRes.error && Array.isArray(cRes.data)) {
-        setLocalData(STORAGE_KEYS.CATEGORIES, cRes.data, null, true);
+        setLocalData(STORAGE_KEYS.CATEGORIES, cRes.data, null, false);
       }
 
       if (!invRes.error && Array.isArray(invRes.data)) {
-        setLocalData(STORAGE_KEYS.INVENTORY, invRes.data, null, true);
+        setLocalData(STORAGE_KEYS.INVENTORY, invRes.data, null, false);
       }
 
       const cachedCategories: any[] = !cRes.error && Array.isArray(cRes.data)
@@ -206,13 +228,15 @@ export function InventoryPage() {
         });
         const sorted = enriched.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
         if (mountedRef.current) setProducts(sorted);
-        setLocalData(STORAGE_KEYS.PRODUCTS, sorted, null, true);
+        setLocalData(STORAGE_KEYS.PRODUCTS, sorted, null, false);
+        setIsOfflineMode(false);
         if (isManual) {
           toast.success(lang === "bn" ? `লাইভ সিন্ক: ${sorted.length}টি পণ্য লোড হয়েছে` : `Live sync: ${sorted.length} products loaded from cloud`);
         }
       }
     } catch (err) {
       console.warn("Using local inventory cache:", err);
+      setIsOfflineMode(true);
     } finally {
       if (mountedRef.current) setLoading(false);
     }
@@ -469,6 +493,12 @@ export function InventoryPage() {
 
         {/* Action Button on the right: Export Excel & Live Sync */}
         <div className="flex items-center gap-2">
+          {isOfflineMode && (
+            <Badge variant="outline" className="gap-1 border-amber-500/40 bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400">
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+              Offline Mode
+            </Badge>
+          )}
           <Button
             variant="outline"
             size="sm"

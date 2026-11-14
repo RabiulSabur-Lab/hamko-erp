@@ -42,6 +42,7 @@ import {
   Download,
   Trash2,
   Loader2,
+  RefreshCw,
 } from "lucide-react";
 
 import * as XLSX from "xlsx";
@@ -99,6 +100,7 @@ export function SupplierLedger() {
     const invs = getPurchaseInvoices();
     return list.length <= 1 && invs.length === 0;
   });
+  const [isOfflineMode, setIsOfflineMode] = useState<boolean>(() => typeof navigator !== "undefined" && !navigator.onLine);
 
   useEffect(() => {
     let mounted = true;
@@ -109,9 +111,27 @@ export function SupplierLedger() {
       setSelectedSupplierId(hamko.id);
     }
 
+    // Watchdog timer: automatically release loading spinner within 3.5s
+    const watchdog = setTimeout(() => {
+      if (mounted) {
+        setLoading(false);
+      }
+    }, 3500);
+
+    const handleOnline = () => setIsOfflineMode(false);
+    const handleOffline = () => setIsOfflineMode(true);
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
     const fetchRemoteData = async () => {
       try {
-        await pullFreshCloudStateToLocalStore({ force: true, silent: true });
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("SupplierLedger fetch timeout")), 3500)
+        );
+        await Promise.race([
+          pullFreshCloudStateToLocalStore({ force: true, silent: true }),
+          timeoutPromise,
+        ]);
         if (mounted) {
           const freshList = getSuppliers();
           setSuppliers(freshList);
@@ -120,9 +140,11 @@ export function SupplierLedger() {
             setSelectedSupplierId(freshHamko.id);
           }
           setDataVersion((v) => v + 1);
+          setIsOfflineMode(false);
         }
       } catch (err) {
         console.warn("[SupplierLedger] Remote pull notice:", err);
+        setIsOfflineMode(true);
       } finally {
         if (mounted) {
           setLoading(false);
@@ -134,6 +156,9 @@ export function SupplierLedger() {
 
     return () => {
       mounted = false;
+      clearTimeout(watchdog);
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
     };
   }, []);
 
@@ -149,6 +174,7 @@ export function SupplierLedger() {
     const handleStorage = () => {
       setSuppliers(getSuppliers());
       setDataVersion((v) => v + 1);
+      setLoading(false);
     };
     window.addEventListener("storage", handleStorage);
     window.addEventListener("sales_erp_storage_update", handleStorage);
@@ -509,6 +535,26 @@ export function SupplierLedger() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
+              {isOfflineMode && (
+                <Badge variant="outline" className="gap-1 border-amber-500/40 bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400">
+                  <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+                  Offline Mode
+                </Badge>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setLoading(true);
+                  void pullFreshCloudStateToLocalStore({ force: true, silent: false }).finally(() => setLoading(false));
+                }}
+                disabled={loading}
+                title="Live cloud sync"
+                className="gap-1.5"
+              >
+                <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin text-primary' : ''}`} />
+                <span className="hidden sm:inline">{loading ? "Syncing..." : "Live Sync"}</span>
+              </Button>
               <Button
                 variant="outline"
                 size="sm"
