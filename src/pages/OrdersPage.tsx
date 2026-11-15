@@ -537,7 +537,11 @@ export function OrdersPage() {
           toast.success(`Live sync: ${sortedOrders.length} orders synchronized`);
         }
       } else {
-        setOrders([]);
+        // Preserve in-memory state during remote fetch issues instead of wiping to empty array
+        setIsOfflineMode(true);
+        if (isManual) {
+          toast.error("Unable to load latest orders from cloud. Displaying cached orders.");
+        }
       }
       if (!cRes.error && Array.isArray(cRes.data)) {
         setCustomers(cRes.data as Customer[]);
@@ -545,9 +549,12 @@ export function OrdersPage() {
       if (!pRes.error && Array.isArray(pRes.data)) {
         setProducts(pRes.data as Product[]);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.warn("Orders fetch notice:", err);
       setIsOfflineMode(true);
+      if (isManual) {
+        toast.error(err?.message || "Network error loading orders. Showing cached data.");
+      }
     } finally {
       setLoading(false);
     }

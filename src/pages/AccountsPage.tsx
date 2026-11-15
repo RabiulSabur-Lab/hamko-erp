@@ -453,7 +453,11 @@ export function AccountsPage() {
         );
         setCollections(enrichedCols);
       } else {
-        setCollections([]);
+        // Preserve in-memory collections during remote fetch issues instead of wiping to empty array
+        setIsOfflineMode(true);
+        if (isManual) {
+          toast.error("Unable to load latest collections from cloud. Showing cached financial records.");
+        }
       }
 
       const deletedExpIds = getDeletedIds(STORAGE_KEYS.DELETED_EXPENSES);
@@ -475,9 +479,12 @@ export function AccountsPage() {
       if (isManual) {
         toast.success(lang === "bn" ? "অ্যাকাউন্টস ডাটা সফলভাবে সিন্ক হয়েছে" : "Accounts data synchronized with cloud");
       }
-    } catch (err) {
+    } catch (err: any) {
       console.warn("Accounts fetch notice:", err);
       setIsOfflineMode(true);
+      if (isManual) {
+        toast.error(err?.message || "Error synchronizing accounts data. Showing cached state.");
+      }
     } finally {
       if (mountedRef.current) setLoading(false);
     }

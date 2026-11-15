@@ -173,6 +173,12 @@ export function SfaPage() {
       .on("postgres_changes", { event: "*", schema: "public", table: "customers" }, () => {
         loadData();
       })
+      .on("postgres_changes", { event: "*", schema: "public", table: "route_plan" }, () => {
+        loadData();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "handovers" }, () => {
+        loadData();
+      })
       .subscribe();
 
     return () => {
@@ -193,21 +199,25 @@ export function SfaPage() {
       const timeoutPromise = new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error("SFA fetch timeout")), 4500)
       );
-      const [vRes, cRes, tRes, uRes, oRes] = await Promise.race([
+      const [vRes, cRes, tRes, uRes, oRes, routeRes] = await Promise.race([
         Promise.all([
           supabase.from("visits").select("*, customer:customers(name, address)").order("visit_date", { ascending: false }).limit(1000),
           supabase.from("customers").select("*").order("name"),
           supabase.from("sales_targets").select("*").order("period_start", { ascending: false }).limit(1000),
           supabase.from("users").select("*").order("full_name"),
           supabase.from("orders").select("*, customer:customers(name, current_due), sales_rep:users(full_name), order_items(*, product:products(name, sku_code, unit_price))").order("order_date", { ascending: false }),
+          supabase.from("route_plan").select("*").limit(1000),
         ]),
         timeoutPromise,
       ]);
       if (!vRes.error && Array.isArray(vRes.data)) {
         setVisits(vRes.data as Visit[]);
       }
-      if (!cRes.error && Array.isArray(cRes.data)) {
-        setCustomers((cRes.data as Customer[]).filter((c) => c.is_active !== false && c.status !== "Inactive"));
+      const activeCustomers = !cRes.error && Array.isArray(cRes.data)
+        ? (cRes.data as Customer[]).filter((c) => c.is_active !== false && c.status !== "Inactive")
+        : [];
+      if (activeCustomers.length > 0) {
+        setCustomers(activeCustomers);
       }
       if (!tRes.error && Array.isArray(tRes.data)) {
         setTargets(tRes.data as SalesTarget[]);
@@ -217,11 +227,37 @@ export function SfaPage() {
       if (!oRes.error && Array.isArray(oRes.data)) {
         setOrders(oRes.data as Order[]);
       }
+
+      if (!routeRes.error && Array.isArray(routeRes.data) && routeRes.data.length > 0) {
+        const custList = activeCustomers.length > 0 ? activeCustomers : customers;
+        const custMap = new Map(custList.map((c) => [c.id, c]));
+        const hydratedRoutes: RouteItem[] = (routeRes.data as any[]).map((r, i) => {
+          const cust = custMap.get(r.customer_id);
+          return {
+            id: r.id || `route-${r.customer_id || i}`,
+            customer_id: r.customer_id,
+            name: cust?.name || r.name || "Customer",
+            address: cust?.address || r.address || "",
+            city: cust?.city || r.city || "",
+            territory: cust?.area || cust?.territory?.name || r.territory || null,
+            customer_type: cust?.customer_type || r.customer_type || "Retailer",
+            phone: cust?.phone || r.phone || "",
+            notes: r.notes || "",
+            day_of_week: r.day_of_week || "Monday",
+          };
+        });
+        setRoutes(hydratedRoutes);
+        saveRoutePlan(hydratedRoutes);
+      }
+
       setIsOfflineMode(false);
       if (isManual) toast.success("SFA data synchronized");
-    } catch (err) {
+    } catch (err: any) {
       console.warn("SFA fetch notice:", err);
       setIsOfflineMode(true);
+      if (isManual) {
+        toast.error(err?.message || "Failed to load SFA records from server.");
+      }
     } finally {
       setLoading(false);
     }

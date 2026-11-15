@@ -172,6 +172,11 @@ export function CustomersPage() {
         if (isManual) {
           toast.success(`Live sync: ${custData.length} customers/outlets synchronized`);
         }
+      } else if (!custData && mountedRef.current) {
+        setIsOfflineMode(true);
+        if (isManual) {
+          toast.error("Unable to load latest customers from cloud. Showing cached records.");
+        }
       }
       if (tRes.data && mountedRef.current) {
         setTerritories(tRes.data);
@@ -183,9 +188,12 @@ export function CustomersPage() {
         if (mountedRef.current) setCollections(colRes.data as unknown as Collection[]);
       }
       setIsOfflineMode(false);
-    } catch (err) {
+    } catch (err: any) {
       console.warn("Using local customer cache due to fetch error:", err);
       setIsOfflineMode(true);
+      if (isManual) {
+        toast.error(err?.message || "Network error synchronizing customers. Showing cached records.");
+      }
     } finally {
       setLoading(false);
     }

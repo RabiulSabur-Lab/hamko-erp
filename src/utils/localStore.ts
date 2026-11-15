@@ -2535,6 +2535,92 @@ export function reconcileUsersWithRemote(
 }
 
 /**
+ * Cloud-Authoritative reconciler for Route Plan stops.
+ */
+export function reconcileRoutePlanWithRemote(
+  remoteRoutes: any[],
+  options?: { persist?: boolean; incremental?: boolean },
+): any[] {
+  const currentLocal = getLocalData<any[]>(STORAGE_KEYS.ROUTE_PLAN, []);
+  const validRemote = (Array.isArray(remoteRoutes) ? remoteRoutes : []).filter(
+    (r) => Boolean(r && (r.id || r.customer_id)),
+  );
+
+  if (options?.incremental) {
+    const map = new Map<string, any>();
+    currentLocal.forEach((r) => {
+      const key = String(r.customer_id || r.id);
+      if (key) map.set(key, r);
+    });
+    for (const rr of validRemote) {
+      const key = String(rr.customer_id || rr.id);
+      const existing = map.get(key);
+      map.set(key, { ...(existing || {}), ...rr });
+    }
+    const result = Array.from(map.values());
+    if (options?.persist !== false) {
+      setLocalData(STORAGE_KEYS.ROUTE_PLAN, result, null, false);
+      setLocalData(STORAGE_KEYS.ROUTE_VISITS, result, null, false);
+    }
+    return result;
+  }
+
+  const remoteCustSet = new Set(validRemote.map((r) => String(r.customer_id || r.id)));
+  const localNotOnRemote = currentLocal.filter(
+    (lr) => lr && !remoteCustSet.has(String(lr.customer_id || lr.id)),
+  );
+  const reconciled = [...validRemote, ...localNotOnRemote];
+  if (options?.persist !== false) {
+    setLocalData(STORAGE_KEYS.ROUTE_PLAN, reconciled, null, false);
+    setLocalData(STORAGE_KEYS.ROUTE_VISITS, reconciled, null, false);
+  }
+  return reconciled;
+}
+
+/**
+ * Cloud-Authoritative reconciler for Evening Handovers.
+ */
+export function reconcileHandoversWithRemote(
+  remoteHandovers: any[],
+  options?: { persist?: boolean; incremental?: boolean },
+): any[] {
+  const currentLocal = getLocalData<any[]>(STORAGE_KEYS.HANDOVERS, []);
+  const validRemote = (Array.isArray(remoteHandovers) ? remoteHandovers : []).filter(
+    (h) => Boolean(h && h.id),
+  );
+
+  if (options?.incremental) {
+    const map = new Map<string, any>();
+    currentLocal.forEach((h) => {
+      if (h && h.id) map.set(String(h.id), h);
+    });
+    for (const rh of validRemote) {
+      const existing = map.get(String(rh.id));
+      map.set(String(rh.id), { ...(existing || {}), ...rh });
+    }
+    const result = Array.from(map.values()).sort(
+      (a, b) => new Date(b.handover_date || b.created_at || 0).getTime() - new Date(a.handover_date || a.created_at || 0).getTime(),
+    );
+    if (options?.persist !== false) {
+      setLocalData(STORAGE_KEYS.HANDOVERS, result, null, false);
+    }
+    return result;
+  }
+
+  const remoteIdSet = new Set(validRemote.map((h) => String(h.id)));
+  const localNotOnRemote = currentLocal.filter(
+    (lh) => lh && !remoteIdSet.has(String(lh.id)),
+  );
+  const reconciled = [...localNotOnRemote, ...validRemote].sort(
+    (a, b) => new Date(b.handover_date || b.created_at || 0).getTime() - new Date(a.handover_date || a.created_at || 0).getTime(),
+  );
+  if (options?.persist !== false) {
+    setLocalData(STORAGE_KEYS.HANDOVERS, reconciled, null, false);
+  }
+  return reconciled;
+}
+
+/**
  * Additive-Only reconciler for Stock Transactions.
  */
 export function reconcileStockTransactionsWithRemote(
@@ -2697,6 +2783,19 @@ export function applyRealtimeTablePatch(
         }
         break;
       }
+      case "route_plan": {
+        const current = getLocalData<any[]>(STORAGE_KEYS.ROUTE_PLAN, []).filter(
+          (r) => String(r.id) !== id && String(r.customer_id) !== id,
+        );
+        setLocalData(STORAGE_KEYS.ROUTE_PLAN, current, null, true);
+        setLocalData(STORAGE_KEYS.ROUTE_VISITS, current, null, true);
+        break;
+      }
+      case "handovers": {
+        const current = getLocalData<any[]>(STORAGE_KEYS.HANDOVERS, []).filter((h) => String(h.id) !== id);
+        setLocalData(STORAGE_KEYS.HANDOVERS, current, null, true);
+        break;
+      }
       default:
         return false;
     }
@@ -2787,6 +2886,14 @@ export function applyRealtimeTablePatch(
     }
     case "users": {
       reconcileUsersWithRemote([payloadRecord], { incremental: true, persist: true });
+      break;
+    }
+    case "route_plan": {
+      reconcileRoutePlanWithRemote([payloadRecord], { incremental: true, persist: true });
+      break;
+    }
+    case "handovers": {
+      reconcileHandoversWithRemote([payloadRecord], { incremental: true, persist: true });
       break;
     }
     default:

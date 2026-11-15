@@ -23,6 +23,8 @@ import {
   reconcileNotificationsWithRemote,
   reconcileUsersWithRemote,
   reconcileStockTransactionsWithRemote,
+  reconcileRoutePlanWithRemote,
+  reconcileHandoversWithRemote,
   broadcastCrossTabSync,
   getProducts,
   getCustomers,
@@ -1372,7 +1374,34 @@ export async function pullFreshCloudStateToLocalStore(options?: {
         );
       };
 
-      const [ordersRes, colsRes, custRes, prodRes, catRes, expRes, visitsRes, terrRes, invRes, supRes, piRes, spRes, targetsRes, usersRes, notifsRes, txRes] = await Promise.allSettled([
+      const fetchRoutePlanSafe = async () => {
+        return safeTimedQuery(
+          () =>
+            supabase
+              .from("route_plan")
+              .select("*")
+              .limit(1000),
+          10000,
+          "Cloud pull route plan",
+          1,
+        );
+      };
+
+      const fetchHandoversSafe = async () => {
+        return safeTimedQuery(
+          () =>
+            supabase
+              .from("handovers")
+              .select("*")
+              .order("created_at", { ascending: false })
+              .limit(1000),
+          10000,
+          "Cloud pull handovers",
+          1,
+        );
+      };
+
+      const [ordersRes, colsRes, custRes, prodRes, catRes, expRes, visitsRes, terrRes, invRes, supRes, piRes, spRes, targetsRes, usersRes, notifsRes, txRes, routePlanRes, handoversRes] = await Promise.allSettled([
         fetchOrdersSafe(),
         fetchCollectionsSafe(),
         fetchCustomersSafe(),
@@ -1389,6 +1418,8 @@ export async function pullFreshCloudStateToLocalStore(options?: {
         fetchUsersSafe(),
         fetchNotificationsSafe(),
         fetchStockTransactionsSafe(),
+        fetchRoutePlanSafe(),
+        fetchHandoversSafe(),
       ]);
 
       await yieldToUI();
@@ -1642,6 +1673,38 @@ export async function pullFreshCloudStateToLocalStore(options?: {
         console.warn("[CloudSync] Stock transactions reconcile notice:", e);
       }
 
+      // 17. ROUTE PLAN
+      try {
+        const res = routePlanRes.status === "fulfilled" ? routePlanRes.value : { data: null, error: routePlanRes.reason };
+        if (!res.error && Array.isArray(res.data)) {
+          if (shouldPersist(res.data)) {
+            reconcileRoutePlanWithRemote(res.data as any, { persist: true });
+            updatedTables.push("route_plan");
+          }
+        } else if (res.error) {
+          tableErrors.push({ table: "route_plan", error: res.error });
+        }
+      } catch (e) {
+        tableErrors.push({ table: "route_plan", error: e });
+        console.warn("[CloudSync] Route plan reconcile notice:", e);
+      }
+
+      // 18. HANDOVERS
+      try {
+        const res = handoversRes.status === "fulfilled" ? handoversRes.value : { data: null, error: handoversRes.reason };
+        if (!res.error && Array.isArray(res.data)) {
+          if (shouldPersist(res.data)) {
+            reconcileHandoversWithRemote(res.data as any, { persist: true });
+            updatedTables.push("handovers");
+          }
+        } else if (res.error) {
+          tableErrors.push({ table: "handovers", error: res.error });
+        }
+      } catch (e) {
+        tableErrors.push({ table: "handovers", error: e });
+        console.warn("[CloudSync] Handovers reconcile notice:", e);
+      }
+
       if (updatedTables.length > 0 || options?.force) {
         const detail = { type: "cloud_pull_completed", updatedTables };
         window.dispatchEvent(new CustomEvent("sales_erp_storage_update", { detail }));
@@ -1649,32 +1712,41 @@ export async function pullFreshCloudStateToLocalStore(options?: {
       }
 
       if (tableErrors.length > 0) {
-        const classified = classifySupabaseError(tableErrors[0].error);
+        const firstErr = tableErrors[0].error;
+        const classified = classifySupabaseError(firstErr);
         if (classified.kind === "auth") {
           void ensureValidSession(true);
         }
-        console.warn(
-          `[CloudSync] Background cloud pull notice (${tableErrors.map((t) => t.table).join(", ")}): maintaining available local state without error banner.`,
-        );
-        // Suppress intrusive toasts and fallback banner
+        const failedTableList = tableErrors.map((t) => t.table).join(", ");
+        const errorMessage = `Cloud synchronization incomplete. Failed to fetch: ${failedTableList}. (${classified.userMessage || String(firstErr?.message || firstErr)})`;
+        console.warn(`[CloudSync] ${errorMessage}`, tableErrors);
+
+        if (!options?.silent) {
+          toast.error(errorMessage);
+        }
+
         return {
           synced: updatedTables.length > 0,
           updatedTables,
-          offline: false,
-          error: null,
+          offline: classified.kind === "offline" || classified.kind === "cors_or_network",
+          error: errorMessage,
         };
       }
 
       return { synced: updatedTables.length > 0, updatedTables, error: null };
-    } catch (err) {
+    } catch (err: any) {
       lastCloudPullAt = 0;
+      const classified = classifySupabaseError(err);
+      const errorMessage = classified.userMessage || err?.message || "Failed to synchronize data with cloud database";
       console.warn("[CloudSync] Background cloud pull notice:", err);
-      // Suppress intrusive toasts and fallback banner
+      if (!options?.silent) {
+        toast.error(errorMessage);
+      }
       return {
         synced: false,
         updatedTables: [],
-        offline: false,
-        error: null,
+        offline: classified.kind === "offline" || classified.kind === "cors_or_network",
+        error: errorMessage,
       };
     } finally {
       inFlightCloudPull = null;

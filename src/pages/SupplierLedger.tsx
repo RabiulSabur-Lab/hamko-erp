@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { supabase } from "@/lib/supabase";
 
@@ -103,9 +103,57 @@ export function SupplierLedger() {
     return list.length <= 1 && invs.length === 0;
   });
   const [isOfflineMode, setIsOfflineMode] = useState<boolean>(() => typeof navigator !== "undefined" && !navigator.onLine);
+  const mountedRef = useRef(true);
+
+  const fetchRemoteData = useCallback(async (isManual = false) => {
+    if (isManual) setLoading(true);
+    try {
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("SupplierLedger fetch timeout")), 4500)
+      );
+      const [supRes, invRes, payRes] = await Promise.race([
+        Promise.all([
+          supabase.from("suppliers").select("*").order("name"),
+          supabase.from("purchase_invoices").select("*").order("invoice_date", { ascending: false }),
+          supabase.from("supplier_payments").select("*").order("payment_date", { ascending: false }),
+        ]),
+        timeoutPromise,
+      ]);
+      if (mountedRef.current) {
+        if (!supRes.error && Array.isArray(supRes.data)) {
+          setSuppliers(supRes.data);
+          const hamko = supRes.data.find((s) => s.name.toLowerCase().includes("hamko")) || supRes.data[0];
+          if (hamko && (!selectedSupplierId || !supRes.data.some((s) => s.id === selectedSupplierId))) {
+            setSelectedSupplierId(hamko.id);
+          }
+        }
+        if (!invRes.error && Array.isArray(invRes.data)) {
+          setPurchaseInvoices(invRes.data);
+        }
+        if (!payRes.error && Array.isArray(payRes.data)) {
+          setSupplierPayments(payRes.data);
+        }
+        setDataVersion((v) => v + 1);
+        setIsOfflineMode(false);
+        if (isManual) {
+          toast.success("Supplier ledger synchronized with cloud");
+        }
+      }
+    } catch (err: any) {
+      console.warn("[SupplierLedger] Remote pull notice:", err);
+      setIsOfflineMode(true);
+      if (isManual) {
+        toast.error(err?.message || "Failed to synchronize supplier ledger from cloud.");
+      }
+    } finally {
+      if (mountedRef.current) {
+        setLoading(false);
+      }
+    }
+  }, [selectedSupplierId]);
 
   useEffect(() => {
-    let mounted = true;
+    mountedRef.current = true;
     const list = getSuppliers();
     setSuppliers(list);
     const hamko = list.find((s) => s.name.toLowerCase().includes("hamko")) || list[0];
@@ -115,7 +163,7 @@ export function SupplierLedger() {
 
     // Watchdog timer: automatically release loading spinner within 3.5s
     const watchdog = setTimeout(() => {
-      if (mounted) {
+      if (mountedRef.current) {
         setLoading(false);
       }
     }, 3500);
@@ -125,67 +173,37 @@ export function SupplierLedger() {
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
 
-    const fetchRemoteData = async () => {
-      try {
-        const timeoutPromise = new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error("SupplierLedger fetch timeout")), 4500)
-        );
-        const [supRes, invRes, payRes] = await Promise.race([
-          Promise.all([
-            supabase.from("suppliers").select("*").order("name"),
-            supabase.from("purchase_invoices").select("*").order("invoice_date", { ascending: false }),
-            supabase.from("supplier_payments").select("*").order("payment_date", { ascending: false }),
-          ]),
-          timeoutPromise,
-        ]);
-        if (mounted) {
-          if (!supRes.error && Array.isArray(supRes.data)) {
-            setSuppliers(supRes.data);
-            const hamko = supRes.data.find((s) => s.name.toLowerCase().includes("hamko")) || supRes.data[0];
-            if (hamko && (!selectedSupplierId || !supRes.data.some((s) => s.id === selectedSupplierId))) {
-              setSelectedSupplierId(hamko.id);
-            }
-          }
-          if (!invRes.error && Array.isArray(invRes.data)) {
-            setPurchaseInvoices(invRes.data);
-          }
-          if (!payRes.error && Array.isArray(payRes.data)) {
-            setSupplierPayments(payRes.data);
-          }
-          setDataVersion((v) => v + 1);
-          setIsOfflineMode(false);
-        }
-      } catch (err) {
-        console.warn("[SupplierLedger] Remote pull notice:", err);
-        setIsOfflineMode(true);
-      } finally {
-        if (mounted) {
-          setLoading(false);
-        }
+    const handleStorageUpdate = () => {
+      if (mountedRef.current) {
+        void fetchRemoteData(false);
       }
     };
+    window.addEventListener("sales_erp_storage_update", handleStorageUpdate);
+    window.addEventListener("storage", handleStorageUpdate);
 
-    void fetchRemoteData();
+    void fetchRemoteData(false);
 
     const chan = supabase
       .channel("supplier-ledger-page-realtime")
-      .on("postgres_changes", { event: "*", schema: "public", table: "suppliers" }, () => void fetchRemoteData())
-      .on("postgres_changes", { event: "*", schema: "public", table: "purchase_invoices" }, () => void fetchRemoteData())
-      .on("postgres_changes", { event: "*", schema: "public", table: "supplier_payments" }, () => void fetchRemoteData())
+      .on("postgres_changes", { event: "*", schema: "public", table: "suppliers" }, () => void fetchRemoteData(false))
+      .on("postgres_changes", { event: "*", schema: "public", table: "purchase_invoices" }, () => void fetchRemoteData(false))
+      .on("postgres_changes", { event: "*", schema: "public", table: "supplier_payments" }, () => void fetchRemoteData(false))
       .subscribe();
 
     return () => {
-      mounted = false;
+      mountedRef.current = false;
       clearTimeout(watchdog);
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
+      window.removeEventListener("sales_erp_storage_update", handleStorageUpdate);
+      window.removeEventListener("storage", handleStorageUpdate);
       try {
         if (chan && supabase?.removeChannel) {
           supabase.removeChannel(chan);
         }
       } catch (e) {}
     };
-  }, []);
+  }, [fetchRemoteData, selectedSupplierId]);
 
   // Synchronize query parameter
   useEffect(() => {
@@ -548,9 +566,16 @@ export function SupplierLedger() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => {
+                onClick={async () => {
                   setLoading(true);
-                  void pullFreshCloudStateToLocalStore({ force: true, silent: false }).finally(() => setLoading(false));
+                  try {
+                    await pullFreshCloudStateToLocalStore({ force: true, silent: false });
+                    await fetchRemoteData(true);
+                  } catch (err: any) {
+                    toast.error(err?.message || "Sync failed");
+                  } finally {
+                    setLoading(false);
+                  }
                 }}
                 disabled={loading}
                 title="Live cloud sync"
