@@ -14,6 +14,7 @@ import {
   getPurchaseInvoices,
   getSupplierPayments,
   saveSupplierDebitNote,
+  matchesSupplierRecord,
   type Supplier,
   type PurchaseInvoice,
   r2,
@@ -93,8 +94,11 @@ export function DebitNoteModal({
       const hamko = refreshed.find((s) => s.name && s.name.toLowerCase().includes("hamko")) || refreshed[0];
       const targetSupId = defaultSupplierId || hamko?.id || "";
       setSupplierId(targetSupId);
+      const targetSup = refreshed.find((s) => s.id === targetSupId) || hamko;
 
-      const allInvoices = getPurchaseInvoices().filter((inv) => inv.supplier_id === targetSupId);
+      const allInvoices = getPurchaseInvoices().filter(
+        (inv) => inv.supplier_id === targetSupId || matchesSupplierRecord(inv, targetSup, refreshed.length)
+      );
       setInvoices(allInvoices);
 
       const targetInv = defaultInvoiceId
@@ -118,12 +122,15 @@ export function DebitNoteModal({
   // When supplier changes, update invoice list
   useEffect(() => {
     if (supplierId) {
-      const supInvoices = getPurchaseInvoices().filter((inv) => inv.supplier_id === supplierId);
+      const targetSup = suppliers.find((s) => s.id === supplierId);
+      const supInvoices = getPurchaseInvoices().filter(
+        (inv) => inv.supplier_id === supplierId || matchesSupplierRecord(inv, targetSup, suppliers.length)
+      );
       setInvoices(supInvoices);
     } else {
       setInvoices([]);
     }
-  }, [supplierId]);
+  }, [supplierId, suppliers]);
 
   const selectedSupplier = suppliers.find((s) => s.id === supplierId);
   const currentPayable = Number(selectedSupplier?.current_payable || 0);
@@ -162,12 +169,21 @@ export function DebitNoteModal({
         notes: combinedNotes,
       });
 
-      if (dnErr) {
+      const isTableCacheNotice =
+        dnErr &&
+        (dnErr.code === "PGRST205" ||
+          dnErr.code === "42P01" ||
+          dnErr.code === "23503" ||
+          String(dnErr.message || "").toLowerCase().includes("schema cache") ||
+          String(dnErr.message || "").toLowerCase().includes("does not exist"));
+
+      if (dnErr && !isTableCacheNotice) {
         toast.error(`Database Debit Note error: ${dnErr.message}`);
         return;
       }
 
       saveSupplierDebitNote({
+        id: paymentId,
         supplier_id: selectedSupplier.id,
         supplier_name: selectedSupplier.name,
         amount: returnAmount,

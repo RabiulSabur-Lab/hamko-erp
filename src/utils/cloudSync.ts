@@ -25,6 +25,9 @@ import {
   reconcileStockTransactionsWithRemote,
   reconcileRoutePlanWithRemote,
   reconcileHandoversWithRemote,
+  reconstructProcurementFromCloudData,
+  recalculateSupplierBalances,
+  syncSupplierPaymentsToExpenses,
   broadcastCrossTabSync,
   getProducts,
   getCustomers,
@@ -42,6 +45,16 @@ import {
   sanitizeExpensePayload,
   sanitizeInventoryPayload,
   sanitizeProductPayload,
+  sanitizeSupplierPayload,
+  sanitizePurchaseInvoicePayload,
+  sanitizeSupplierPaymentPayload,
+  sanitizeVisitPayload,
+  sanitizeSalesTargetPayload,
+  sanitizeRoutePlanPayload,
+  sanitizeHandoverPayload,
+  sanitizeStockTxPayload,
+  sanitizeTerritoryPayload,
+  executeWithSchemaResilience,
 } from "@/lib/payloadSanitizer";
 
 export interface SyncProgress {
@@ -64,6 +77,12 @@ export interface SyncSummary {
   suppliers?: number;
   purchaseInvoices?: number;
   supplierPayments?: number;
+  territories?: number;
+  visits?: number;
+  salesTargets?: number;
+  routePlan?: number;
+  handovers?: number;
+  stockTransactions?: number;
   errors: string[];
 }
 
@@ -798,8 +817,9 @@ export async function pushAllLocalDataToSupabase(
     }
 
     // ---------------------------------------------------------
-    // 6. SYNC EXPENSES
+    // 6. SYNC EXPENSES (including all Supplier Payment cash outflows)
     // ---------------------------------------------------------
+    syncSupplierPaymentsToExpenses();
     const deletedExpIds = getDeletedIds(STORAGE_KEYS.DELETED_EXPENSES);
     const localExpenses = getLocalData<any[]>(STORAGE_KEYS.EXPENSES, []).filter(
       (e) => e && !deletedExpIds.has(String(e.id)),
@@ -874,6 +894,13 @@ export async function pushAllLocalDataToSupabase(
       report("Synchronizing Inventory", i + 1, localInventory.length);
     }
 
+    const isMissingTableNotice = (err: any): boolean => {
+      if (!err) return false;
+      const code = String(err.code || "");
+      const msg = String(err.message || "").toLowerCase();
+      return code === "PGRST205" || code === "42P01" || msg.includes("schema cache") || msg.includes("does not exist");
+    };
+
     // ---------------------------------------------------------
     // 8. SYNC SUPPLIERS
     // ---------------------------------------------------------
@@ -885,9 +912,16 @@ export async function pushAllLocalDataToSupabase(
         const sup = localSuppliers[i];
         if (!sup || !sup.name) continue;
         try {
-          const { error: supErr } = await supabase.from("suppliers").upsert(sup);
-          if (!supErr) {
+          const cleanSup = sanitizeSupplierPayload(sup, true);
+          const { error: supErr } = await executeWithSchemaResilience(
+            "suppliers",
+            cleanSup,
+            (p) => supabase.from("suppliers").upsert(p)
+          );
+          if (!supErr || isMissingTableNotice(supErr)) {
             summary.suppliers++;
+          } else {
+            summary.errors.push(`Supplier (${sup.name}): ${supErr.message}`);
           }
         } catch {
           // Non-critical if table not yet migrated
@@ -897,24 +931,65 @@ export async function pushAllLocalDataToSupabase(
     }
 
     // ---------------------------------------------------------
-    // 9. SYNC PURCHASE INVOICES
+    // 9. SYNC PURCHASE INVOICES (and ensure mirrored Stock In transactions exist)
     // ---------------------------------------------------------
     const localInvoices = getLocalData<any[]>(STORAGE_KEYS.PURCHASE_INVOICES, []);
+    const existingLocalTxs = getLocalData<any[]>(STORAGE_KEYS.TRANSACTIONS, []);
+    const existingChalanTxRefs = new Set(
+      existingLocalTxs
+        .map((tx) => String(tx?.reference || "").trim().toUpperCase())
+        .filter(Boolean)
+    );
+    const synthesizedChalanTxs: any[] = [];
+
     summary.purchaseInvoices = 0;
     if (localInvoices.length > 0) {
       report("Synchronizing Purchase Invoices", 0, localInvoices.length);
       for (let i = 0; i < localInvoices.length; i++) {
         const inv = localInvoices[i];
         if (!inv || !inv.id) continue;
+
+        // Ensure every local purchase invoice has corresponding Stock In rows in STORAGE_KEYS.TRANSACTIONS
+        const invRef = String(inv.invoice_number || "").trim();
+        if (invRef && !existingChalanTxRefs.has(invRef.toUpperCase()) && Array.isArray(inv.items)) {
+          inv.items.forEach((item: any) => {
+            if (!item || !item.product_id) return;
+            const qty = Math.max(1, Math.round(Number(item.quantity) || 1));
+            const rate = Number(item.purchase_rate) || 0;
+            synthesizedChalanTxs.push({
+              id: generateUUID(),
+              product_id: item.product_id,
+              transaction_type: "Stock In",
+              quantity: qty,
+              from_warehouse: `Supplier: ${inv.supplier_name || "HAMKO Industries Ltd."}`,
+              to_warehouse: inv.warehouse || "Main Warehouse",
+              reference: invRef,
+              notes: `Procurement Chalan ${invRef} - ${item.product_name || "Product"} (${qty} pcs @ ${rate})${inv.notes ? ` | Remarks: ${inv.notes}` : ""}`,
+              transaction_date: inv.invoice_date || inv.created_at || new Date().toISOString(),
+            });
+          });
+          existingChalanTxRefs.add(invRef.toUpperCase());
+        }
+
         try {
-          const { error: invErr } = await supabase.from("purchase_invoices").upsert(inv);
-          if (!invErr) {
+          const cleanInv = sanitizePurchaseInvoicePayload(inv, true);
+          const { error: invErr } = await executeWithSchemaResilience(
+            "purchase_invoices",
+            cleanInv,
+            (p) => supabase.from("purchase_invoices").upsert(p)
+          );
+          if (!invErr || isMissingTableNotice(invErr)) {
             summary.purchaseInvoices++;
+          } else {
+            summary.errors.push(`Purchase Invoice (${inv.invoice_number || inv.id}): ${invErr.message}`);
           }
         } catch {
           // Non-critical if table not yet migrated
         }
         report("Synchronizing Purchase Invoices", i + 1, localInvoices.length);
+      }
+      if (synthesizedChalanTxs.length > 0) {
+        setLocalData(STORAGE_KEYS.TRANSACTIONS, [...synthesizedChalanTxs, ...existingLocalTxs], null, true);
       }
     }
 
@@ -929,14 +1004,184 @@ export async function pushAllLocalDataToSupabase(
         const pay = localPayments[i];
         if (!pay || !pay.id) continue;
         try {
-          const { error: payErr } = await supabase.from("supplier_payments").upsert(pay);
-          if (!payErr) {
+          const cleanPay = sanitizeSupplierPaymentPayload(pay, true);
+          const { error: payErr } = await executeWithSchemaResilience(
+            "supplier_payments",
+            cleanPay,
+            (p) => supabase.from("supplier_payments").upsert(p)
+          );
+          if (!payErr || isMissingTableNotice(payErr)) {
             summary.supplierPayments++;
+          } else {
+            summary.errors.push(`Supplier Payment (${pay.payment_number || pay.id}): ${payErr.message}`);
           }
         } catch {
           // Non-critical if table not yet migrated
         }
         report("Synchronizing Supplier Payments", i + 1, localPayments.length);
+      }
+    }
+
+    // ---------------------------------------------------------
+    // 11. SYNC TERRITORIES / AREAS
+    // ---------------------------------------------------------
+    const localAreas = getAreas();
+    summary.territories = 0;
+    if (localAreas.length > 0) {
+      report("Synchronizing Territories", 0, localAreas.length);
+      for (let i = 0; i < localAreas.length; i++) {
+        const area = localAreas[i];
+        if (!area || !area.name) continue;
+        try {
+          const cleanArea = sanitizeTerritoryPayload(area, true);
+          const { error: areaErr } = await executeWithSchemaResilience(
+            "territories",
+            cleanArea,
+            (p) => supabase.from("territories").upsert(p)
+          );
+          if (!areaErr) {
+            summary.territories++;
+          }
+        } catch {
+          // Non-critical
+        }
+        report("Synchronizing Territories", i + 1, localAreas.length);
+      }
+    }
+
+    // ---------------------------------------------------------
+    // 12. SYNC SFA VISITS
+    // ---------------------------------------------------------
+    const localVisits = getLocalData<any[]>(STORAGE_KEYS.VISITS, []);
+    summary.visits = 0;
+    if (localVisits.length > 0) {
+      report("Synchronizing SFA Visits", 0, localVisits.length);
+      for (let i = 0; i < localVisits.length; i++) {
+        const v = localVisits[i];
+        if (!v) continue;
+        try {
+          const cleanVisit = sanitizeVisitPayload(v, true);
+          if (!cleanVisit.customer_id) continue;
+          const { error: vErr } = await executeWithSchemaResilience(
+            "visits",
+            cleanVisit,
+            (p) => supabase.from("visits").upsert(p)
+          );
+          if (!vErr) {
+            summary.visits++;
+          }
+        } catch {
+          // Non-critical
+        }
+        report("Synchronizing SFA Visits", i + 1, localVisits.length);
+      }
+    }
+
+    // ---------------------------------------------------------
+    // 13. SYNC SALES TARGETS
+    // ---------------------------------------------------------
+    const localTargets = getLocalData<any[]>(STORAGE_KEYS.TARGETS, []);
+    summary.salesTargets = 0;
+    if (localTargets.length > 0) {
+      report("Synchronizing Sales Targets", 0, localTargets.length);
+      for (let i = 0; i < localTargets.length; i++) {
+        const t = localTargets[i];
+        if (!t) continue;
+        try {
+          const cleanTarget = sanitizeSalesTargetPayload(t, true);
+          const { error: tErr } = await executeWithSchemaResilience(
+            "sales_targets",
+            cleanTarget,
+            (p) => supabase.from("sales_targets").upsert(p)
+          );
+          if (!tErr) {
+            summary.salesTargets++;
+          }
+        } catch {
+          // Non-critical
+        }
+        report("Synchronizing Sales Targets", i + 1, localTargets.length);
+      }
+    }
+
+    // ---------------------------------------------------------
+    // 14. SYNC ROUTE PLAN
+    // ---------------------------------------------------------
+    const localRoutes = getLocalData<any[]>(STORAGE_KEYS.ROUTE_PLAN, []);
+    summary.routePlan = 0;
+    if (localRoutes.length > 0) {
+      report("Synchronizing Route Plan", 0, localRoutes.length);
+      for (let i = 0; i < localRoutes.length; i++) {
+        const r = localRoutes[i];
+        if (!r || !r.customer_id) continue;
+        try {
+          const cleanRoute = sanitizeRoutePlanPayload(r);
+          const { error: rErr } = await executeWithSchemaResilience(
+            "route_plan",
+            cleanRoute,
+            (p) => supabase.from("route_plan").upsert(p, { onConflict: "customer_id" })
+          );
+          if (!rErr) {
+            summary.routePlan++;
+          }
+        } catch {
+          // Non-critical
+        }
+        report("Synchronizing Route Plan", i + 1, localRoutes.length);
+      }
+    }
+
+    // ---------------------------------------------------------
+    // 15. SYNC DAY-END HANDOVERS
+    // ---------------------------------------------------------
+    const localHandovers = getLocalData<any[]>(STORAGE_KEYS.HANDOVERS, []);
+    summary.handovers = 0;
+    if (localHandovers.length > 0) {
+      report("Synchronizing Handovers", 0, localHandovers.length);
+      for (let i = 0; i < localHandovers.length; i++) {
+        const h = localHandovers[i];
+        if (!h) continue;
+        try {
+          const cleanHandover = sanitizeHandoverPayload(h, true);
+          const { error: hErr } = await executeWithSchemaResilience(
+            "handovers",
+            cleanHandover,
+            (p) => supabase.from("handovers").upsert(p)
+          );
+          if (!hErr) {
+            summary.handovers++;
+          }
+        } catch {
+          // Non-critical
+        }
+        report("Synchronizing Handovers", i + 1, localHandovers.length);
+      }
+    }
+
+    // ---------------------------------------------------------
+    // 16. SYNC STOCK TRANSACTIONS
+    // ---------------------------------------------------------
+    const localStockTx = getLocalData<any[]>(STORAGE_KEYS.TRANSACTIONS, []);
+    summary.stockTransactions = 0;
+    if (localStockTx.length > 0) {
+      report("Synchronizing Stock Transactions", 0, localStockTx.length);
+      for (let i = 0; i < localStockTx.length; i++) {
+        const stx = localStockTx[i];
+        if (!stx || !stx.product_id) continue;
+        try {
+          const cleanStx = sanitizeStockTxPayload(stx, true);
+          const { error: stxErr } = await executeWithSchemaResilience(
+            "stock_transactions",
+            cleanStx,
+            (p) => supabase.from("stock_transactions").upsert(p)
+          );
+          if (!stxErr) {
+            summary.stockTransactions++;
+          }
+        } catch {
+          // Non-critical
+        }
+        report("Synchronizing Stock Transactions", i + 1, localStockTx.length);
       }
     }
 
@@ -994,8 +1239,8 @@ export async function pullFreshCloudStateToLocalStore(options?: {
 
   const hasCachedData = (() => {
     try {
-      const orders = localStorage.getItem("orders");
-      const custs = localStorage.getItem("customers");
+      const orders = localStorage.getItem(STORAGE_KEYS.ORDERS);
+      const custs = localStorage.getItem(STORAGE_KEYS.CUSTOMERS);
       return Boolean((orders && orders !== "[]") || (custs && custs !== "[]"));
     } catch {
       return false;
@@ -1681,11 +1926,10 @@ export async function pullFreshCloudStateToLocalStore(options?: {
             reconcileRoutePlanWithRemote(res.data as any, { persist: true });
             updatedTables.push("route_plan");
           }
-        } else if (res.error) {
+        } else if (res.error && res.error.code !== "PGRST205" && res.error.code !== "42P01" && !String(res.error.message || "").includes("schema cache")) {
           tableErrors.push({ table: "route_plan", error: res.error });
         }
       } catch (e) {
-        tableErrors.push({ table: "route_plan", error: e });
         console.warn("[CloudSync] Route plan reconcile notice:", e);
       }
 
@@ -1697,13 +1941,16 @@ export async function pullFreshCloudStateToLocalStore(options?: {
             reconcileHandoversWithRemote(res.data as any, { persist: true });
             updatedTables.push("handovers");
           }
-        } else if (res.error) {
+        } else if (res.error && res.error.code !== "PGRST205" && res.error.code !== "42P01" && !String(res.error.message || "").includes("schema cache")) {
           tableErrors.push({ table: "handovers", error: res.error });
         }
       } catch (e) {
-        tableErrors.push({ table: "handovers", error: e });
         console.warn("[CloudSync] Handovers reconcile notice:", e);
       }
+
+      // Reconstruct and hydrate Procurement Chalans & Supplier Payments from cloud stock_transactions & expenses
+      reconstructProcurementFromCloudData();
+      recalculateSupplierBalances();
 
       if (updatedTables.length > 0 || options?.force) {
         const detail = { type: "cloud_pull_completed", updatedTables };

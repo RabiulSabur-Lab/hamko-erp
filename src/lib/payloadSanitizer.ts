@@ -378,6 +378,33 @@ const TABLE_KEY_ALIASES: Record<string, Record<string, string>> = {
     territoryId: "territory_id",
     isActive: "is_active",
   },
+  territories: {
+    code_prefix: "code",
+    codePrefix: "code",
+    managerId: "manager_id",
+  },
+  purchase_invoices: {
+    status: "payment_status",
+    paymentStatus: "payment_status",
+    invoiceNumber: "invoice_number",
+    chalanNumber: "chalan_number",
+    supplierId: "supplier_id",
+    supplierName: "supplier_name",
+    invoiceDate: "invoice_date",
+    totalAmount: "total_amount",
+    paidAmount: "paid_amount",
+    dueAmount: "due_amount",
+  },
+  supplier_payments: {
+    payment_mode: "payment_method",
+    paymentMode: "payment_method",
+    paymentMethod: "payment_method",
+    paymentNumber: "payment_number",
+    referenceNo: "reference_no",
+    supplierId: "supplier_id",
+    supplierName: "supplier_name",
+    paymentDate: "payment_date",
+  },
 };
 
 /**
@@ -550,11 +577,44 @@ export function sanitizeSupplierPayload<T extends Record<string, any>>(raw: T, i
 }
 
 export function sanitizePurchaseInvoicePayload<T extends Record<string, any>>(raw: T, isInsert = false): Record<string, any> {
-  return sanitizePayload("purchase_invoices", raw, { generateIdIfMissing: isInsert });
+  const sanitized = sanitizePayload("purchase_invoices", raw, { generateIdIfMissing: isInsert });
+  if (!sanitized.chalan_number && sanitized.invoice_number) {
+    sanitized.chalan_number = sanitized.invoice_number;
+  }
+  const rawStatus = String(raw?.payment_status ?? raw?.status ?? "").trim().toLowerCase();
+  if (rawStatus === "paid") {
+    sanitized.payment_status = "paid";
+  } else if (rawStatus === "partial" || rawStatus === "partially paid") {
+    sanitized.payment_status = "partial";
+  } else if (rawStatus === "unpaid" || rawStatus === "received" || rawStatus === "pending") {
+    const total = Number(sanitized.total_amount ?? raw?.total_amount ?? 0);
+    const paid = Number(sanitized.paid_amount ?? raw?.paid_amount ?? 0);
+    const due = Number(sanitized.due_amount ?? raw?.due_amount ?? Math.max(0, total - paid));
+    sanitized.payment_status = due <= 0 && total > 0 ? "paid" : paid > 0 ? "partial" : "unpaid";
+  }
+  return sanitized;
 }
 
 export function sanitizeSupplierPaymentPayload<T extends Record<string, any>>(raw: T, isInsert = false): Record<string, any> {
-  return sanitizePayload("supplier_payments", raw, { generateIdIfMissing: isInsert });
+  const sanitized = sanitizePayload("supplier_payments", raw, { generateIdIfMissing: isInsert });
+  const rawMethod = String(raw?.payment_method ?? raw?.payment_mode ?? "cash").trim().toLowerCase();
+  if (rawMethod.includes("bank")) {
+    sanitized.payment_method = "bank";
+  } else if (rawMethod.includes("cheque") || rawMethod.includes("check")) {
+    sanitized.payment_method = "cheque";
+  } else if (rawMethod.includes("mfs") || rawMethod.includes("bkash") || rawMethod.includes("nagad") || rawMethod.includes("mobile")) {
+    sanitized.payment_method = "mfs";
+  } else {
+    sanitized.payment_method = "cash";
+  }
+  if (!sanitized.reference_no && sanitized.payment_number) {
+    sanitized.reference_no = sanitized.payment_number;
+  }
+  return sanitized;
+}
+
+export function sanitizeTerritoryPayload<T extends Record<string, any>>(raw: T, isInsert = false): Record<string, any> {
+  return sanitizePayload("territories", raw, { generateIdIfMissing: isInsert });
 }
 
 export function sanitizeHandoverPayload<T extends Record<string, any>>(raw: T, isInsert = false): Record<string, any> {

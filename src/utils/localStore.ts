@@ -14,6 +14,17 @@ import type {
 } from '../types';
 import { supabase, SUPABASE_URL } from "@/lib/supabase";
 import { formatCurrency } from "@/lib/utils";
+import {
+  generateUuid,
+  isValidUuid,
+  sanitizeSupplierPayload,
+  sanitizePurchaseInvoicePayload,
+  sanitizeSupplierPaymentPayload,
+  sanitizeStockTxPayload,
+  sanitizeExpensePayload,
+  sanitizeTerritoryPayload,
+  executeWithSchemaResilience,
+} from "@/lib/payloadSanitizer";
 
 export type {
   Product,
@@ -921,11 +932,12 @@ export function getAreas(): Area[] {
   try {
     const rawList = getLocalData<Area[]>(STORAGE_KEYS.AREAS, []);
     let list: Area[] = Array.isArray(rawList) ? rawList : [];
+    let needsPersist = false;
 
     // Seed defaults if empty
     if (list.length === 0) {
-      const initial: Area[] = DEFAULT_AREA_NAMES.map((name, idx) => ({
-        id: `area-init-${idx + 1}`,
+      const initial: Area[] = DEFAULT_AREA_NAMES.map((name) => ({
+        id: generateUuid(),
         name,
         code_prefix: deriveCodePrefix(name),
         created_at: new Date().toISOString(),
@@ -937,7 +949,7 @@ export function getAreas(): Area[] {
         const cArea = (c.area || c.city || "").trim();
         if (cArea && !initial.some((a) => a.name.toLowerCase() === cArea.toLowerCase())) {
           initial.push({
-            id: `area-cust-${initial.length + 1}`,
+            id: generateUuid(),
             name: cArea,
             code_prefix: deriveCodePrefix(cArea),
             created_at: new Date().toISOString(),
@@ -946,14 +958,44 @@ export function getAreas(): Area[] {
       });
 
       list = initial;
-      if (typeof window !== "undefined") {
-        setLocalData(STORAGE_KEYS.AREAS, list);
+      needsPersist = true;
+    } else {
+      // Upgrade any legacy non-UUID area IDs ("area-init-...", "area-...") and deduplicate by name
+      const byName = new Map<string, Area>();
+      for (const item of list) {
+        if (!item || !item.name) continue;
+        const cleanNameKey = item.name.trim().toLowerCase();
+        const validId = isValidUuid(item.id) ? item.id : generateUuid();
+        if (validId !== item.id) {
+          needsPersist = true;
+        }
+        const existing = byName.get(cleanNameKey);
+        if (!existing) {
+          byName.set(cleanNameKey, { ...item, id: validId });
+        } else {
+          needsPersist = true;
+          if (isValidUuid(item.id) && !isValidUuid(existing.id)) {
+            byName.set(cleanNameKey, { ...existing, ...item, id: item.id });
+          }
+        }
       }
+      if (needsPersist) {
+        list = Array.from(byName.values());
+      }
+    }
+
+    if (needsPersist && typeof window !== "undefined") {
+      setLocalData(STORAGE_KEYS.AREAS, list, null, true);
     }
 
     const deletedAreaIds = getDeletedIds(STORAGE_KEYS.DELETED_AREAS);
     return list
-      .filter((a) => Boolean(a && a.id && a.name) && !deletedAreaIds.has(String(a.id)))
+      .filter(
+        (a) =>
+          Boolean(a && a.id && a.name) &&
+          !deletedAreaIds.has(String(a.id)) &&
+          !deletedAreaIds.has(a.name.trim().toLowerCase()),
+      )
       .sort((a, b) => a.name.localeCompare(b.name));
   } catch (e) {
     console.warn("Error getting areas:", e);
@@ -982,26 +1024,44 @@ export function addArea(
   }
 
   const prefix = (codePrefix?.replace(/[^a-zA-Z0-9]/g, "").trim().toUpperCase() || deriveCodePrefix(trimmedName)).slice(0, 3);
+  const areaId = generateUuid();
+  const nowIso = new Date().toISOString();
   const newArea: Area = {
-    id: `area-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+    id: areaId,
     name: trimmedName,
     code_prefix: prefix,
-    created_at: new Date().toISOString(),
+    created_at: nowIso,
   };
+
+  // Un-tombstone if previously deleted
+  removeDeletedId(STORAGE_KEYS.DELETED_AREAS, trimmedName.toLowerCase());
 
   const updated = [...currentAreas, newArea].sort((a, b) => a.name.localeCompare(b.name));
   setLocalData(STORAGE_KEYS.AREAS, updated);
 
-  // Persist to Supabase in background
-  supabase
-    .from("territories")
-    .insert({
+  // Persist to Supabase with valid UUID primary key
+  const cleanTerritory = sanitizeTerritoryPayload(
+    {
+      id: areaId,
       name: newArea.name,
       code: newArea.code_prefix,
-    })
-    .then(undefined, (err) => {
-      console.warn("Supabase territories insert notice:", err);
-    });
+      created_at: nowIso,
+    },
+    true,
+  );
+  supabase
+    .from("territories")
+    .upsert(cleanTerritory, { onConflict: "name" })
+    .then(
+      ({ error }) => {
+        if (error) {
+          console.warn("Supabase territories upsert notice:", error.message);
+        }
+      },
+      (err) => {
+        console.warn("Supabase territories insert notice:", err);
+      },
+    );
 
   return { success: true, area: newArea, areas: updated };
 }
@@ -1038,12 +1098,15 @@ export function updateArea(
   }
 
   const oldName = existing.name;
+  const resolvedId = isValidUuid(existing.id) ? existing.id : generateUuid();
+  const nowIso = new Date().toISOString();
   const prefix = (newCodePrefix?.replace(/[^a-zA-Z0-9]/g, "").trim().toUpperCase() || existing.code_prefix || deriveCodePrefix(trimmedName)).slice(0, 3);
   const updatedArea: Area = {
     ...existing,
+    id: resolvedId,
     name: trimmedName,
     code_prefix: prefix,
-    updated_at: new Date().toISOString(),
+    updated_at: nowIso,
   };
 
   const updatedList = currentAreas
@@ -1056,25 +1119,53 @@ export function updateArea(
   if (oldName.toLowerCase() !== trimmedName.toLowerCase()) {
     try {
       const customers = getCustomers();
-      let customerChanged = false;
+      const cascadedCustomers: Customer[] = [];
       const updatedCustomers = customers.map((c) => {
         const isMatch =
           (c.area && c.area.trim().toLowerCase() === oldName.trim().toLowerCase()) ||
           (c.city && c.city.trim().toLowerCase() === oldName.trim().toLowerCase());
         if (isMatch) {
-          customerChanged = true;
-          return {
+          let updatedNotes = c.notes || "";
+          if (/\[AREA:[^\]]*\]/i.test(updatedNotes)) {
+            updatedNotes = updatedNotes.replace(/\[AREA:[^\]]*\]/gi, `[AREA:${trimmedName}]`);
+          } else {
+            updatedNotes = `[AREA:${trimmedName}] ${updatedNotes}`.trim();
+          }
+          const nextCust: Customer = {
             ...c,
             area: trimmedName,
-            updated_at: new Date().toISOString(),
+            city: trimmedName,
+            notes: updatedNotes,
+            updated_at: nowIso,
           };
+          cascadedCustomers.push(nextCust);
+          return nextCust;
         }
         return c;
       });
 
-      if (customerChanged) {
+      if (cascadedCustomers.length > 0) {
         setLocalData(STORAGE_KEYS.CUSTOMERS, updatedCustomers);
-        supabase.from("customers").update({ city: trimmedName }).eq("city", oldName).then(undefined, () => {});
+        // Sync cascaded customer area updates to Supabase
+        supabase
+          .from("customers")
+          .update({ city: trimmedName, updated_at: nowIso })
+          .eq("city", oldName)
+          .then(undefined, () => {});
+
+        cascadedCustomers.forEach((cc) => {
+          if (isValidUuid(cc.id)) {
+            supabase
+              .from("customers")
+              .update({
+                city: trimmedName,
+                notes: cc.notes || null,
+                updated_at: nowIso,
+              })
+              .eq("id", cc.id)
+              .then(undefined, (err) => console.warn("Cascade customer area sync notice:", err));
+          }
+        });
       }
 
       // Cascade update to orders in local storage
@@ -1092,6 +1183,7 @@ export function updateArea(
             customer: {
               ...o.customer,
               area: trimmedName,
+              city: trimmedName,
             },
           };
         }
@@ -1105,13 +1197,13 @@ export function updateArea(
       // Cascade update to routes
       const routes = getLocalData<any>(STORAGE_KEYS.ROUTE_PLAN, []);
       let routeChanged = false;
-      const updatedRoutes = routes.map((r: any) => {
+      const updatedRoutes = (Array.isArray(routes) ? routes : []).map((r: any) => {
         if (
           (r.territory && r.territory.trim().toLowerCase() === oldName.trim().toLowerCase()) ||
           (r.city && r.city.trim().toLowerCase() === oldName.trim().toLowerCase())
         ) {
           routeChanged = true;
-          return { ...r, territory: trimmedName };
+          return { ...r, territory: trimmedName, city: trimmedName };
         }
         return r;
       });
@@ -1123,8 +1215,32 @@ export function updateArea(
     }
   }
 
-  // Supabase territory update
-  supabase.from("territories").update({ name: trimmedName, code: prefix }).eq("id", id).then(undefined, () => {});
+  // Supabase territory update with valid UUID guard (prevents 22P02 errors)
+  if (isValidUuid(id)) {
+    supabase
+      .from("territories")
+      .update({ name: trimmedName, code: prefix })
+      .eq("id", id)
+      .select()
+      .then(
+        ({ data, error }) => {
+          if (error || !data || data.length === 0) {
+            supabase
+              .from("territories")
+              .update({ name: trimmedName, code: prefix })
+              .eq("name", oldName)
+              .then(undefined, () => {});
+          }
+        },
+        () => {},
+      );
+  } else {
+    supabase
+      .from("territories")
+      .update({ name: trimmedName, code: prefix })
+      .eq("name", oldName)
+      .then(undefined, () => {});
+  }
 
   if (typeof window !== "undefined") {
     setTimeout(() => {
@@ -1165,8 +1281,32 @@ export function deleteArea(id: string): { success: boolean; error?: string; area
   const remaining = currentAreas.filter((a) => a.id !== id);
   setLocalData(STORAGE_KEYS.AREAS, remaining);
   saveDeletedId(STORAGE_KEYS.DELETED_AREAS, id);
+  saveDeletedId(STORAGE_KEYS.DELETED_AREAS, existing.name.trim().toLowerCase());
 
-  supabase.from("territories").delete().eq("id", id).then(undefined, () => {});
+  if (isValidUuid(id)) {
+    supabase
+      .from("territories")
+      .delete()
+      .eq("id", id)
+      .then(
+        ({ error }) => {
+          if (error) {
+            supabase
+              .from("territories")
+              .delete()
+              .eq("name", existing.name)
+              .then(undefined, () => {});
+          }
+        },
+        () => {},
+      );
+  } else {
+    supabase
+      .from("territories")
+      .delete()
+      .eq("name", existing.name)
+      .then(undefined, () => {});
+  }
 
   return { success: true, areas: remaining };
 }
@@ -2127,6 +2267,7 @@ export function reconcileExpensesWithRemote(
   );
   if (options?.persist !== false) {
     setLocalData(STORAGE_KEYS.EXPENSES, reconciled, null, false);
+    reconstructProcurementFromCloudData(undefined, reconciled);
   }
   return reconciled;
 }
@@ -2188,10 +2329,18 @@ export function reconcileAreasWithRemote(
 ): Area[] {
   const deletedAreaIds = getDeletedIds(STORAGE_KEYS.DELETED_AREAS);
   const currentLocal = getLocalData<Area[]>(STORAGE_KEYS.AREAS, []).filter(
-    (a) => Boolean(a && a.id) && !deletedAreaIds.has(String(a.id)),
+    (a) =>
+      Boolean(a && a.id && a.name) &&
+      !deletedAreaIds.has(String(a.id)) &&
+      !deletedAreaIds.has(a.name.trim().toLowerCase()),
   );
   const validRemote: Area[] = (Array.isArray(remoteTerritories) ? remoteTerritories : [])
-    .filter((t) => Boolean(t && t.id) && !deletedAreaIds.has(String(t.id)))
+    .filter(
+      (t) =>
+        Boolean(t && t.id && t.name) &&
+        !deletedAreaIds.has(String(t.id)) &&
+        !deletedAreaIds.has(String(t.name).trim().toLowerCase()),
+    )
     .map((t) => ({
       id: String(t.id),
       name: t.name,
@@ -2206,7 +2355,13 @@ export function reconcileAreasWithRemote(
       if (a && a.id) map.set(String(a.id), a);
     });
     for (const ra of validRemote) {
-      const existing = map.get(String(ra.id));
+      const existingByName = Array.from(map.values()).find(
+        (la) => la.name.trim().toLowerCase() === ra.name.trim().toLowerCase(),
+      );
+      if (existingByName && existingByName.id !== String(ra.id)) {
+        map.delete(String(existingByName.id));
+      }
+      const existing = map.get(String(ra.id)) || existingByName;
       if (!existing || isRemoteAuthoritative(ra, existing)) {
         map.set(String(ra.id), { ...(existing || {}), ...ra });
       }
@@ -2219,9 +2374,18 @@ export function reconcileAreasWithRemote(
   }
 
   const remoteIdSet = new Set(validRemote.map((a) => String(a.id)));
-  const localNotOnRemote = currentLocal.filter(
-    (la) => la && !remoteIdSet.has(String(la.id))
-  );
+  const remoteNameSet = new Set(validRemote.map((a) => a.name.trim().toLowerCase()));
+  const localNotOnRemote = currentLocal
+    .filter(
+      (la) =>
+        la &&
+        !remoteIdSet.has(String(la.id)) &&
+        !remoteNameSet.has(la.name.trim().toLowerCase()),
+    )
+    .map((la) => ({
+      ...la,
+      id: isValidUuid(la.id) ? la.id : generateUuid(),
+    }));
   const reconciled = [...localNotOnRemote, ...validRemote].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
   if (options?.persist !== false) {
     setLocalData(STORAGE_KEYS.AREAS, reconciled, null, false);
@@ -2266,9 +2430,26 @@ export function reconcileSuppliersWithRemote(
   options?: { persist?: boolean; incremental?: boolean },
 ): Supplier[] {
   const currentLocal = getSuppliers();
-  const validRemote = (Array.isArray(remoteSuppliers) ? remoteSuppliers : []).filter(
-    (s) => Boolean(s && s.id && s.name && s.name.trim().length > 0 && !s.name.toLowerCase().includes("swarna")),
-  );
+  const localByName = new Map<string, Supplier>();
+  const localById = new Map<string, Supplier>();
+  currentLocal.forEach((ls) => {
+    if (ls && ls.id) localById.set(String(ls.id), ls);
+    if (ls && ls.name) localByName.set(ls.name.trim().toLowerCase(), ls);
+  });
+
+  const validRemote = (Array.isArray(remoteSuppliers) ? remoteSuppliers : [])
+    .filter(
+      (s) => Boolean(s && s.id && s.name && s.name.trim().length > 0 && !s.name.toLowerCase().includes("swarna")),
+    )
+    .map((rs) => {
+      const matchedLocal = localById.get(String(rs.id)) || localByName.get(rs.name.trim().toLowerCase());
+      return {
+        ...(matchedLocal || {}),
+        ...rs,
+        company_name: rs.company_name ?? matchedLocal?.company_name ?? null,
+        current_payable: rs.current_payable ?? matchedLocal?.current_payable ?? Number(rs.opening_balance || 0),
+      };
+    });
 
   if (validRemote.length === 0 && currentLocal.length > 0) {
     return currentLocal;
@@ -2280,9 +2461,19 @@ export function reconcileSuppliersWithRemote(
       if (s && s.id) map.set(String(s.id), s);
     });
     for (const rs of validRemote) {
-      const existing = map.get(String(rs.id));
+      const existingByName = Array.from(map.values()).find(
+        (ls) => ls.name.trim().toLowerCase() === rs.name.trim().toLowerCase(),
+      );
+      if (existingByName && existingByName.id !== String(rs.id)) {
+        map.delete(String(existingByName.id));
+      }
+      const existing = map.get(String(rs.id)) || existingByName;
       if (!existing || isRemoteAuthoritative(rs, existing)) {
-        map.set(String(rs.id), { ...(existing || {}), ...rs });
+        map.set(String(rs.id), {
+          ...(existing || {}),
+          ...rs,
+          company_name: rs.company_name ?? existing?.company_name ?? null,
+        });
       }
     }
     const result = Array.from(map.values());
@@ -2293,8 +2484,12 @@ export function reconcileSuppliersWithRemote(
   }
 
   const remoteIdSet = new Set(validRemote.map((s) => String(s.id)));
+  const remoteNameSet = new Set(validRemote.map((s) => s.name.trim().toLowerCase()));
   const localNotOnRemote = currentLocal.filter(
-    (ls) => ls && !remoteIdSet.has(String(ls.id))
+    (ls) =>
+      ls &&
+      !remoteIdSet.has(String(ls.id)) &&
+      !remoteNameSet.has(ls.name.trim().toLowerCase()),
   );
   const reconciled = [...localNotOnRemote, ...validRemote];
   const finalResult = reconciled.length > 0 ? reconciled : DEFAULT_SUPPLIERS;
@@ -2312,15 +2507,31 @@ export function reconcilePurchaseInvoicesWithRemote(
   options?: { persist?: boolean; incremental?: boolean },
 ): PurchaseInvoice[] {
   const currentLocal = getLocalData<PurchaseInvoice[]>(STORAGE_KEYS.PURCHASE_INVOICES, []);
-  const validRemote = (Array.isArray(remoteInvoices) ? remoteInvoices : []).filter(
-    (i) => Boolean(i && i.id),
-  );
+  const localById = new Map<string, PurchaseInvoice>();
+  currentLocal.forEach((inv) => {
+    if (inv && inv.id) localById.set(String(inv.id), inv);
+  });
+
+  const validRemote: PurchaseInvoice[] = (Array.isArray(remoteInvoices) ? remoteInvoices : [])
+    .filter((i) => Boolean(i && i.id))
+    .map((ri: any) => {
+      const existing = localById.get(String(ri.id));
+      const rawStatus = String(ri.status || ri.payment_status || existing?.status || "Received").toLowerCase();
+      const normalizedStatus: InvoiceStatus =
+        rawStatus === "paid"
+          ? "Paid"
+          : rawStatus === "partial" || rawStatus === "partially paid"
+          ? "Partially Paid"
+          : "Received";
+      return {
+        ...(existing || {}),
+        ...ri,
+        status: normalizedStatus,
+      };
+    });
 
   if (options?.incremental) {
-    const map = new Map<string, PurchaseInvoice>();
-    currentLocal.forEach((inv) => {
-      if (inv && inv.id) map.set(String(inv.id), inv);
-    });
+    const map = new Map<string, PurchaseInvoice>(localById);
     for (const ri of validRemote) {
       const existing = map.get(String(ri.id));
       if (!existing || isRemoteAuthoritative(ri, existing)) {
@@ -2338,7 +2549,7 @@ export function reconcilePurchaseInvoicesWithRemote(
 
   const remoteIdSet = new Set(validRemote.map((i) => String(i.id)));
   const localNotOnRemote = currentLocal.filter(
-    (li) => li && !remoteIdSet.has(String(li.id))
+    (li) => li && !remoteIdSet.has(String(li.id)) && isPendingOfflineRecord(li),
   );
   const reconciled = [...localNotOnRemote, ...validRemote].sort(
     (a, b) => new Date(b.invoice_date || b.created_at || 0).getTime() - new Date(a.invoice_date || a.created_at || 0).getTime(),
@@ -2357,15 +2568,41 @@ export function reconcileSupplierPaymentsWithRemote(
   options?: { persist?: boolean; incremental?: boolean },
 ): SupplierPayment[] {
   const currentLocal = getLocalData<SupplierPayment[]>(STORAGE_KEYS.SUPPLIER_PAYMENTS, []);
-  const validRemote = (Array.isArray(remotePayments) ? remotePayments : []).filter(
-    (p) => Boolean(p && p.id),
-  );
+  const localById = new Map<string, SupplierPayment>();
+  currentLocal.forEach((p) => {
+    if (p && p.id) localById.set(String(p.id), p);
+  });
+
+  const validRemote: SupplierPayment[] = (Array.isArray(remotePayments) ? remotePayments : [])
+    .filter((p) => Boolean(p && p.id))
+    .map((rp: any) => {
+      const existing = localById.get(String(rp.id));
+      const refStr = String(rp.reference_no || rp.payment_number || existing?.reference_no || "");
+      const isDn =
+        rp.payment_type === "Debit Note" ||
+        existing?.payment_type === "Debit Note" ||
+        refStr.startsWith("DN-");
+      const rawMethod = String(rp.payment_mode || rp.payment_method || existing?.payment_mode || "Cash").toLowerCase();
+      const paymentMode =
+        rawMethod.includes("bank")
+          ? "Bank Transfer"
+          : rawMethod.includes("cheque") || rawMethod.includes("check")
+          ? "Cheque"
+          : rawMethod.includes("mfs") || rawMethod.includes("bkash") || rawMethod.includes("mobile")
+          ? "MFS/Bkash"
+          : "Cash";
+
+      return {
+        ...(existing || {}),
+        ...rp,
+        payment_mode: existing?.payment_mode || paymentMode,
+        payment_type: isDn ? "Debit Note" : (existing?.payment_type || "Payment"),
+        reference_no: rp.reference_no || rp.payment_number || existing?.reference_no,
+      };
+    });
 
   if (options?.incremental) {
-    const map = new Map<string, SupplierPayment>();
-    currentLocal.forEach((p) => {
-      if (p && p.id) map.set(String(p.id), p);
-    });
+    const map = new Map<string, SupplierPayment>(localById);
     for (const rp of validRemote) {
       const existing = map.get(String(rp.id));
       if (!existing || isRemoteAuthoritative(rp, existing)) {
@@ -2383,7 +2620,7 @@ export function reconcileSupplierPaymentsWithRemote(
 
   const remoteIdSet = new Set(validRemote.map((p) => String(p.id)));
   const localNotOnRemote = currentLocal.filter(
-    (lp) => lp && !remoteIdSet.has(String(lp.id))
+    (lp) => lp && !remoteIdSet.has(String(lp.id)) && isPendingOfflineRecord(lp),
   );
   const reconciled = [...localNotOnRemote, ...validRemote].sort(
     (a, b) => new Date(b.payment_date || b.created_at || 0).getTime() - new Date(a.payment_date || a.created_at || 0).getTime(),
@@ -2656,6 +2893,7 @@ export function reconcileStockTransactionsWithRemote(
 
   if (options?.persist !== false) {
     setLocalData(STORAGE_KEYS.TRANSACTIONS, result, null, false);
+    reconstructProcurementFromCloudData(result, undefined);
   }
   return result;
 }
@@ -4633,7 +4871,7 @@ export function refreshCustomers(): Customer[] {
 
 export const DEFAULT_SUPPLIERS: Supplier[] = [
   {
-    id: "sup-hamko-01",
+    id: "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
     name: "HAMKO Industries Ltd.",
     company_name: "HAMKO Industries Ltd. (Cookware Unit)",
     phone: "01711-555666",
@@ -4650,28 +4888,464 @@ export const DEFAULT_SUPPLIERS: Supplier[] = [
 /**
  * Retrieves all registered suppliers. Filters strictly for valid active suppliers
  * (defaults strictly to HAMKO Industries Ltd., removing blank entries and obsolete test suppliers).
+ * Automatically upgrades any legacy non-UUID supplier IDs (e.g. "sup-hamko-01") to canonical UUIDs.
  */
 export function getSuppliers(): Supplier[] {
   const list = getLocalData<Supplier[]>(STORAGE_KEYS.SUPPLIERS, []);
   const safeList: Supplier[] = Array.isArray(list) ? list : [];
+  let needsPersist = false;
   // Filter out any blank, invalid, or legacy test suppliers (e.g. Swarna Metal)
-  const valid = safeList.filter(
-    (s: Supplier) =>
-      s &&
-      s.name &&
-      s.name.trim().length > 0 &&
-      !s.name.toLowerCase().includes("swarna metal") &&
-      s.name.toLowerCase().includes("hamko")
-  );
+  const valid = safeList
+    .filter(
+      (s: Supplier) =>
+        s &&
+        s.name &&
+        s.name.trim().length > 0 &&
+        !s.name.toLowerCase().includes("swarna metal") &&
+        s.name.toLowerCase().includes("hamko")
+    )
+    .map((s: Supplier) => {
+      if (!isValidUuid(s.id)) {
+        needsPersist = true;
+        const canonicalId = s.name.toLowerCase().includes("hamko")
+          ? DEFAULT_SUPPLIERS[0].id
+          : generateUuid();
+        return { ...s, id: canonicalId };
+      }
+      return s;
+    });
   if (valid.length === 0) {
-    setLocalData(STORAGE_KEYS.SUPPLIERS, DEFAULT_SUPPLIERS);
+    setLocalData(STORAGE_KEYS.SUPPLIERS, DEFAULT_SUPPLIERS, null, true);
     return DEFAULT_SUPPLIERS;
   }
-  // If corrupted or test suppliers were present, sync cleaned list back to local storage
-  if (valid.length !== safeList.length) {
-    setLocalData(STORAGE_KEYS.SUPPLIERS, valid);
+  // If corrupted, non-UUID, or test suppliers were present, sync cleaned list back to local storage
+  if (valid.length !== safeList.length || needsPersist) {
+    setLocalData(STORAGE_KEYS.SUPPLIERS, valid, null, true);
   }
   return valid;
+}
+
+/**
+ * Matches a PurchaseInvoice or SupplierPayment record against a target Supplier across devices,
+ * resilient to legacy "sup-hamko-01" IDs, null foreign keys, or different device-generated UUIDs
+ * for the same supplier name.
+ */
+export function matchesSupplierRecord(
+  record: { supplier_id?: string | null; supplier_name?: string | null } | null | undefined,
+  supplier: Supplier | null | undefined,
+  totalSuppliersCount = 1
+): boolean {
+  if (!record || !supplier) return false;
+  const recSupId = String(record.supplier_id || "").trim();
+  const targetSupId = String(supplier.id || "").trim();
+  if (recSupId && targetSupId && recSupId === targetSupId) return true;
+
+  const isTargetHamko = supplier.name.toLowerCase().includes("hamko");
+  if (recSupId === "sup-hamko-01" && isTargetHamko) return true;
+
+  const recSupName = String(record.supplier_name || "").trim().toLowerCase();
+  const targetSupName = String(supplier.name || "").trim().toLowerCase();
+  if (recSupName && targetSupName) {
+    if (recSupName === targetSupName) return true;
+    if (recSupName.includes("hamko") && isTargetHamko) return true;
+  }
+
+  if (totalSuppliersCount <= 1 && isTargetHamko && (!recSupId || !isValidUuid(recSupId))) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Reconstructs and synchronizes Procurement Chalans (PurchaseInvoices) and Supplier Payments / Debit Notes
+ * from cloud-synced `stock_transactions` and `expenses` tables, ensuring 100% cross-device and cold-start
+ * procurement ledger hydration even when records were created via stock_transactions/expenses or have legacy supplier IDs.
+ */
+export function reconstructProcurementFromCloudData(
+  remoteTransactions?: any[],
+  remoteExpenses?: Expense[]
+): void {
+  try {
+    const suppliers = getSuppliers();
+    const primarySupplier =
+      suppliers.find((s) => s.name.toLowerCase().includes("hamko")) ||
+      suppliers[0] ||
+      DEFAULT_SUPPLIERS[0];
+
+    const resolveSupplier = (rawId?: string | null, rawName?: string | null): Supplier => {
+      if (rawId && isValidUuid(rawId)) {
+        const byId = suppliers.find((s) => s.id === rawId);
+        if (byId) return byId;
+      }
+      if (rawName) {
+        const lower = rawName.trim().toLowerCase();
+        const byName = suppliers.find(
+          (s) =>
+            s.name.trim().toLowerCase() === lower ||
+            (lower.includes("hamko") && s.name.toLowerCase().includes("hamko"))
+        );
+        if (byName) return byName;
+      }
+      return primarySupplier;
+    };
+
+    const rawInvoices = getLocalData<PurchaseInvoice[]>(STORAGE_KEYS.PURCHASE_INVOICES, []);
+    const rawPayments = getLocalData<SupplierPayment[]>(STORAGE_KEYS.SUPPLIER_PAYMENTS, []);
+    let invoicesChanged = false;
+    let paymentsChanged = false;
+
+    // 1. Normalize supplier_id and supplier_name on all existing local invoices & payments
+    const invoiceList: PurchaseInvoice[] = (Array.isArray(rawInvoices) ? rawInvoices : [])
+      .filter((inv) => Boolean(inv && inv.id))
+      .map((inv) => {
+        const sup = resolveSupplier(inv.supplier_id, inv.supplier_name);
+        if (inv.supplier_id !== sup.id || !inv.supplier_name) {
+          invoicesChanged = true;
+          return {
+            ...inv,
+            supplier_id: sup.id,
+            supplier_name: inv.supplier_name || sup.name,
+          };
+        }
+        return inv;
+      });
+
+    const paymentList: SupplierPayment[] = (Array.isArray(rawPayments) ? rawPayments : [])
+      .filter((pay) => Boolean(pay && pay.id))
+      .map((pay) => {
+        const sup = resolveSupplier(pay.supplier_id, pay.supplier_name);
+        if (pay.supplier_id !== sup.id || !pay.supplier_name) {
+          paymentsChanged = true;
+          return {
+            ...pay,
+            supplier_id: sup.id,
+            supplier_name: pay.supplier_name || sup.name,
+          };
+        }
+        return pay;
+      });
+
+    const existingInvoiceNumbers = new Set(
+      invoiceList.map((inv) => String(inv.invoice_number || "").trim().toUpperCase()).filter(Boolean)
+    );
+    const existingInvoiceIds = new Set(
+      invoiceList.map((inv) => String(inv.id || "").trim()).filter(Boolean)
+    );
+
+    // 2. Reconstruct missing Purchase Invoices & Debit Notes from stock_transactions
+    const txSource =
+      remoteTransactions !== undefined
+        ? remoteTransactions
+        : getLocalData<any[]>(STORAGE_KEYS.TRANSACTIONS, []);
+    const products = getProducts();
+    const productById = new Map<string, Product>();
+    products.forEach((p) => {
+      if (p && p.id) productById.set(String(p.id), p);
+    });
+
+    const chalanTxGroups = new Map<string, any[]>();
+    const debitNoteTxs: any[] = [];
+
+    (Array.isArray(txSource) ? txSource : []).forEach((tx) => {
+      if (!tx || !tx.id) return;
+      const ref = String(tx.reference || "").trim();
+      const fromWh = String(tx.from_warehouse || "").trim();
+      const toWh = String(tx.to_warehouse || "").trim();
+      const notes = String(tx.notes || "").trim();
+      const txType = String(tx.transaction_type || "").trim();
+
+      const isProcurementChalan =
+        txType === "Stock In" &&
+        (ref.toUpperCase().startsWith("CH-") ||
+          ref.toUpperCase().startsWith("PI-") ||
+          fromWh.toLowerCase().startsWith("supplier:") ||
+          notes.toLowerCase().includes("procurement chalan"));
+
+      if (isProcurementChalan) {
+        let chalanNo = ref;
+        if (!chalanNo) {
+          const m = notes.match(/Procurement Chalan\s+(\S+)/i);
+          if (m && m[1]) chalanNo = m[1].trim();
+        }
+        if (chalanNo) {
+          const key = chalanNo.toUpperCase();
+          if (!chalanTxGroups.has(key)) chalanTxGroups.set(key, []);
+          chalanTxGroups.get(key)!.push(tx);
+        }
+      }
+
+      const isDebitNoteTx =
+        ref.toUpperCase().startsWith("DN-") ||
+        toWh.toLowerCase().startsWith("supplier return:") ||
+        notes.toLowerCase().startsWith("debit note ");
+      if (isDebitNoteTx) {
+        debitNoteTxs.push(tx);
+      }
+    });
+
+    chalanTxGroups.forEach((txGroup, upperRef) => {
+      if (existingInvoiceNumbers.has(upperRef)) return;
+      const firstTx = txGroup[0];
+      const invoiceNumber = String(firstTx.reference || upperRef).trim();
+      const rawFromWh = String(firstTx.from_warehouse || "").trim();
+      const rawSupName = rawFromWh.toLowerCase().startsWith("supplier:")
+        ? rawFromWh.slice("supplier:".length).trim()
+        : primarySupplier.name;
+      const matchedSup = resolveSupplier(undefined, rawSupName);
+
+      const items: PurchaseInvoiceItem[] = txGroup.map((tx, idx) => {
+        const prod = productById.get(String(tx.product_id || ""));
+        const qty = Math.max(1, Math.round(Number(tx.quantity) || 1));
+        const notesStr = String(tx.notes || "");
+
+        // Extract product name and purchase rate from e.g. "Procurement Chalan CH-2026-97158 - bl 500 (33 pcs @ 20)"
+        let parsedProdName = prod?.name || "Product";
+        let parsedRate = Number(prod?.distributor_price ?? prod?.unit_price ?? 0);
+
+        const detailMatch = notesStr.match(
+          /Procurement Chalan\s+\S+\s+-\s+(.+?)\s+\(\s*[\d,]+\s*pcs\s*@\s*[^0-9]*([\d,]+(?:\.\d+)?)\s*\)/i
+        );
+        if (detailMatch) {
+          if (detailMatch[1] && detailMatch[1].trim()) {
+            parsedProdName = detailMatch[1].trim();
+          }
+          if (detailMatch[2]) {
+            const num = parseFloat(detailMatch[2].replace(/,/g, ""));
+            if (!isNaN(num) && num >= 0) parsedRate = num;
+          }
+        } else {
+          const rateOnlyMatch = notesStr.match(/\(\s*[\d,]+\s*pcs\s*@\s*[^0-9]*([\d,]+(?:\.\d+)?)\s*\)/i);
+          if (rateOnlyMatch && rateOnlyMatch[1]) {
+            const num = parseFloat(rateOnlyMatch[1].replace(/,/g, ""));
+            if (!isNaN(num) && num >= 0) parsedRate = num;
+          }
+        }
+
+        const subtotal = r2(qty * parsedRate);
+        return {
+          id: isValidUuid(tx.id) ? tx.id : generateUuid(),
+          invoice_id: isValidUuid(firstTx.id) ? firstTx.id : `${invoiceNumber}-${idx}`,
+          product_id: String(tx.product_id || ""),
+          product_name: parsedProdName,
+          sku_code: prod?.sku_code || "SKU",
+          quantity: qty,
+          purchase_rate: r2(parsedRate),
+          subtotal,
+        };
+      });
+
+      const totalAmount = r2(items.reduce((s, it) => s + (Number(it.subtotal) || 0), 0));
+      const txDateStr = String(firstTx.transaction_date || firstTx.created_at || new Date().toISOString());
+      const invoiceDate = txDateStr.slice(0, 10);
+      const invoiceId =
+        isValidUuid(firstTx.id) && !existingInvoiceIds.has(String(firstTx.id))
+          ? String(firstTx.id)
+          : generateUuid();
+
+      let customNotes: string | null = null;
+      const remarksMatch = String(firstTx.notes || "").match(/\|\s*Remarks:\s*(.+)$/i);
+      if (remarksMatch && remarksMatch[1]) {
+        customNotes = remarksMatch[1].trim();
+      }
+
+      const reconstructedInvoice: PurchaseInvoice = {
+        id: invoiceId,
+        invoice_number: invoiceNumber,
+        supplier_id: matchedSup.id,
+        supplier_name: matchedSup.name,
+        invoice_date: invoiceDate,
+        warehouse: firstTx.to_warehouse || "Main Warehouse",
+        total_amount: totalAmount,
+        paid_amount: 0,
+        due_amount: totalAmount,
+        status: "Received",
+        notes: customNotes,
+        items,
+        created_at: txDateStr,
+        updated_at: txDateStr,
+        _unsynced: false,
+        is_offline: false,
+      };
+
+      invoiceList.push(reconstructedInvoice);
+      existingInvoiceNumbers.add(upperRef);
+      existingInvoiceIds.add(invoiceId);
+      invoicesChanged = true;
+    });
+
+    // 3. Reconstruct missing Supplier Payments from expenses
+    const expSource =
+      remoteExpenses !== undefined
+        ? remoteExpenses
+        : getLocalData<Expense[]>(STORAGE_KEYS.EXPENSES, []);
+    const deletedExpIds = getDeletedIds(STORAGE_KEYS.DELETED_EXPENSES);
+
+    const existingPaymentRefs = new Set<string>();
+    const existingPaymentIds = new Set<string>();
+    paymentList.forEach((p) => {
+      if (p.id) existingPaymentIds.add(String(p.id));
+      if (p.payment_number) existingPaymentRefs.add(p.payment_number.trim().toUpperCase());
+      if (p.reference_no) existingPaymentRefs.add(p.reference_no.trim().toUpperCase());
+    });
+
+    (Array.isArray(expSource) ? expSource : []).forEach((exp) => {
+      if (!exp || !exp.id || deletedExpIds.has(String(exp.id))) return;
+      if (!isSupplierPaymentExpense(exp)) return;
+
+      const amount = r2(Number(exp.amount) || 0);
+      if (amount <= 0) return;
+
+      const desc = String(exp.description || "").trim();
+      const notes = String(exp.notes || "").trim();
+
+      // Parse e.g. "Supplier Payment - HAMKO Industries Ltd. (PAY-0001)"
+      const voucherMatch = desc.match(/\((PAY-[A-Z0-9-]+|DN-[A-Z0-9-]+)\)/i);
+      const voucherRef = voucherMatch && voucherMatch[1]
+        ? voucherMatch[1].trim().toUpperCase()
+        : `PAY-${String(exp.id).slice(0, 4).toUpperCase()}`;
+
+      if (existingPaymentIds.has(String(exp.id)) || existingPaymentRefs.has(voucherRef)) {
+        return;
+      }
+
+      let rawSupName = primarySupplier.name;
+      const supNameMatch = desc.match(/Supplier Payment\s*-\s*(.+?)\s*\(/i);
+      if (supNameMatch && supNameMatch[1]) {
+        rawSupName = supNameMatch[1].trim();
+      }
+      const matchedSup = resolveSupplier(undefined, rawSupName);
+
+      let paymentMode = "Cash";
+      const modeMatch = notes.match(/\(Mode:\s*([^)]+)\)/i) || notes.match(/Payment via\s+([^\s[-]+(?:\s+Transfer)?)/i);
+      if (modeMatch && modeMatch[1]) {
+        const mStr = modeMatch[1].trim().toLowerCase();
+        if (mStr.includes("bank")) paymentMode = "Bank Transfer";
+        else if (mStr.includes("cheque") || mStr.includes("check")) paymentMode = "Cheque";
+        else if (mStr.includes("mfs") || mStr.includes("bkash") || mStr.includes("nagad")) paymentMode = "MFS/Bkash";
+        else paymentMode = "Cash";
+      }
+
+      const chqMatch = notes.match(/\[Chq:\s*([^\]]+)\]/i);
+      const bankMatch = notes.match(/\[Bank:\s*([^\]]+)\]/i);
+      const txnMatch = notes.match(/\[Txn:\s*([^\]]+)\]/i);
+      const invMatch = notes.match(/\[Inv:\s*([^\]]+)\]/i);
+
+      const cleanNotes = notes
+        .replace(/\s*\(Mode:[^)]+\)/gi, "")
+        .replace(/\s*\[(Chq|Bank|Txn|Inv):[^\]]+\]/gi, "")
+        .trim() || null;
+
+      const payId = isValidUuid(exp.id) ? exp.id : generateUuid();
+      const isDn = voucherRef.startsWith("DN-");
+      const reconstructedPayment: SupplierPayment = {
+        id: payId,
+        payment_number: voucherRef,
+        reference_no: voucherRef,
+        supplier_id: matchedSup.id,
+        supplier_name: matchedSup.name,
+        amount,
+        payment_mode: paymentMode,
+        payment_type: isDn ? "Debit Note" : "Payment",
+        bank_name: bankMatch ? bankMatch[1].trim() : null,
+        cheque_no: chqMatch ? chqMatch[1].trim() : null,
+        transaction_id: txnMatch ? txnMatch[1].trim() : null,
+        invoice_id: invMatch ? invMatch[1].trim() : undefined,
+        chalan_id: invMatch ? invMatch[1].trim() : undefined,
+        payment_date: exp.expense_date || (exp.created_at ? exp.created_at.slice(0, 10) : new Date().toISOString().slice(0, 10)),
+        notes: cleanNotes,
+        created_at: exp.created_at || new Date().toISOString(),
+        _unsynced: false,
+        is_offline: false,
+      };
+
+      paymentList.push(reconstructedPayment);
+      existingPaymentIds.add(payId);
+      existingPaymentRefs.add(voucherRef);
+      paymentsChanged = true;
+    });
+
+    // 4. Reconstruct missing Debit Notes from stock_transactions
+    debitNoteTxs.forEach((tx) => {
+      const ref = String(tx.reference || "").trim().toUpperCase();
+      if (!ref || existingPaymentRefs.has(ref) || existingPaymentIds.has(String(tx.id))) return;
+
+      const notes = String(tx.notes || "");
+      const amtMatch = notes.match(/Amount:\s*([\d,]+(?:\.\d+)?)/i);
+      const amount = amtMatch && amtMatch[1]
+        ? r2(parseFloat(amtMatch[1].replace(/,/g, "")) || 0)
+        : 0;
+      if (amount <= 0) return;
+
+      const toWh = String(tx.to_warehouse || "").trim();
+      const rawSupName = toWh.toLowerCase().startsWith("supplier return:")
+        ? toWh.slice("supplier return:".length).trim()
+        : primarySupplier.name;
+      const matchedSup = resolveSupplier(undefined, rawSupName);
+      const txDateStr = String(tx.transaction_date || tx.created_at || new Date().toISOString());
+      const payId = isValidUuid(tx.id) ? String(tx.id) : generateUuid();
+
+      const cleanNotes = notes
+        .replace(/^Debit Note\s+\S+\s*-\s*Amount:\s*[\d,]+(?:\.\d+)?\s*(?:-\s*)?/i, "")
+        .trim() || "Purchase Return / Debit Note";
+
+      const reconstructedDn: SupplierPayment = {
+        id: payId,
+        payment_number: ref,
+        reference_no: ref,
+        supplier_id: matchedSup.id,
+        supplier_name: matchedSup.name,
+        amount,
+        payment_mode: "Cash",
+        payment_type: "Debit Note",
+        payment_date: txDateStr.slice(0, 10),
+        reason: cleanNotes,
+        notes: cleanNotes,
+        created_at: txDateStr,
+        _unsynced: false,
+        is_offline: false,
+      };
+
+      paymentList.push(reconstructedDn);
+      existingPaymentIds.add(payId);
+      existingPaymentRefs.add(ref);
+      paymentsChanged = true;
+    });
+
+    if (paymentsChanged) {
+      paymentList.sort(
+        (a, b) =>
+          new Date(b.payment_date || b.created_at || 0).getTime() -
+          new Date(a.payment_date || a.created_at || 0).getTime()
+      );
+      setLocalData(STORAGE_KEYS.SUPPLIER_PAYMENTS, paymentList, null, true);
+    }
+
+    if (invoicesChanged || paymentsChanged) {
+      invoiceList.sort(
+        (a, b) =>
+          new Date(b.invoice_date || b.created_at || 0).getTime() -
+          new Date(a.invoice_date || a.created_at || 0).getTime()
+      );
+      const allocatedInvoices = calculateInvoicesWithPayments(invoiceList, paymentList);
+      setLocalData(STORAGE_KEYS.PURCHASE_INVOICES, allocatedInvoices, null, true);
+
+      const recalculatedSuppliers = suppliers.map((sup) => {
+        const supInvoices = allocatedInvoices.filter((i) => matchesSupplierRecord(i, sup, suppliers.length));
+        const supPayments = paymentList.filter((p) => matchesSupplierRecord(p, sup, suppliers.length));
+        const opening = Number(sup.opening_balance || 0);
+        const totalPurchased = supInvoices.reduce((s, i) => s + (Number(i.total_amount) || 0), 0);
+        const totalPaid = supPayments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+        const netPayable = r2(Math.max(0, opening + totalPurchased - totalPaid));
+        return {
+          ...sup,
+          current_payable: netPayable,
+        };
+      });
+      setLocalData(STORAGE_KEYS.SUPPLIERS, recalculatedSuppliers, null, true);
+    }
+  } catch (err) {
+    console.warn("[Procurement] Cloud reconstruction notice:", err);
+  }
 }
 
 /**
@@ -4686,11 +5360,15 @@ export function calculateInvoicesWithPayments(
 ): PurchaseInvoice[] {
   if (!Array.isArray(invoices) || invoices.length === 0) return [];
   const safePayments = Array.isArray(payments) ? payments : [];
+  const suppliers = getSuppliers();
+  const primarySupplier = suppliers[0] || DEFAULT_SUPPLIERS[0];
 
-  // Group invoices by supplier
+  // Group invoices by canonical supplier ID
   const supplierGroups = new Map<string, PurchaseInvoice[]>();
   invoices.forEach((inv) => {
-    const sId = inv.supplier_id || "default";
+    const matchedSup =
+      suppliers.find((s) => matchesSupplierRecord(inv, s, suppliers.length)) || primarySupplier;
+    const sId = matchedSup?.id || inv.supplier_id || "default";
     if (!supplierGroups.has(sId)) supplierGroups.set(sId, []);
     supplierGroups.get(sId)!.push(inv);
   });
@@ -4698,8 +5376,12 @@ export function calculateInvoicesWithPayments(
   const updatedInvoiceMap = new Map<string, PurchaseInvoice>();
 
   supplierGroups.forEach((supInvoices, supplierId) => {
+    const targetSupplier = suppliers.find((s) => s.id === supplierId) || primarySupplier;
     const supPayments = safePayments.filter(
-      (p) => p && p.supplier_id === supplierId && Number(p.amount) > 0
+      (p) =>
+        p &&
+        Number(p.amount) > 0 &&
+        (p.supplier_id === supplierId || matchesSupplierRecord(p, targetSupplier, suppliers.length))
     );
 
     // Track allocated paid amounts per invoice ID
@@ -4929,18 +5611,46 @@ export function saveSupplier(supplierData: Partial<Supplier> & { name: string })
   const suppliers = getSuppliers();
   const now = new Date().toISOString();
   let savedSupplier: Supplier;
-  const isUpdate = Boolean(supplierData.id);
+  const existing = supplierData.id ? suppliers.find((s) => s.id === supplierData.id) : undefined;
+  const isUpdate = Boolean(existing);
 
-  if (supplierData.id) {
+  if (supplierData.id && existing) {
+    const resolvedId = isValidUuid(supplierData.id) ? supplierData.id : generateUuid();
     savedSupplier = {
-      ...suppliers.find((s) => s.id === supplierData.id)!,
+      ...existing,
       ...supplierData,
+      id: resolvedId,
+      name: supplierData.name ? supplierData.name.trim() : existing.name,
+      company_name:
+        supplierData.company_name !== undefined
+          ? supplierData.company_name?.trim() || null
+          : existing.company_name || null,
+      phone:
+        supplierData.phone !== undefined
+          ? supplierData.phone?.trim() || null
+          : existing.phone || null,
+      email:
+        supplierData.email !== undefined
+          ? supplierData.email?.trim() || null
+          : existing.email || null,
+      address:
+        supplierData.address !== undefined
+          ? supplierData.address?.trim() || null
+          : existing.address || null,
+      contact_person:
+        supplierData.contact_person !== undefined
+          ? supplierData.contact_person?.trim() || null
+          : existing.contact_person || null,
+      notes:
+        supplierData.notes !== undefined
+          ? supplierData.notes?.trim() || null
+          : existing.notes || null,
       updated_at: now,
     };
-    const updated = suppliers.map((s) => (s.id === savedSupplier.id ? savedSupplier : s));
+    const updated = suppliers.map((s) => (s.id === supplierData.id ? savedSupplier : s));
     setLocalData(STORAGE_KEYS.SUPPLIERS, updated);
   } else {
-    const newId = crypto.randomUUID ? crypto.randomUUID() : `sup-${Date.now()}`;
+    const newId = isValidUuid(supplierData.id) ? supplierData.id! : generateUuid();
     savedSupplier = {
       id: newId,
       name: supplierData.name.trim(),
@@ -4974,12 +5684,19 @@ export function saveSupplier(supplierData: Partial<Supplier> & { name: string })
 
   dispatchGlobalStateUpdate({ type: "supplier_updated", supplierId: savedSupplier.id });
 
-  // Background Cloud Sync to Supabase SSOT
+  // Background Cloud Sync to Supabase SSOT (sanitized to prevent PGRST204 on non-schema columns like company_name/current_payable/notes)
   try {
-    supabase
-      .from("suppliers")
-      .upsert(savedSupplier)
-      .then(undefined, (err) => console.warn("Supabase supplier upsert notice:", err));
+    const cleanSupplier = sanitizeSupplierPayload(savedSupplier, !isUpdate);
+    executeWithSchemaResilience("suppliers", cleanSupplier, (p) =>
+      supabase.from("suppliers").upsert(p)
+    ).then(
+      ({ error }) => {
+        if (error) {
+          console.warn("Supabase supplier upsert notice:", error.message);
+        }
+      },
+      (err) => console.warn("Supabase supplier upsert notice:", err)
+    );
   } catch (err) {
     console.warn("Supabase supplier sync error:", err);
   }
@@ -4999,7 +5716,7 @@ export function savePurchaseInvoice(
 ): PurchaseInvoice {
   const invoices = getLocalData<PurchaseInvoice[]>(STORAGE_KEYS.PURCHASE_INVOICES, []);
   const now = new Date().toISOString();
-  const invoiceId = invoiceData.id || (crypto.randomUUID ? crypto.randomUUID() : `pi-${Date.now()}`);
+  const invoiceId = isValidUuid(invoiceData.id) ? invoiceData.id! : generateUuid();
   const invoiceNumber = invoiceData.invoice_number?.trim() || generatePurchaseInvoiceNumber(invoices);
 
   // Idempotency guard: prevent duplicate purchase invoice entries and double stock increments
@@ -5046,7 +5763,7 @@ export function savePurchaseInvoice(
       adjustProductStock(item.product_id, qty, whName);
 
       newTransactions.push({
-        id: `stx-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        id: generateUuid(),
         product_id: item.product_id,
         transaction_type: "Stock In",
         quantity: qty,
@@ -5066,17 +5783,7 @@ export function savePurchaseInvoice(
 
     // Background sync stock transactions to Supabase
     try {
-      const dbTxPayload = newTransactions.map((tx: any) => ({
-        id: tx.id,
-        product_id: tx.product_id,
-        transaction_type: tx.transaction_type,
-        quantity: tx.quantity,
-        from_warehouse: tx.from_warehouse,
-        to_warehouse: tx.to_warehouse,
-        reference: tx.reference,
-        notes: tx.notes,
-        transaction_date: tx.transaction_date,
-      }));
+      const dbTxPayload = newTransactions.map((tx: any) => sanitizeStockTxPayload(tx, true));
       supabase
         .from("stock_transactions")
         .insert(dbTxPayload)
@@ -5114,9 +5821,9 @@ export function savePurchaseInvoice(
     setLocalData(STORAGE_KEYS.SUPPLIERS, suppliers);
   }
 
-  // If immediate payment was made with invoice, record supplier payment as well
+  // If immediate payment was made with invoice, record supplier payment in localStorage AND Supabase
   if (paidAmount > 0) {
-    const paymentId = crypto.randomUUID ? crypto.randomUUID() : `spay-${Date.now()}`;
+    const paymentId = generateUuid();
     const nextPayNum = getNextSupplierPaymentNumber();
     const paymentRecord: SupplierPayment = {
       id: paymentId,
@@ -5138,6 +5845,28 @@ export function savePurchaseInvoice(
     const payments = getSupplierPayments();
     setLocalData(STORAGE_KEYS.SUPPLIER_PAYMENTS, [paymentRecord, ...payments]);
     recordSupplierPaymentExpense(paymentRecord);
+
+    try {
+      const cleanUpfrontPay = sanitizeSupplierPaymentPayload(paymentRecord, true);
+      executeWithSchemaResilience("supplier_payments", cleanUpfrontPay, (p) =>
+        supabase.from("supplier_payments").upsert(p)
+      ).then(
+        ({ error }) => {
+          if (!error) {
+            const currentPays = getLocalData<SupplierPayment[]>(STORAGE_KEYS.SUPPLIER_PAYMENTS, []);
+            const updatedPays = currentPays.map((p) =>
+              p.id === paymentRecord.id ? { ...p, _unsynced: false, is_offline: false } : p
+            );
+            setLocalData(STORAGE_KEYS.SUPPLIER_PAYMENTS, updatedPays, null, true);
+          } else {
+            console.warn("Supabase upfront supplier_payments insert notice:", error.message);
+          }
+        },
+        (err) => console.warn("Supabase upfront supplier_payments insert notice:", err)
+      );
+    } catch (err) {
+      console.warn("Supabase upfront supplier payment sync error:", err);
+    }
   }
 
   // Audit Log
@@ -5161,37 +5890,21 @@ export function savePurchaseInvoice(
 
   // Background Cloud Sync to Supabase SSOT
   try {
-    const payload = {
-      id: newInvoice.id,
-      invoice_number: newInvoice.invoice_number,
-      supplier_id: newInvoice.supplier_id,
-      supplier_name: newInvoice.supplier_name,
-      invoice_date: newInvoice.invoice_date,
-      warehouse: (newInvoice as any).warehouse || "Main Warehouse",
-      total_amount: newInvoice.total_amount,
-      paid_amount: newInvoice.paid_amount,
-      due_amount: newInvoice.due_amount,
-      status: newInvoice.status,
-      notes: newInvoice.notes,
-      items: newInvoice.items,
-      created_at: newInvoice.created_at,
-      updated_at: newInvoice.updated_at,
-    };
-    supabase
-      .from("purchase_invoices")
-      .upsert(payload)
-      .then(
-        ({ error }) => {
-          if (!error) {
-            const current = getLocalData<PurchaseInvoice[]>(STORAGE_KEYS.PURCHASE_INVOICES, []);
-            const updated = current.map((i) => i.id === newInvoice.id ? { ...i, _unsynced: false, is_offline: false } : i);
-            setLocalData(STORAGE_KEYS.PURCHASE_INVOICES, updated, null, true);
-          } else {
-            console.warn("Supabase purchase_invoices upsert notice:", error.message);
-          }
-        },
-        (err) => console.warn("Supabase purchase_invoices upsert notice:", err)
-      );
+    const cleanInvoice = sanitizePurchaseInvoicePayload(newInvoice, true);
+    executeWithSchemaResilience("purchase_invoices", cleanInvoice, (p) =>
+      supabase.from("purchase_invoices").upsert(p)
+    ).then(
+      ({ error }) => {
+        if (!error) {
+          const current = getLocalData<PurchaseInvoice[]>(STORAGE_KEYS.PURCHASE_INVOICES, []);
+          const updated = current.map((i) => i.id === newInvoice.id ? { ...i, _unsynced: false, is_offline: false } : i);
+          setLocalData(STORAGE_KEYS.PURCHASE_INVOICES, updated, null, true);
+        } else {
+          console.warn("Supabase purchase_invoices upsert notice:", error.message);
+        }
+      },
+      (err) => console.warn("Supabase purchase_invoices upsert notice:", err)
+    );
   } catch (err) {
     console.warn("Supabase purchase invoice sync error:", err);
   }
@@ -5213,15 +5926,25 @@ export function recordSupplierPaymentExpense(payment: SupplierPayment): Expense 
   const amount = r2(Number(payment.amount) || 0);
   if (amount <= 0) return null;
 
-  const expenseId = `exp-spay-${payment.id}`;
+  const legacyExpenseId = `exp-spay-${payment.id}`;
   const now = new Date().toISOString();
   const dateVal = payment.payment_date || (payment.created_at ? payment.created_at.slice(0, 10) : now.slice(0, 10));
   const voucherRef = payment.payment_number || payment.reference_no || `PAY-${String(payment.id).slice(0, 6)}`;
   const supplierName = payment.supplier_name || "Supplier";
   const desc = `Supplier Payment - ${supplierName} (${voucherRef})`;
+  const metaSuffix = `${payment.bank_name ? ` [Bank: ${payment.bank_name}]` : ""}${payment.cheque_no ? ` [Chq: ${payment.cheque_no}]` : ""}${payment.transaction_id ? ` [Txn: ${payment.transaction_id}]` : ""}${payment.invoice_id ? ` [Inv: ${payment.invoice_id}]` : ""}`;
   const notes = payment.notes
-    ? `${payment.notes} (Mode: ${payment.payment_mode || "Cash"})`
-    : `Payment via ${payment.payment_mode || "Cash"}${payment.bank_name ? ` - ${payment.bank_name}` : ""}${payment.cheque_no ? ` [Chq: ${payment.cheque_no}]` : ""}`;
+    ? `${payment.notes} (Mode: ${payment.payment_mode || "Cash"})${metaSuffix}`
+    : `Payment via ${payment.payment_mode || "Cash"} (Mode: ${payment.payment_mode || "Cash"})${metaSuffix}`;
+
+  const existingExpenses = getExpenses();
+  const existingMatch = existingExpenses.find(
+    (e) =>
+      e.id === legacyExpenseId ||
+      e.description === desc ||
+      (e.category === "Supplier Payment" && voucherRef && e.description?.includes(voucherRef))
+  );
+  const expenseId = existingMatch && isValidUuid(existingMatch.id) ? existingMatch.id : generateUuid();
 
   const expenseRecord: Expense = {
     id: expenseId,
@@ -5234,30 +5957,21 @@ export function recordSupplierPaymentExpense(payment: SupplierPayment): Expense 
     created_at: payment.created_at || now,
   };
 
-  const existingExpenses = getExpenses();
   const filtered = existingExpenses.filter(
-    (e) => e.id !== expenseId && e.description !== desc
+    (e) =>
+      e.id !== expenseId &&
+      e.id !== legacyExpenseId &&
+      e.description !== desc
   );
   const updatedExpenses = [expenseRecord, ...filtered];
   setLocalData(STORAGE_KEYS.EXPENSES, updatedExpenses);
 
-  // Background persistence to Supabase
+  // Background persistence to Supabase using sanitized UUID payload
   try {
-    supabase
-      .from("expenses")
-      .upsert(
-        {
-          id: expenseId,
-          category: expenseRecord.category,
-          description: expenseRecord.description,
-          amount: expenseRecord.amount,
-          expense_date: expenseRecord.expense_date,
-          notes: expenseRecord.notes,
-          created_at: expenseRecord.created_at,
-        },
-        { onConflict: "id" }
-      )
-      .then(undefined, (err) => console.warn("Notice syncing supplier payment expense to Supabase:", err));
+    const cleanExp = sanitizeExpensePayload(expenseRecord, true);
+    executeWithSchemaResilience("expenses", cleanExp, (p) =>
+      supabase.from("expenses").upsert(p, { onConflict: "id" })
+    ).then(undefined, (err) => console.warn("Notice syncing supplier payment expense to Supabase:", err));
   } catch (err) {
     console.warn("Notice: Exception syncing supplier payment expense to Supabase:", err);
   }
@@ -5309,50 +6023,69 @@ export function syncSupplierPaymentsToExpenses(currentExpenses?: Expense[]): Exp
     const amount = r2(Number(sp.amount) || 0);
     if (amount <= 0) return;
 
-    const expId = `exp-spay-${sp.id}`;
-    if (deletedExpIds.has(expId)) return;
+    const legacyExpId = `exp-spay-${sp.id}`;
+    if (deletedExpIds.has(legacyExpId)) return;
 
     const voucherRef = sp.payment_number || sp.reference_no || `PAY-${String(sp.id).slice(0, 6)}`;
     const supplierName = sp.supplier_name || "Supplier";
     const expectedDesc = `Supplier Payment - ${supplierName} (${voucherRef})`;
 
-    // Check if already in expMap by expId or by voucher reference in description
-    const alreadyExists = expMap.has(expId) || Array.from(expMap.values()).some((e) =>
-      e.id === expId || (e.category === "Supplier Payment" && e.description && e.description.includes(voucherRef))
+    // Check if already in expMap by legacyExpId or by voucher reference in description
+    const existingEntry = Array.from(expMap.values()).find(
+      (e) =>
+        e.id === legacyExpId ||
+        (e.category === "Supplier Payment" && e.description && e.description.includes(voucherRef))
     );
 
-    if (!alreadyExists) {
-      const now = new Date().toISOString();
-      const newExp: Expense = {
-        id: expId,
-        category: "Supplier Payment",
-        description: expectedDesc,
-        amount: amount,
-        expense_date: sp.payment_date || (sp.created_at ? sp.created_at.slice(0, 10) : now.slice(0, 10)),
-        recorded_by: "Admin",
-        notes: sp.notes || `Supplier payment via ${sp.payment_mode || "Cash"}`,
-        created_at: sp.created_at || now,
-      };
-      expMap.set(expId, newExp);
-      hasChanges = true;
-
-      // Sync to Supabase
-      try {
-        supabase
-          .from("expenses")
-          .upsert({
-            id: newExp.id,
-            category: newExp.category,
-            description: newExp.description,
-            amount: newExp.amount,
-            expense_date: newExp.expense_date,
-            notes: newExp.notes,
-            created_at: newExp.created_at,
-          })
-          .then(undefined, (err) => console.warn("Supabase expense sync notice:", err));
-      } catch (err) {
-        console.warn("Expense sync exception:", err);
+    if (existingEntry) {
+      if (deletedExpIds.has(existingEntry.id)) return;
+      // Upgrade legacy non-UUID expense IDs in-place so future syncs succeed
+      if (!isValidUuid(existingEntry.id)) {
+        const upgradedId = generateUuid();
+        const upgradedExp: Expense = {
+          ...existingEntry,
+          id: upgradedId,
+        };
+        expMap.delete(existingEntry.id);
+        expMap.set(upgradedId, upgradedExp);
+        hasChanges = true;
+        try {
+          const cleanExp = sanitizeExpensePayload(upgradedExp, true);
+          supabase
+            .from("expenses")
+            .upsert(cleanExp, { onConflict: "id" })
+            .then(undefined, (err) => console.warn("Supabase expense upgrade sync notice:", err));
+        } catch (err) {
+          console.warn("Expense upgrade sync exception:", err);
+        }
       }
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const newExpId = generateUuid();
+    const newExp: Expense = {
+      id: newExpId,
+      category: "Supplier Payment",
+      description: expectedDesc,
+      amount: amount,
+      expense_date: sp.payment_date || (sp.created_at ? sp.created_at.slice(0, 10) : now.slice(0, 10)),
+      recorded_by: "Admin",
+      notes: sp.notes || `Supplier payment via ${sp.payment_mode || "Cash"}`,
+      created_at: sp.created_at || now,
+    };
+    expMap.set(newExpId, newExp);
+    hasChanges = true;
+
+    // Sync to Supabase
+    try {
+      const cleanExp = sanitizeExpensePayload(newExp, true);
+      supabase
+        .from("expenses")
+        .upsert(cleanExp, { onConflict: "id" })
+        .then(undefined, (err) => console.warn("Supabase expense sync notice:", err));
+    } catch (err) {
+      console.warn("Expense sync exception:", err);
     }
   });
 
@@ -5380,7 +6113,7 @@ export function saveSupplierPayment(
 ): SupplierPayment {
   const payments = getSupplierPayments();
   const now = new Date().toISOString();
-  const paymentId = paymentData.id || (crypto.randomUUID ? crypto.randomUUID() : `spay-${Date.now()}`);
+  const paymentId = isValidUuid(paymentData.id) ? paymentData.id! : generateUuid();
   const amount = r2(Number(paymentData.amount) || 0);
 
   const isDebitNote =
@@ -5445,6 +6178,22 @@ export function saveSupplierPayment(
   if (Array.isArray(rawInvoices) && rawInvoices.length > 0) {
     const updatedInvoices = calculateInvoicesWithPayments(rawInvoices, allPayments);
     setLocalData(STORAGE_KEYS.PURCHASE_INVOICES, updatedInvoices);
+
+    // Sync any purchase invoices whose paid/due/status changed to Supabase
+    updatedInvoices.forEach((inv) => {
+      const prev = rawInvoices.find((r) => r.id === inv.id);
+      if (
+        isValidUuid(inv.id) &&
+        (!prev || prev.paid_amount !== inv.paid_amount || prev.due_amount !== inv.due_amount || prev.status !== inv.status)
+      ) {
+        const cleanInv = sanitizePurchaseInvoicePayload(inv, false);
+        supabase
+          .from("purchase_invoices")
+          .update(cleanInv)
+          .eq("id", inv.id)
+          .then(undefined, () => {});
+      }
+    });
   }
 
   // Audit Log
@@ -5476,21 +6225,21 @@ export function saveSupplierPayment(
 
   // Background Cloud Sync to Supabase SSOT
   try {
-    supabase
-      .from("supplier_payments")
-      .upsert(newPayment)
-      .then(
-        ({ error }) => {
-          if (!error) {
-            const current = getLocalData<SupplierPayment[]>(STORAGE_KEYS.SUPPLIER_PAYMENTS, []);
-            const updated = current.map((p) => p.id === newPayment.id ? { ...p, _unsynced: false, is_offline: false } : p);
-            setLocalData(STORAGE_KEYS.SUPPLIER_PAYMENTS, updated, null, true);
-          } else {
-            console.warn("Supabase supplier_payments upsert notice:", error.message);
-          }
-        },
-        (err) => console.warn("Supabase supplier payment sync error:", err)
-      );
+    const cleanPayment = sanitizeSupplierPaymentPayload(newPayment, true);
+    executeWithSchemaResilience("supplier_payments", cleanPayment, (p) =>
+      supabase.from("supplier_payments").upsert(p)
+    ).then(
+      ({ error }) => {
+        if (!error) {
+          const current = getLocalData<SupplierPayment[]>(STORAGE_KEYS.SUPPLIER_PAYMENTS, []);
+          const updated = current.map((p) => p.id === newPayment.id ? { ...p, _unsynced: false, is_offline: false } : p);
+          setLocalData(STORAGE_KEYS.SUPPLIER_PAYMENTS, updated, null, true);
+        } else {
+          console.warn("Supabase supplier_payments upsert notice:", error.message);
+        }
+      },
+      (err) => console.warn("Supabase supplier payment sync error:", err)
+    );
   } catch (err) {
     console.warn("Supabase supplier payment sync error:", err);
   }
@@ -5505,6 +6254,7 @@ export function saveSupplierPayment(
  * 3. Auto-allocates to invoices and updates global state.
  */
 export function saveSupplierDebitNote(data: {
+  id?: string;
   supplier_id: string;
   supplier_name: string;
   amount: number;
@@ -5519,6 +6269,7 @@ export function saveSupplierDebitNote(data: {
   const now = new Date().toISOString();
 
   const debitNotePayment = saveSupplierPayment({
+    id: data.id && isValidUuid(data.id) ? data.id : generateUuid(),
     payment_number: dnNumber,
     supplier_id: data.supplier_id,
     supplier_name: data.supplier_name,
@@ -5531,6 +6282,37 @@ export function saveSupplierDebitNote(data: {
     notes: data.notes || data.reason || "Purchase Return / Debit Note",
     invoice_id: data.invoice_id,
   });
+
+  // Also mirror Debit Note as a Stock Out return transaction so it syncs across devices via stock_transactions
+  try {
+    const prods = getProducts();
+    const fallbackProdId = prods[0]?.id;
+    if (fallbackProdId && isValidUuid(fallbackProdId)) {
+      const dnTx = {
+        id: isValidUuid(debitNotePayment.id) ? debitNotePayment.id : generateUuid(),
+        product_id: fallbackProdId,
+        transaction_type: "Stock Out",
+        quantity: 1,
+        from_warehouse: "Main Warehouse",
+        to_warehouse: `Supplier Return: ${data.supplier_name}`,
+        reference: dnNumber,
+        notes: `Debit Note ${dnNumber} - Amount: ${data.amount} - ${data.notes || data.reason || "Purchase Return"}`,
+        transaction_date: data.payment_date || now,
+        created_at: now,
+      };
+      const existingTx = getLocalData<any[]>(STORAGE_KEYS.TRANSACTIONS, []);
+      if (!existingTx.some((t) => t && (t.id === dnTx.id || t.reference === dnNumber))) {
+        setLocalData(STORAGE_KEYS.TRANSACTIONS, [dnTx, ...existingTx], null, true);
+      }
+      const cleanDnTx = sanitizeStockTxPayload(dnTx, true);
+      supabase
+        .from("stock_transactions")
+        .upsert(cleanDnTx)
+        .then(undefined, () => {});
+    }
+  } catch {
+    // Non-critical
+  }
 
   return debitNotePayment;
 }
@@ -5546,9 +6328,25 @@ export function recalculateSupplierBalances(): void {
   const updatedInvoices = calculateInvoicesWithPayments(rawInvoices, payments);
   setLocalData(STORAGE_KEYS.PURCHASE_INVOICES, updatedInvoices);
 
+  // Sync any recalculated purchase invoice paid/due/status changes to Supabase
+  updatedInvoices.forEach((inv) => {
+    const prev = rawInvoices.find((r) => r.id === inv.id);
+    if (
+      isValidUuid(inv.id) &&
+      (!prev || prev.paid_amount !== inv.paid_amount || prev.due_amount !== inv.due_amount || prev.status !== inv.status)
+    ) {
+      const cleanInv = sanitizePurchaseInvoicePayload(inv, false);
+      supabase
+        .from("purchase_invoices")
+        .update(cleanInv)
+        .eq("id", inv.id)
+        .then(undefined, () => {});
+    }
+  });
+
   const recalculatedSuppliers = suppliers.map((sup) => {
-    const supInvoices = updatedInvoices.filter((i) => i.supplier_id === sup.id);
-    const supPayments = payments.filter((p) => p.supplier_id === sup.id);
+    const supInvoices = updatedInvoices.filter((i) => matchesSupplierRecord(i, sup, suppliers.length));
+    const supPayments = payments.filter((p) => matchesSupplierRecord(p, sup, suppliers.length));
     const opening = Number(sup.opening_balance || 0);
     const totalPurchased = supInvoices.reduce((s, i) => s + (Number(i.total_amount) || 0), 0);
     const totalPaid = supPayments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
@@ -5584,14 +6382,14 @@ export function calculateSupplierPayablesUpToDate(asOfDate?: string): {
     const opening = Number(sup.opening_balance || 0);
 
     const supInvoices = (Array.isArray(allInvoices) ? allInvoices : []).filter((inv) => {
-      if (inv.supplier_id !== sup.id) return false;
+      if (!matchesSupplierRecord(inv, sup, suppliers.length)) return false;
       if (!targetDate) return true;
       const d = (inv.invoice_date || inv.created_at || "").slice(0, 10);
       return !d || d <= targetDate;
     });
 
     const supPayments = (Array.isArray(allPayments) ? allPayments : []).filter((pay) => {
-      if (pay.supplier_id !== sup.id) return false;
+      if (!matchesSupplierRecord(pay, sup, suppliers.length)) return false;
       if (!targetDate) return true;
       const d = (pay.payment_date || pay.created_at || "").slice(0, 10);
       return !d || d <= targetDate;
@@ -5609,7 +6407,7 @@ export function calculateSupplierPayablesUpToDate(asOfDate?: string): {
 }
 
 /**
- * Updates an existing Purchase Chalan (Invoice) and recalculates running balances.
+ * Updates an existing Purchase Chalan (Invoice), syncs to Supabase, and recalculates running balances.
  */
 export function updatePurchaseInvoice(
   invoiceId: string,
@@ -5650,23 +6448,101 @@ export function updatePurchaseInvoice(
   // Recalculate allocations and balances
   recalculateSupplierBalances();
 
+  // Retrieve final recalculated invoice with updated paid_amount, due_amount, and status
+  const latestInvoices = getLocalData<PurchaseInvoice[]>(STORAGE_KEYS.PURCHASE_INVOICES, []);
+  const finalInvoice = latestInvoices.find((i) => i.id === invoiceId) || updated;
+
+  // Also synchronize any mirrored stock_transactions rows for this chalan
+  try {
+    const oldRef = String(existing.invoice_number || "").trim();
+    const newRef = String(finalInvoice.invoice_number || oldRef).trim();
+    if (oldRef) {
+      const currentTxs = getLocalData<any[]>(STORAGE_KEYS.TRANSACTIONS, []);
+      let txChanged = false;
+      const updatedTxs = currentTxs.map((tx) => {
+        if (tx && String(tx.reference || "").trim().toUpperCase() === oldRef.toUpperCase()) {
+          txChanged = true;
+          const qty = Math.max(1, Number(tx.quantity) || 1);
+          const newRate =
+            existing.total_amount !== finalInvoice.total_amount && (finalInvoice.items?.length || 1) === 1
+              ? r2(finalInvoice.total_amount / qty)
+              : undefined;
+          let nextNotes = String(tx.notes || "").replace(oldRef, newRef);
+          if (newRate !== undefined) {
+            nextNotes = nextNotes.replace(
+              /\(\s*[\d,]+\s*pcs\s*@\s*[^)]+\)/i,
+              `(${qty} pcs @ ${formatCurrency(newRate)})`
+            );
+          }
+          const nextTx = {
+            ...tx,
+            reference: newRef,
+            transaction_date: finalInvoice.invoice_date || tx.transaction_date,
+            notes: nextNotes,
+          };
+          if (isValidUuid(nextTx.id)) {
+            supabase
+              .from("stock_transactions")
+              .update({
+                reference: nextTx.reference,
+                transaction_date: nextTx.transaction_date,
+                notes: nextTx.notes,
+              })
+              .eq("id", nextTx.id)
+              .then(undefined, () => {});
+          }
+          return nextTx;
+        }
+        return tx;
+      });
+      if (txChanged) {
+        setLocalData(STORAGE_KEYS.TRANSACTIONS, updatedTxs, null, true);
+      }
+    }
+  } catch {
+    // Non-critical
+  }
+
+  // Direct Supabase update on purchase_invoices table
+  try {
+    const cleanInvoice = sanitizePurchaseInvoicePayload(finalInvoice, false);
+    if (isValidUuid(invoiceId)) {
+      executeWithSchemaResilience("purchase_invoices", cleanInvoice, (p) =>
+        supabase.from("purchase_invoices").update(p).eq("id", invoiceId)
+      ).then(
+        ({ error }) => {
+          if (error) {
+            console.warn("Supabase purchase_invoices update notice:", error.message);
+          }
+        },
+        (err) => console.warn("Supabase purchase_invoices update notice:", err)
+      );
+    } else if (finalInvoice.invoice_number) {
+      executeWithSchemaResilience("purchase_invoices", cleanInvoice, (p) =>
+        supabase.from("purchase_invoices").update(p).eq("invoice_number", finalInvoice.invoice_number)
+      ).then(undefined, () => {});
+    }
+  } catch (err) {
+    console.warn("Supabase purchase_invoices update error:", err);
+  }
+
   logProcurementAudit({
     action: "UPDATE_INVOICE",
     entity_type: "Invoice",
-    entity_id: updated.id,
-    reference: updated.invoice_number,
-    supplier_name: updated.supplier_name,
+    entity_id: finalInvoice.id,
+    reference: finalInvoice.invoice_number,
+    supplier_name: finalInvoice.supplier_name,
     user: "Admin",
-    details: `Updated Purchase Chalan ${updated.invoice_number} (New Total: ৳${updated.total_amount}).`,
-    amount: updated.total_amount,
+    details: `Updated Purchase Chalan ${finalInvoice.invoice_number} (New Total: ৳${finalInvoice.total_amount}).`,
+    amount: finalInvoice.total_amount,
   });
 
   dispatchGlobalStateUpdate({ type: "purchase_invoice_updated", invoiceId });
-  return updated;
+  return finalInvoice;
 }
 
 /**
- * Deletes a Purchase Chalan (Invoice), reverts inventory stock, purges linked cash book expenses, and recalculates running balances.
+ * Deletes a Purchase Chalan (Invoice) from localStorage and Supabase, reverts inventory stock, purges linked cash book expenses, and recalculates running balances.
  */
 export function deletePurchaseInvoice(invoiceId: string): boolean {
   const purchaseId = invoiceId;
@@ -5674,9 +6550,47 @@ export function deletePurchaseInvoice(invoiceId: string): boolean {
   const invoice = invoices.find((i) => i.id === invoiceId);
   if (!invoice) return false;
 
-  // 1. Remove invoice
+  // 1. Remove invoice locally and from Supabase (including mirrored stock_transactions rows)
   const filtered = invoices.filter((i) => i.id !== invoiceId);
   setLocalData(STORAGE_KEYS.PURCHASE_INVOICES, filtered);
+
+  if (invoice.invoice_number) {
+    const currentTxs = getLocalData<any[]>(STORAGE_KEYS.TRANSACTIONS, []);
+    const remainingTxs = currentTxs.filter(
+      (tx) => String(tx?.reference || "").trim().toUpperCase() !== invoice.invoice_number.trim().toUpperCase()
+    );
+    if (remainingTxs.length !== currentTxs.length) {
+      setLocalData(STORAGE_KEYS.TRANSACTIONS, remainingTxs, null, true);
+    }
+    supabase
+      .from("stock_transactions")
+      .delete()
+      .eq("reference", invoice.invoice_number.trim())
+      .then(undefined, () => {});
+  }
+
+  try {
+    if (isValidUuid(invoiceId)) {
+      supabase
+        .from("purchase_invoices")
+        .delete()
+        .eq("id", invoiceId)
+        .then(
+          ({ error }) => {
+            if (error) console.warn("Supabase purchase_invoices delete notice:", error.message);
+          },
+          (err) => console.warn("Supabase purchase_invoices delete notice:", err)
+        );
+    } else if (invoice.invoice_number) {
+      supabase
+        .from("purchase_invoices")
+        .delete()
+        .eq("invoice_number", invoice.invoice_number)
+        .then(undefined, () => {});
+    }
+  } catch (err) {
+    console.warn("Supabase purchase_invoices delete error:", err);
+  }
 
   // 2. Revert inventory stock (Single source of truth)
   if (Array.isArray(invoice.items) && invoice.items.length > 0) {
@@ -5690,7 +6604,7 @@ export function deletePurchaseInvoice(invoiceId: string): boolean {
     });
   }
 
-  // 3. Remove all payments directly linked to this invoice
+  // 3. Remove all payments directly linked to this invoice locally and from Supabase
   const payments = getSupplierPayments();
   const linkedPayments = payments.filter(
     (p) => p.invoice_id === invoiceId || p.chalan_id === invoiceId
@@ -5699,11 +6613,24 @@ export function deletePurchaseInvoice(invoiceId: string): boolean {
   if (linkedPayments.length > 0) {
     const remainingPayments = payments.filter((p) => !linkedPaymentIds.has(p.id));
     setLocalData(STORAGE_KEYS.SUPPLIER_PAYMENTS, remainingPayments);
+
+    const validLinkedPaymentUuids = Array.from(linkedPaymentIds).filter(isValidUuid);
+    if (validLinkedPaymentUuids.length > 0) {
+      supabase
+        .from("supplier_payments")
+        .delete()
+        .in("id", validLinkedPaymentUuids)
+        .then(undefined, () => {});
+    }
   }
 
   // 4. Purge corresponding expense cash-out entry from Cash Book / Expenses
   const expenses = getExpenses();
   const expIdsToDelete: string[] = [];
+  const linkedVoucherRefs = linkedPayments
+    .map((p) => p.payment_number || p.reference_no)
+    .filter(Boolean) as string[];
+
   const updatedExpenses = expenses.filter((exp: any) => {
     const isDirectMatch =
       exp.id === `exp-spay-${purchaseId}` ||
@@ -5712,7 +6639,8 @@ export function deletePurchaseInvoice(invoiceId: string): boolean {
 
     const isLinkedPaymentMatch =
       (exp.payment_id && linkedPaymentIds.has(exp.payment_id)) ||
-      (typeof exp.id === "string" && Array.from(linkedPaymentIds).some((pId) => exp.id === `exp-spay-${pId}`));
+      (typeof exp.id === "string" && Array.from(linkedPaymentIds).some((pId) => exp.id === `exp-spay-${pId}`)) ||
+      (typeof exp.description === "string" && linkedVoucherRefs.some((ref) => exp.description.includes(ref)));
 
     const isVoucherMatch =
       Boolean(invoice.invoice_number && typeof exp.description === "string" && exp.description.includes(invoice.invoice_number));
@@ -5728,25 +6656,14 @@ export function deletePurchaseInvoice(invoiceId: string): boolean {
   });
   saveExpenses(updatedExpenses);
 
-  // Remote cascade delete on Supabase expenses table
+  // Remote cascade delete on Supabase expenses table (only pass valid UUIDs to avoid 22P02 errors)
   try {
-    supabase
-      .from("expenses")
-      .delete()
-      .eq("id", `exp-spay-${purchaseId}`)
-      .then(undefined, () => {});
-
-    supabase
-      .from("expenses")
-      .delete()
-      .eq("reference_id", purchaseId)
-      .then(undefined, () => {});
-
-    if (expIdsToDelete.length > 0) {
+    const validExpUuids = expIdsToDelete.filter(isValidUuid);
+    if (validExpUuids.length > 0) {
       supabase
         .from("expenses")
         .delete()
-        .in("id", expIdsToDelete)
+        .in("id", validExpUuids)
         .then(undefined, () => {});
     }
   } catch (err) {
@@ -5774,7 +6691,7 @@ export function deletePurchaseInvoice(invoiceId: string): boolean {
 export const deletePurchase = deletePurchaseInvoice;
 
 /**
- * Updates a Supplier Payment or Debit Note and recalculates running balances.
+ * Updates a Supplier Payment or Debit Note, syncs to Supabase, and recalculates running balances.
  */
 export function updateSupplierPayment(
   paymentId: string,
@@ -5802,30 +6719,56 @@ export function updateSupplierPayment(
   payments[index] = updated;
   setLocalData(STORAGE_KEYS.SUPPLIER_PAYMENTS, payments);
 
+  // Direct Supabase update on supplier_payments table
+  try {
+    const cleanPayment = sanitizeSupplierPaymentPayload(updated, false);
+    if (isValidUuid(paymentId)) {
+      executeWithSchemaResilience("supplier_payments", cleanPayment, (p) =>
+        supabase.from("supplier_payments").update(p).eq("id", paymentId)
+      ).then(
+        ({ error }) => {
+          if (error) console.warn("Supabase supplier_payments update notice:", error.message);
+        },
+        (err) => console.warn("Supabase supplier_payments update notice:", err)
+      );
+    } else if (updated.payment_number) {
+      executeWithSchemaResilience("supplier_payments", cleanPayment, (p) =>
+        supabase.from("supplier_payments").update(p).eq("payment_number", updated.payment_number)
+      ).then(undefined, () => {});
+    }
+  } catch (err) {
+    console.warn("Supabase supplier_payments update error:", err);
+  }
+
   // Recalculate allocations and balances
   recalculateSupplierBalances();
 
   // Also update corresponding expense in Cash Book if present
-  const expId = `exp-spay-${paymentId}`;
+  const legacyExpId = `exp-spay-${paymentId}`;
   const exps = getExpenses();
   const voucherRef = updated.payment_number || updated.reference_no;
-  const expIdx = exps.findIndex((e) => e.id === expId || (e.category === "Supplier Payment" && voucherRef && e.description?.includes(voucherRef)));
+  const expIdx = exps.findIndex(
+    (e) =>
+      e.id === legacyExpId ||
+      (e.category === "Supplier Payment" && voucherRef && e.description?.includes(voucherRef))
+  );
   if (expIdx >= 0) {
     const updatedDesc = `Supplier Payment - ${updated.supplier_name || "Supplier"} (${voucherRef || "PAY"})`;
+    const targetExpId = isValidUuid(exps[expIdx].id) ? exps[expIdx].id : generateUuid();
     exps[expIdx] = {
       ...exps[expIdx],
+      id: targetExpId,
       description: updatedDesc,
       amount: updated.amount,
       expense_date: updated.payment_date || exps[expIdx].expense_date,
       notes: updated.notes || exps[expIdx].notes,
     };
     setLocalData(STORAGE_KEYS.EXPENSES, exps);
-    supabase.from("expenses").update({
-      description: updatedDesc,
-      amount: updated.amount,
-      expense_date: exps[expIdx].expense_date,
-      notes: exps[expIdx].notes,
-    }).eq("id", exps[expIdx].id).then(undefined, () => {});
+    const cleanExp = sanitizeExpensePayload(exps[expIdx], true);
+    supabase
+      .from("expenses")
+      .upsert(cleanExp, { onConflict: "id" })
+      .then(undefined, () => {});
   }
 
   logProcurementAudit({
@@ -5844,7 +6787,7 @@ export function updateSupplierPayment(
 }
 
 /**
- * Deletes a Supplier Payment or Debit Note and recalculates running balances.
+ * Deletes a Supplier Payment or Debit Note from localStorage and Supabase, and recalculates running balances.
  */
 export function deleteSupplierPayment(paymentId: string): boolean {
   const payments = getSupplierPayments();
@@ -5859,17 +6802,78 @@ export function deleteSupplierPayment(paymentId: string): boolean {
   const filtered = payments.filter((p) => p.id !== paymentId);
   setLocalData(STORAGE_KEYS.SUPPLIER_PAYMENTS, filtered);
 
+  if (isDebitNote && (payment.reference_no || payment.payment_number)) {
+    const dnRef = (payment.reference_no || payment.payment_number || "").trim();
+    if (dnRef) {
+      const currentTxs = getLocalData<any[]>(STORAGE_KEYS.TRANSACTIONS, []);
+      const remainingTxs = currentTxs.filter(
+        (tx) => String(tx?.reference || "").trim().toUpperCase() !== dnRef.toUpperCase()
+      );
+      if (remainingTxs.length !== currentTxs.length) {
+        setLocalData(STORAGE_KEYS.TRANSACTIONS, remainingTxs, null, true);
+      }
+      supabase
+        .from("stock_transactions")
+        .delete()
+        .eq("reference", dnRef)
+        .then(undefined, () => {});
+    }
+  }
+
+  // Direct Supabase delete on supplier_payments table
+  try {
+    if (isValidUuid(paymentId)) {
+      supabase
+        .from("supplier_payments")
+        .delete()
+        .eq("id", paymentId)
+        .then(
+          ({ error }) => {
+            if (error) console.warn("Supabase supplier_payments delete notice:", error.message);
+          },
+          (err) => console.warn("Supabase supplier_payments delete notice:", err)
+        );
+    } else if (payment.payment_number) {
+      supabase
+        .from("supplier_payments")
+        .delete()
+        .eq("payment_number", payment.payment_number)
+        .then(undefined, () => {});
+    }
+  } catch (err) {
+    console.warn("Supabase supplier_payments delete error:", err);
+  }
+
   // Recalculate allocations and balances
   recalculateSupplierBalances();
 
   // Also delete corresponding expense from Cash Book if present
-  const expId = `exp-spay-${paymentId}`;
+  const legacyExpId = `exp-spay-${paymentId}`;
   const exps = getExpenses();
   const voucherRef = payment.payment_number || payment.reference_no;
-  const filteredExps = exps.filter((e) => e.id !== expId && (!voucherRef || !e.description?.includes(voucherRef)));
+  const removedExpUuids: string[] = [];
+  const filteredExps = exps.filter((e) => {
+    const isMatch =
+      e.id === legacyExpId ||
+      Boolean(voucherRef && e.category === "Supplier Payment" && e.description?.includes(voucherRef));
+    if (isMatch) {
+      saveDeletedId(STORAGE_KEYS.DELETED_EXPENSES, String(e.id));
+      if (isValidUuid(e.id)) {
+        removedExpUuids.push(e.id);
+      }
+      return false;
+    }
+    return true;
+  });
   if (filteredExps.length !== exps.length) {
     setLocalData(STORAGE_KEYS.EXPENSES, filteredExps);
-    supabase.from("expenses").delete().eq("id", expId).then(undefined, () => {});
+    if (removedExpUuids.length > 0) {
+      supabase
+        .from("expenses")
+        .delete()
+        .in("id", removedExpUuids)
+        .then(undefined, () => {});
+    }
   }
 
   logProcurementAudit({
@@ -5905,7 +6909,11 @@ export function getSupplierLedgerDetails(
   entries: SupplierLedgerEntry[];
 } {
   const suppliers = sourceSuppliers && sourceSuppliers.length > 0 ? sourceSuppliers : getSuppliers();
-  const supplier = suppliers.find((s) => s.id === supplierId) || null;
+  const supplier =
+    suppliers.find((s) => s.id === supplierId) ||
+    (supplierId === "sup-hamko-01" ? suppliers.find((s) => s.name.toLowerCase().includes("hamko")) : null) ||
+    suppliers[0] ||
+    null;
 
   if (!supplier) {
     return {
@@ -5919,8 +6927,12 @@ export function getSupplierLedgerDetails(
   }
 
   const baseOpening = r2(Number(supplier.opening_balance || 0));
-  const invoices = (sourceInvoices && sourceInvoices.length > 0 ? sourceInvoices : getPurchaseInvoices()).filter((inv) => inv.supplier_id === supplierId);
-  const payments = (sourcePayments && sourcePayments.length > 0 ? sourcePayments : getSupplierPayments()).filter((pay) => pay.supplier_id === supplierId);
+  const invoices = (sourceInvoices && sourceInvoices.length > 0 ? sourceInvoices : getPurchaseInvoices()).filter((inv) =>
+    matchesSupplierRecord(inv, supplier, suppliers.length)
+  );
+  const payments = (sourcePayments && sourcePayments.length > 0 ? sourcePayments : getSupplierPayments()).filter((pay) =>
+    matchesSupplierRecord(pay, supplier, suppliers.length)
+  );
 
   // Combine invoices and payments into a chronological sequence
   type RawEvent = {

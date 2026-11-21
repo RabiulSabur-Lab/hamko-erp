@@ -14,6 +14,7 @@ import {
   getPurchaseInvoices,
   saveSupplierPayment,
   getNextSupplierPaymentNumber,
+  matchesSupplierRecord,
   type Supplier,
   type PurchaseInvoice,
   r2,
@@ -94,8 +95,11 @@ export function SupplierPaymentModal({
       const hamko = refreshed.find((s) => s.name && s.name.toLowerCase().includes("hamko")) || refreshed[0];
       const targetSupId = defaultSupplierId || hamko?.id || "";
       setSupplierId(targetSupId);
+      const targetSup = refreshed.find((s) => s.id === targetSupId) || hamko;
       
-      const allInvoices = getPurchaseInvoices().filter((inv) => inv.supplier_id === targetSupId);
+      const allInvoices = getPurchaseInvoices().filter(
+        (inv) => inv.supplier_id === targetSupId || matchesSupplierRecord(inv, targetSup, refreshed.length)
+      );
       setInvoices(allInvoices);
 
       const targetInv = defaultInvoiceId
@@ -124,12 +128,15 @@ export function SupplierPaymentModal({
   // When supplier changes, update invoice list
   useEffect(() => {
     if (supplierId) {
-      const supInvoices = getPurchaseInvoices().filter((inv) => inv.supplier_id === supplierId);
+      const targetSup = suppliers.find((s) => s.id === supplierId);
+      const supInvoices = getPurchaseInvoices().filter(
+        (inv) => inv.supplier_id === supplierId || matchesSupplierRecord(inv, targetSup, suppliers.length)
+      );
       setInvoices(supInvoices);
     } else {
       setInvoices([]);
     }
-  }, [supplierId]);
+  }, [supplierId, suppliers]);
 
   const selectedSupplier = suppliers.find((s) => s.id === supplierId);
   const currentPayable = Number(selectedSupplier?.current_payable || 0);
@@ -183,7 +190,15 @@ export function SupplierPaymentModal({
         notes: finalNotes || null,
       });
 
-      if (spayErr) {
+      const isTableCacheNotice =
+        spayErr &&
+        (spayErr.code === "PGRST205" ||
+          spayErr.code === "42P01" ||
+          spayErr.code === "23503" ||
+          String(spayErr.message || "").toLowerCase().includes("schema cache") ||
+          String(spayErr.message || "").toLowerCase().includes("does not exist"));
+
+      if (spayErr && !isTableCacheNotice) {
         toast.error(`Database supplier payment error: ${spayErr.message}`);
         return;
       }

@@ -17,11 +17,18 @@ import {
   getPurchaseInvoices,
   getSupplierPayments,
   getSupplierLedgerDetails,
+  matchesSupplierRecord,
+  reconstructProcurementFromCloudData,
+  reconcileSuppliersWithRemote,
+  reconcilePurchaseInvoicesWithRemote,
+  reconcileSupplierPaymentsWithRemote,
+  reconcileStockTransactionsWithRemote,
+  reconcileExpensesWithRemote,
   type Supplier,
   type PurchaseInvoice,
   type SupplierPayment,
 } from "@/utils/localStore";
-import { pullFreshCloudStateToLocalStore } from "@/utils/cloudSync";
+import { pullFreshCloudStateToLocalStore, pushAllLocalDataToSupabase } from "@/utils/cloudSync";
 
 import {
   Building2,
@@ -75,8 +82,8 @@ export function SupplierLedger() {
   const { query, navigate } = useRouter();
 
   const [suppliers, setSuppliers] = useState<Supplier[]>(() => getSuppliers());
-  const [purchaseInvoices, setPurchaseInvoices] = useState<PurchaseInvoice[]>([]);
-  const [supplierPayments, setSupplierPayments] = useState<SupplierPayment[]>([]);
+  const [purchaseInvoices, setPurchaseInvoices] = useState<PurchaseInvoice[]>(() => getPurchaseInvoices());
+  const [supplierPayments, setSupplierPayments] = useState<SupplierPayment[]>(() => getSupplierPayments());
   const [selectedSupplierId, setSelectedSupplierId] = useState<string>(() => {
     const list = getSuppliers();
     const hamko = list.find((s) => s.name.toLowerCase().includes("hamko")) || list[0];
@@ -109,30 +116,54 @@ export function SupplierLedger() {
     if (isManual) setLoading(true);
     try {
       const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("SupplierLedger fetch timeout")), 4500)
+        setTimeout(() => reject(new Error("SupplierLedger fetch timeout")), 6000)
       );
-      const [supRes, invRes, payRes] = await Promise.race([
+      const [supRes, invRes, payRes, txRes, expRes] = await Promise.race([
         Promise.all([
           supabase.from("suppliers").select("*").order("name"),
           supabase.from("purchase_invoices").select("*").order("invoice_date", { ascending: false }),
           supabase.from("supplier_payments").select("*").order("payment_date", { ascending: false }),
+          supabase.from("stock_transactions").select("*").order("transaction_date", { ascending: false }).limit(2500),
+          supabase.from("expenses").select("*").order("expense_date", { ascending: false }).limit(2000),
         ]),
         timeoutPromise,
       ]);
       if (mountedRef.current) {
         if (!supRes.error && Array.isArray(supRes.data)) {
-          setSuppliers(supRes.data);
-          const hamko = supRes.data.find((s) => s.name.toLowerCase().includes("hamko")) || supRes.data[0];
-          if (hamko && (!selectedSupplierId || !supRes.data.some((s) => s.id === selectedSupplierId))) {
-            setSelectedSupplierId(hamko.id);
-          }
+          reconcileSuppliersWithRemote(supRes.data);
         }
         if (!invRes.error && Array.isArray(invRes.data)) {
-          setPurchaseInvoices(invRes.data);
+          reconcilePurchaseInvoicesWithRemote(invRes.data);
         }
         if (!payRes.error && Array.isArray(payRes.data)) {
-          setSupplierPayments(payRes.data);
+          reconcileSupplierPaymentsWithRemote(payRes.data);
         }
+        if (!txRes.error && Array.isArray(txRes.data)) {
+          reconcileStockTransactionsWithRemote(txRes.data);
+        }
+        if (!expRes.error && Array.isArray(expRes.data)) {
+          reconcileExpensesWithRemote(expRes.data);
+        }
+
+        // Reconstruct any chalans/payments from cloud stock_transactions & expenses and recalculate balances
+        reconstructProcurementFromCloudData(
+          !txRes.error && Array.isArray(txRes.data) ? txRes.data : undefined,
+          !expRes.error && Array.isArray(expRes.data) ? expRes.data : undefined
+        );
+
+        const freshSuppliers = getSuppliers();
+        const freshInvoices = getPurchaseInvoices();
+        const freshPayments = getSupplierPayments();
+
+        setSuppliers(freshSuppliers);
+        setPurchaseInvoices(freshInvoices);
+        setSupplierPayments(freshPayments);
+
+        const hamko = freshSuppliers.find((s) => s.name.toLowerCase().includes("hamko")) || freshSuppliers[0];
+        if (hamko && (!selectedSupplierId || !freshSuppliers.some((s) => s.id === selectedSupplierId))) {
+          setSelectedSupplierId(hamko.id);
+        }
+
         setDataVersion((v) => v + 1);
         setIsOfflineMode(false);
         if (isManual) {
@@ -141,6 +172,12 @@ export function SupplierLedger() {
       }
     } catch (err: any) {
       console.warn("[SupplierLedger] Remote pull notice:", err);
+      if (mountedRef.current) {
+        reconstructProcurementFromCloudData();
+        setSuppliers(getSuppliers());
+        setPurchaseInvoices(getPurchaseInvoices());
+        setSupplierPayments(getSupplierPayments());
+      }
       setIsOfflineMode(true);
       if (isManual) {
         toast.error(err?.message || "Failed to synchronize supplier ledger from cloud.");
@@ -175,7 +212,10 @@ export function SupplierLedger() {
 
     const handleStorageUpdate = () => {
       if (mountedRef.current) {
-        void fetchRemoteData(false);
+        setSuppliers(getSuppliers());
+        setPurchaseInvoices(getPurchaseInvoices());
+        setSupplierPayments(getSupplierPayments());
+        setDataVersion((v) => v + 1);
       }
     };
     window.addEventListener("sales_erp_storage_update", handleStorageUpdate);
@@ -188,6 +228,8 @@ export function SupplierLedger() {
       .on("postgres_changes", { event: "*", schema: "public", table: "suppliers" }, () => void fetchRemoteData(false))
       .on("postgres_changes", { event: "*", schema: "public", table: "purchase_invoices" }, () => void fetchRemoteData(false))
       .on("postgres_changes", { event: "*", schema: "public", table: "supplier_payments" }, () => void fetchRemoteData(false))
+      .on("postgres_changes", { event: "*", schema: "public", table: "stock_transactions" }, () => void fetchRemoteData(false))
+      .on("postgres_changes", { event: "*", schema: "public", table: "expenses" }, () => void fetchRemoteData(false))
       .subscribe();
 
     return () => {
@@ -231,8 +273,14 @@ export function SupplierLedger() {
   // Invoices for this supplier with dynamic payment allocations
   const supplierInvoices = useMemo(() => {
     if (!selectedSupplierId) return [];
+    const targetSup =
+      suppliers.find((s) => s.id === selectedSupplierId) ||
+      suppliers.find((s) => s.name.toLowerCase().includes("hamko")) ||
+      suppliers[0];
     const sourceInvs = purchaseInvoices.length > 0 ? purchaseInvoices : getPurchaseInvoices();
-    let list = sourceInvs.filter((inv) => inv.supplier_id === selectedSupplierId);
+    let list = sourceInvs.filter(
+      (inv) => inv.supplier_id === selectedSupplierId || matchesSupplierRecord(inv, targetSup, suppliers.length)
+    );
     if (startDate) {
       list = list.filter((inv) => (inv.invoice_date || inv.created_at.slice(0, 10)) >= startDate);
     }
@@ -254,10 +302,18 @@ export function SupplierLedger() {
       return { entries: [], openingBalance: 0, totalPurchases: 0, totalPayments: 0, closingBalance: 0 };
     }
 
+    const targetSup =
+      suppliers.find((s) => s.id === selectedSupplierId) ||
+      suppliers.find((s) => s.name.toLowerCase().includes("hamko")) ||
+      suppliers[0];
     const sourceInvs = purchaseInvoices.length > 0 ? purchaseInvoices : getPurchaseInvoices();
     const sourcePayments = supplierPayments.length > 0 ? supplierPayments : getSupplierPayments();
-    const invoices = sourceInvs.filter((inv) => inv.supplier_id === selectedSupplierId);
-    const payments = sourcePayments.filter((pay) => pay.supplier_id === selectedSupplierId);
+    const invoices = sourceInvs.filter(
+      (inv) => inv.supplier_id === selectedSupplierId || matchesSupplierRecord(inv, targetSup, suppliers.length)
+    );
+    const payments = sourcePayments.filter(
+      (pay) => pay.supplier_id === selectedSupplierId || matchesSupplierRecord(pay, targetSup, suppliers.length)
+    );
 
     type RawEvent = {
       id: string;
@@ -569,7 +625,8 @@ export function SupplierLedger() {
                 onClick={async () => {
                   setLoading(true);
                   try {
-                    await pullFreshCloudStateToLocalStore({ force: true, silent: false });
+                    await pushAllLocalDataToSupabase();
+                    await pullFreshCloudStateToLocalStore({ force: true, silent: true });
                     await fetchRemoteData(true);
                   } catch (err: any) {
                     toast.error(err?.message || "Sync failed");
@@ -1688,6 +1745,8 @@ export function SupplierLedger() {
           onClose={() => setBackupModalOpen(false)}
           onRestoreSuccess={() => {
             setSuppliers(getSuppliers());
+            setPurchaseInvoices(getPurchaseInvoices());
+            setSupplierPayments(getSupplierPayments());
             setDataVersion((v) => v + 1);
           }}
         />
@@ -1699,6 +1758,8 @@ export function SupplierLedger() {
           item={editItem}
           onSuccess={() => {
             setSuppliers(getSuppliers());
+            setPurchaseInvoices(getPurchaseInvoices());
+            setSupplierPayments(getSupplierPayments());
             setDataVersion((v) => v + 1);
           }}
         />
@@ -1710,6 +1771,8 @@ export function SupplierLedger() {
           item={deleteItem}
           onSuccess={() => {
             setSuppliers(getSuppliers());
+            setPurchaseInvoices(getPurchaseInvoices());
+            setSupplierPayments(getSupplierPayments());
             setDataVersion((v) => v + 1);
           }}
         />

@@ -683,6 +683,21 @@ export function SfaPage() {
 
   function removeRoute(id: string) {
     if (!confirm("Remove this customer stop from the route plan?")) return;
+    const target = routes.find((r) => r.id === id || r.customer_id === id);
+    if (target?.customer_id) {
+      supabase
+        .from("route_plan")
+        .delete()
+        .eq("customer_id", target.customer_id)
+        .then(
+          ({ error }) => {
+            if (error) {
+              console.warn("[SFA] Supabase route_plan delete notice:", error.message);
+            }
+          },
+          (err) => console.warn("[SFA] Supabase route_plan delete error:", err)
+        );
+    }
     setRoutes((prev) => {
       const next = prev.filter((r) => r.id !== id);
       persistRoutePlan(next);

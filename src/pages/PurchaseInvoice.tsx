@@ -283,7 +283,7 @@ export function PurchaseInvoice() {
         };
       });
 
-      // 1. Direct Supabase insertion into purchase_invoices
+      // 1. Direct Supabase insertion into purchase_invoices (gracefully continues to stock_transactions mirror if purchase_invoices table is not in schema cache)
       const cleanChalan = {
         id: invoiceId,
         invoice_number: invoiceNumber.trim(),
@@ -300,7 +300,15 @@ export function PurchaseInvoice() {
       };
 
       const { error: piErr } = await supabase.from("purchase_invoices").insert(cleanChalan);
-      if (piErr) {
+      const isTableCacheNotice =
+        piErr &&
+        (piErr.code === "PGRST205" ||
+          piErr.code === "42P01" ||
+          piErr.code === "23503" ||
+          String(piErr.message || "").toLowerCase().includes("schema cache") ||
+          String(piErr.message || "").toLowerCase().includes("does not exist"));
+
+      if (piErr && !isTableCacheNotice) {
         toast.error(`Database procurement chalan error: ${piErr.message}`);
         return;
       }
