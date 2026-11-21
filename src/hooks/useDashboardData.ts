@@ -17,6 +17,7 @@ import {
   type SupabaseFailureKind,
 } from "@/lib/supabaseQuery";
 import { useAutoSync } from "@/hooks/useAutoSync";
+import { getOrders, getCollections, getCustomers, getProducts } from "@/utils/localStore";
 
 export interface PrevDashboardMetrics {
   prevCollection: number;
@@ -191,10 +192,10 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
   const langRef = useRef(lang);
   langRef.current = lang;
 
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [collections, setCollections] = useState<Collection[]>([]);
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
+  const [orders, setOrders] = useState<Order[]>(() => getOrders());
+  const [collections, setCollections] = useState<Collection[]>(() => getCollections());
+  const [customers, setCustomers] = useState<Customer[]>(() => getCustomers());
+  const [products, setProducts] = useState<Product[]>(() => getProducts());
   const [prevMetrics, setPrevMetrics] = useState<PrevDashboardMetrics>({
     prevCollection: 0,
     prevDue: 0,

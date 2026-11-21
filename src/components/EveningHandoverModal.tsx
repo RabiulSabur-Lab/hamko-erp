@@ -183,7 +183,7 @@ export function EveningHandoverModal({
       created_at: new Date().toISOString(),
     };
 
-    // Await live Supabase insertion
+    // Await live Supabase insertion (gracefully continues if handovers table is not yet in schema cache)
     const { error: hoErr } = await supabase.from("handovers").insert({
       id: newHandover.id,
       handover_number: newHandover.handover_number,
@@ -199,7 +199,14 @@ export function EveningHandoverModal({
       collection_ids: newHandover.collection_ids,
     });
 
-    if (hoErr) {
+    const isHandoverTableCacheNotice =
+      hoErr &&
+      (hoErr.code === "PGRST205" ||
+        hoErr.code === "42P01" ||
+        String(hoErr.message || "").toLowerCase().includes("schema cache") ||
+        String(hoErr.message || "").toLowerCase().includes("does not exist"));
+
+    if (hoErr && !isHandoverTableCacheNotice) {
       toast.error(`Database handover record error: ${hoErr.message}`);
       return;
     }

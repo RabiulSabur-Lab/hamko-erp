@@ -18,7 +18,7 @@ import {
   clearReadNotifications,
   getDeletedIds,
 } from "@/utils/localStore";
-import { sanitizePayload } from "@/lib/payloadSanitizer";
+import { sanitizePayload, generateUuid, isValidUuid } from "@/lib/payloadSanitizer";
 import { useAutoSync } from "@/hooks/useAutoSync";
 
 const typeIcons: Record<string, any> = {
@@ -210,8 +210,8 @@ export function NotificationsPage() {
         }
 
         if (insertedRows.length === 0) {
-          insertedRows = toInsert.map((item, idx) => ({
-            id: `sys-notif-${Date.now()}-${idx}`,
+          insertedRows = toInsert.map((item) => ({
+            id: generateUuid(),
             created_at: new Date().toISOString(),
             ...item,
           }));
@@ -239,10 +239,12 @@ export function NotificationsPage() {
     });
     window.dispatchEvent(new Event("sales_erp_storage_update"));
 
-    try {
-      await supabase.from("notifications").update({ is_read: true }).eq("id", n.id);
-    } catch (e) {
-      // Local state is already updated
+    if (isValidUuid(n.id)) {
+      try {
+        await supabase.from("notifications").update({ is_read: true }).eq("id", n.id);
+      } catch (e) {
+        // Local state is already updated
+      }
     }
   }
 
@@ -259,10 +261,13 @@ export function NotificationsPage() {
     window.dispatchEvent(new Event("sales_erp_storage_update"));
     toast.success(t("updated") || "All notifications marked as read");
 
-    try {
-      await supabase.from("notifications").update({ is_read: true }).in("id", unread.map((n) => n.id));
-    } catch (e) {
-      // Local state is already updated
+    const validUnreadIds = unread.map((n) => n.id).filter(isValidUuid);
+    if (validUnreadIds.length > 0) {
+      try {
+        await supabase.from("notifications").update({ is_read: true }).in("id", validUnreadIds);
+      } catch (e) {
+        // Local state is already updated
+      }
     }
   }
 
