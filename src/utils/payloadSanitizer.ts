@@ -39,11 +39,15 @@ export function sanitizeNumber(val: any, defaultVal: number = 0): number {
 }
 
 /**
- * Sanitizes input value to a valid UUID string or null if empty/falsy.
+ * Sanitizes input value to a valid RFC 4122 UUID string or null if empty/non-UUID.
  */
 export function sanitizeUUID(val: string | null | undefined): string | null {
-  if (!val || typeof val !== "string" || val.trim() === "" || val.trim() === "—") return null;
-  return val.trim();
+  if (!val || typeof val !== "string") return null;
+  const trimmed = val.trim();
+  if (trimmed === "" || trimmed === "—") return null;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(trimmed)
+    ? trimmed
+    : null;
 }
 
 /**

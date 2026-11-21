@@ -17,6 +17,10 @@ import { formatCurrency } from "@/lib/utils";
 import {
   generateUuid,
   isValidUuid,
+  sanitizeCustomerPayload,
+  sanitizeCollectionPayload,
+  sanitizeVisitPayload,
+  sanitizeRoutePlanPayload,
   sanitizeSupplierPayload,
   sanitizePurchaseInvoicePayload,
   sanitizeSupplierPaymentPayload,
@@ -3175,9 +3179,11 @@ export function saveCustomer(customer: Customer | (Partial<Customer> & { id: str
   }
   const is_active = status === "Active";
 
+  const resolvedCustomerId = isValidUuid(customer.id) ? customer.id : generateUuid();
   const customerToSave: Customer = {
     ...(existing || {}),
     ...customer,
+    id: resolvedCustomerId,
     status,
     is_active,
     updated_at: new Date().toISOString(),
@@ -3193,6 +3199,25 @@ export function saveCustomer(customer: Customer | (Partial<Customer> & { id: str
     updated = [customerToSave, ...current];
   }
   setLocalData(STORAGE_KEYS.CUSTOMERS, updated);
+
+  // Ensure cloud persistence to Supabase customers table
+  try {
+    const cleanCust = sanitizeCustomerPayload(
+      {
+        ...customerToSave,
+        name: (customerToSave.outlet_name || customerToSave.name || "").trim(),
+      },
+      index < 0
+    );
+    if (cleanCust.name) {
+      executeWithSchemaResilience("customers", cleanCust, (p) =>
+        supabase.from("customers").upsert(p)
+      ).then(undefined, () => {});
+    }
+  } catch {
+    // Non-critical background sync
+  }
+
   return updated;
 }
 
@@ -3318,9 +3343,11 @@ export const deleteNotification = (id: string, currentItems?: Notification[]): N
   const items = source.filter((n: Notification) => String(n.id) !== String(id));
   setLocalData(STORAGE_KEYS.NOTIFICATIONS, items);
   saveDeletedId(STORAGE_KEYS.DELETED_NOTIFICATIONS, id);
-  supabase.from("notifications").delete().eq("id", id).then(undefined, (err) => {
-    console.warn("Failed to delete notification remotely:", err);
-  });
+  if (isValidUuid(id)) {
+    supabase.from("notifications").delete().eq("id", id).then(undefined, (err) => {
+      console.warn("Failed to delete notification remotely:", err);
+    });
+  }
   (items as any).success = true;
   return [...items];
 };
@@ -3363,9 +3390,11 @@ export function saveVisit(visit: Visit | (Partial<Visit> & { id: string })): Vis
   const index = current.findIndex((v: Visit) => String(v.id) === String(visit.id));
   const existing = index >= 0 ? current[index] : null;
   const now = new Date().toISOString();
+  const resolvedVisitId = isValidUuid(visit.id) ? visit.id : generateUuid();
   const visitToSave: Visit = {
     ...(existing || {}),
     ...visit,
+    id: resolvedVisitId,
     created_at: existing?.created_at || visit.created_at || now,
     _modifiedAt: Date.now(),
     _unsynced: visit._unsynced !== undefined ? visit._unsynced : (existing?._unsynced ?? true),
@@ -3379,6 +3408,19 @@ export function saveVisit(visit: Visit | (Partial<Visit> & { id: string })): Vis
     updated = [visitToSave, ...current];
   }
   setLocalData(STORAGE_KEYS.VISITS, updated);
+
+  // Background cloud sync to Supabase visits table
+  try {
+    const cleanVisit = sanitizeVisitPayload(visitToSave, index < 0);
+    if (cleanVisit.customer_id) {
+      executeWithSchemaResilience("visits", cleanVisit, (p) =>
+        supabase.from("visits").upsert(p)
+      ).then(undefined, () => {});
+    }
+  } catch {
+    // Non-critical
+  }
+
   return updated;
 }
 
@@ -3394,6 +3436,21 @@ export const getRoutePlan = (): any[] => {
 export const saveRoutePlan = (routes: any[]): void => {
   setLocalData(STORAGE_KEYS.ROUTE_PLAN, routes);
   setLocalData(STORAGE_KEYS.ROUTE_VISITS, routes);
+  if (Array.isArray(routes) && routes.length > 0) {
+    try {
+      const cleanRoutes = routes
+        .filter((r) => r && isValidUuid(r.customer_id))
+        .map((r) => sanitizeRoutePlanPayload(r));
+      if (cleanRoutes.length > 0) {
+        supabase
+          .from("route_plan")
+          .upsert(cleanRoutes, { onConflict: "customer_id" })
+          .then(undefined, () => {});
+      }
+    } catch {
+      // Non-critical
+    }
+  }
   if (typeof window !== "undefined") {
     try {
       window.dispatchEvent(new CustomEvent("sales_erp_storage_update", { detail: { type: "route_plan_updated" } }));
@@ -3436,9 +3493,7 @@ export const saveCollection = (
     remDueCalc = Math.max(0, r2(prevDueCalc - amt));
   }
 
-  const colId =
-    collectionData.id ||
-    (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `col-${Date.now()}`);
+  const colId = isValidUuid(collectionData.id) ? collectionData.id! : generateUuid();
   const colNumber = collectionData.collection_number || generateCollectionNumber(collections);
   const now = new Date().toISOString();
 
@@ -3474,6 +3529,19 @@ export const saveCollection = (
   if (customerId) {
     recalculateCustomerLedger(customerId, undefined, updatedList, { persist: true });
   }
+
+  // Background cloud sync to Supabase collections table
+  try {
+    const cleanCol = sanitizeCollectionPayload(record, !isExisting);
+    if (cleanCol.customer_id && Number(cleanCol.amount) > 0) {
+      executeWithSchemaResilience("collections", cleanCol, (p) =>
+        supabase.from("collections").upsert(p, { onConflict: "collection_number" })
+      ).then(undefined, () => {});
+    }
+  } catch {
+    // Non-critical
+  }
+
   return record;
 };
 
@@ -3484,9 +3552,13 @@ export const deleteCollection = (id: string, currentItems?: Collection[]): Colle
   const items = source.filter((c: Collection) => String(c.id) !== String(id));
   setLocalData(STORAGE_KEYS.COLLECTIONS, items);
   saveDeletedId(STORAGE_KEYS.DELETED_COLLECTIONS, id);
-  supabase.from("collections").delete().eq("id", id).then(undefined, (err) => {
-    console.warn("Failed to delete collection remotely:", err);
-  });
+  if (isValidUuid(id)) {
+    supabase.from("collections").delete().eq("id", id).then(undefined, (err) => {
+      console.warn("Failed to delete collection remotely:", err);
+    });
+  } else if (targetCol?.collection_number) {
+    supabase.from("collections").delete().eq("collection_number", targetCol.collection_number).then(undefined, () => {});
+  }
   if (targetCol?.customer_id) {
     recalculateCustomerLedger(targetCol.customer_id, undefined, items, { persist: true });
   }
@@ -3604,9 +3676,11 @@ export function saveExpense(expense: Expense | (Partial<Expense> & { id: string 
   const index = current.findIndex((e: Expense) => String(e.id) === String(expense.id));
   const existing = index >= 0 ? current[index] : null;
   const now = new Date().toISOString();
+  const resolvedExpId = isValidUuid(expense.id) ? expense.id : generateUuid();
   const expenseToSave: Expense = {
     ...(existing || {}),
     ...expense,
+    id: resolvedExpId,
     created_at: existing?.created_at || expense.created_at || now,
     _modifiedAt: Date.now(),
     _unsynced: expense._unsynced !== undefined ? expense._unsynced : (existing?._unsynced ?? true),
@@ -3620,6 +3694,19 @@ export function saveExpense(expense: Expense | (Partial<Expense> & { id: string 
     updated = [expenseToSave, ...current];
   }
   setLocalData(STORAGE_KEYS.EXPENSES, updated);
+
+  // Background cloud sync to Supabase expenses table
+  try {
+    const cleanExp = sanitizeExpensePayload(expenseToSave, index < 0);
+    if (cleanExp.category && Number(cleanExp.amount) > 0) {
+      executeWithSchemaResilience("expenses", cleanExp, (p) =>
+        supabase.from("expenses").upsert(p, { onConflict: "id" })
+      ).then(undefined, () => {});
+    }
+  } catch {
+    // Non-critical
+  }
+
   return updated;
 }
 
@@ -3629,9 +3716,11 @@ export const deleteExpense = (id: string, currentItems?: Expense[]): Expense[] =
   const items = source.filter((e: Expense) => String(e.id) !== String(id));
   setLocalData(STORAGE_KEYS.EXPENSES, items);
   saveDeletedId(STORAGE_KEYS.DELETED_EXPENSES, id);
-  supabase.from("expenses").delete().eq("id", id).then(undefined, (err) => {
-    console.warn("Failed to delete expense remotely:", err);
-  });
+  if (isValidUuid(id)) {
+    supabase.from("expenses").delete().eq("id", id).then(undefined, (err) => {
+      console.warn("Failed to delete expense remotely:", err);
+    });
+  }
   (items as any).success = true;
   return [...items];
 };
@@ -3643,8 +3732,9 @@ export const clearReadNotifications = (currentItems?: Notification[]): Notificat
   readItems.forEach((n: Notification) => saveDeletedId(STORAGE_KEYS.DELETED_NOTIFICATIONS, n.id));
   const remaining = source.filter((n: Notification) => !n.is_read);
   setLocalData(STORAGE_KEYS.NOTIFICATIONS, remaining);
-  if (readItems.length > 0) {
-    supabase.from("notifications").delete().in("id", readItems.map((n: Notification) => n.id)).then(undefined, (err) => {
+  const validReadIds = readItems.map((n: Notification) => n.id).filter(isValidUuid);
+  if (validReadIds.length > 0) {
+    supabase.from("notifications").delete().in("id", validReadIds).then(undefined, (err) => {
       console.warn("Failed to clear read notifications remotely:", err);
     });
   }
@@ -4730,12 +4820,14 @@ export function getCustomerLedgerDetails(
           dispatchGlobalStateUpdate({ customerId: targetId, type: "customer_ledger_updated" });
         }
       }
-      // Background Supabase sync
-      supabase
-        .from("customers")
-        .update({ current_due: currentDue, due_status: dueStatus })
-        .eq("id", targetId)
-        .then(undefined, (err) => console.warn("Customer due sync notice:", err));
+      // Background Supabase sync (guarded by isValidUuid to prevent 22P02)
+      if (isValidUuid(targetId)) {
+        supabase
+          .from("customers")
+          .update({ current_due: currentDue, due_status: dueStatus })
+          .eq("id", targetId)
+          .then(undefined, (err) => console.warn("Customer due sync notice:", err));
+      }
     } catch (e) {
       console.warn("Error updating customer due in storage:", e);
     }

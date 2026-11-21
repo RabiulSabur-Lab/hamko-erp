@@ -125,12 +125,12 @@ export function ReportsPage() {
     }
   }, [startDate, endDate]);
 
-  // 1. Initial State
-  const [orders, setOrders] = useState<any[]>([]);
-  const [collections, setCollections] = useState<any[]>([]);
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [expenses, setExpenses] = useState<any[]>([]);
-  const [products, setProducts] = useState<any[]>([]);
+  // 1. Initial State (hydrated from localStore cache for instant render & offline resilience)
+  const [orders, setOrders] = useState<any[]>(() => getOrders());
+  const [collections, setCollections] = useState<any[]>(() => getCollections());
+  const [customers, setCustomers] = useState<Customer[]>(() => getCustomers());
+  const [expenses, setExpenses] = useState<any[]>(() => getExpenses());
+  const [products, setProducts] = useState<any[]>(() => getProducts());
 
   // 2. Read-only remote sync function: NEVER mutates LocalStore or emits storage events (prevents infinite loop)
   const syncRemoteData = useCallback(async () => {

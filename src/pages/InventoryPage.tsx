@@ -33,7 +33,7 @@ import {
   getProducts,
   dispatchGlobalStateUpdate,
 } from "@/utils/localStore";
-import { sanitizeStockTxPayload } from "@/lib/payloadSanitizer";
+import { sanitizeStockTxPayload, generateUuid } from "@/lib/payloadSanitizer";
 
 export type StockType = "Stock In" | "Stock Out" | "Damage";
 const txTypes: readonly StockType[] = ["Stock In", "Stock Out", "Damage"] as const;
@@ -60,7 +60,7 @@ export function InventoryPage() {
 
   const [loading, setLoading] = useState(true);
   const [isOfflineMode, setIsOfflineMode] = useState<boolean>(() => typeof navigator !== "undefined" && !navigator.onLine);
-  const [products, setProducts] = useState<Product[]>([]);
+  const [products, setProducts] = useState<Product[]>(() => getProducts());
   const [search, setSearch] = useState(() => query.search || "");
   const [statusFilter, setStatusFilter] = useState<"all" | "low" | "out">("all");
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -254,7 +254,7 @@ export function InventoryPage() {
 
       const nowIso = new Date().toISOString();
       const newTxRecord = {
-        id: typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `tx-${Date.now()}`,
+        id: generateUuid(),
         product_id: form.product_id,
         transaction_type: txType,
         quantity: qty,

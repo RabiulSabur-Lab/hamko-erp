@@ -231,10 +231,10 @@ export function AccountsPage() {
   }, [isManagerOrAdmin, tab]);
 
   const [loading, setLoading] = useState(true);
-  const [collections, setCollections] = useState<Collection[]>([]);
-  const [expenses, setExpenses] = useState<Expense[]>([]);
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [orders, setOrders] = useState<Order[]>([]);
+  const [collections, setCollections] = useState<Collection[]>(() => getCollections());
+  const [expenses, setExpenses] = useState<Expense[]>(() => getExpenses());
+  const [customers, setCustomers] = useState<Customer[]>(() => getCustomers());
+  const [orders, setOrders] = useState<Order[]>(() => getOrders());
   const [isOfflineMode, setIsOfflineMode] = useState<boolean>(() => typeof navigator !== "undefined" && !navigator.onLine);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [ledgerOpen, setLedgerOpen] = useState(false);
@@ -938,7 +938,10 @@ export function AccountsPage() {
       if (amt <= 0) { toast.error("Amount must be greater than 0"); return; }
       setSaving(true);
       try {
-        const tempId = crypto.randomUUID ? crypto.randomUUID() : `exp-${Date.now()}`;
+        const tempId = crypto.randomUUID ? crypto.randomUUID() : "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+          const r = (Math.random() * 16) | 0;
+          return (c === "x" ? r : (r & 0x3) | 0x8).toString(16);
+        });
         const newExpense: Expense = {
           id: tempId,
           category: form.category,

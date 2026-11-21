@@ -75,9 +75,9 @@ export function CustomersPage() {
     return Boolean(currentUserId && ownerId && ownerId === currentUserId);
   };
   const [loading, setLoading] = useState(true);
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [collections, setCollections] = useState<Collection[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>(() => getCustomers());
+  const [orders, setOrders] = useState<Order[]>(() => getOrders());
+  const [collections, setCollections] = useState<Collection[]>(() => getCollections());
   const [territories, setTerritories] = useState<Territory[]>([]);
   const [isOfflineMode, setIsOfflineMode] = useState<boolean>(() => typeof navigator !== "undefined" && !navigator.onLine);
   const [search, setSearch] = useState(() => query.search || "");
@@ -168,11 +168,13 @@ export function CustomersPage() {
       }
 
       if (custData && mountedRef.current) {
-        setCustomers(Array.isArray(custData) ? custData : []);
+        const enriched = mergeAndEnrichCustomers(custData, { persist: true });
+        setCustomers(enriched);
         if (isManual) {
-          toast.success(`Live sync: ${custData.length} customers/outlets synchronized`);
+          toast.success(`Live sync: ${enriched.length} customers/outlets synchronized`);
         }
       } else if (!custData && mountedRef.current) {
+        setCustomers((prev) => (prev.length > 0 ? prev : getCustomers()));
         setIsOfflineMode(true);
         if (isManual) {
           toast.error("Unable to load latest customers from cloud. Showing cached records.");
@@ -182,14 +184,21 @@ export function CustomersPage() {
         setTerritories(tRes.data);
       }
       if (!oRes.error && Array.isArray(oRes.data)) {
-        if (mountedRef.current) setOrders(oRes.data as unknown as Order[]);
+        const reconciledOrders = reconcileOrdersWithRemote(oRes.data as unknown as Order[], { persist: true });
+        if (mountedRef.current) setOrders(reconciledOrders);
       }
       if (!colRes.error && Array.isArray(colRes.data)) {
-        if (mountedRef.current) setCollections(colRes.data as unknown as Collection[]);
+        const reconciledCols = reconcileCollectionsWithRemote(colRes.data as unknown as Collection[], { persist: true });
+        if (mountedRef.current) setCollections(reconciledCols);
       }
       setIsOfflineMode(false);
     } catch (err: any) {
       console.warn("Using local customer cache due to fetch error:", err);
+      if (mountedRef.current) {
+        setCustomers((prev) => (prev.length > 0 ? prev : getCustomers()));
+        setOrders((prev) => (prev.length > 0 ? prev : getOrders()));
+        setCollections((prev) => (prev.length > 0 ? prev : getCollections()));
+      }
       setIsOfflineMode(true);
       if (isManual) {
         toast.error(err?.message || "Network error synchronizing customers. Showing cached records.");
@@ -582,7 +591,19 @@ export function CustomersPage() {
               Offline Mode
             </Badge>
           )}
-          <Button variant="outline" size="sm" onClick={() => loadData(true)} disabled={loading} title="Live cloud sync" className="gap-1.5">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={async () => {
+              setLoading(true);
+              clearCloudPullThrottle();
+              await triggerGlobalLiveSync({ silent: true });
+              await loadData(true);
+            }}
+            disabled={loading}
+            title="Live cloud sync"
+            className="gap-1.5"
+          >
             <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin text-primary' : ''}`} />
             <span className="hidden sm:inline">{loading ? "Syncing..." : "Live Sync"}</span>
           </Button>

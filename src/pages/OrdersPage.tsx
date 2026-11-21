@@ -274,10 +274,10 @@ export function OrdersPage() {
     return Boolean(currentUserId && o.sales_rep_id && o.sales_rep_id === currentUserId);
   };
   const [loading, setLoading] = useState(true);
-  const [orders, setOrders] = useState<Order[]>([]);
+  const [orders, setOrders] = useState<Order[]>(() => getOrders());
   const [isOfflineMode, setIsOfflineMode] = useState<boolean>(() => typeof navigator !== "undefined" && !navigator.onLine);
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>(() => getCustomers());
+  const [products, setProducts] = useState<Product[]>(() => getProducts());
   const [search, setSearch] = useState(() => query.search || "");
   const [statusFilter, setStatusFilter] = useState("");
   const [areas, setAreas] = useState<Area[]>(() => getAreas());
@@ -1208,10 +1208,10 @@ export function OrdersPage() {
       setProducts(nextProds);
 
       // 4. Log Stock Transactions
-      const newTransactions: StockTransaction[] = orderItemsList.map((it: any, idx: number): StockTransaction => {
+      const newTransactions: StockTransaction[] = orderItemsList.map((it: any): StockTransaction => {
         const targetProduct = nextProds.find((p: Product) => p.id === it.product_id) || it.product;
         return {
-          id: crypto.randomUUID ? crypto.randomUUID() : `tx-${Date.now()}-${idx}`,
+          id: generateUuid(),
           product_id: it.product_id,
           transaction_type: txType,
           quantity: Number(it.quantity) || 1,

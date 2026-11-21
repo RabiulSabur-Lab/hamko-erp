@@ -6,6 +6,19 @@ import tailwindcss from "@tailwindcss/vite";
 export default defineConfig({
   plugins: [react(), tailwindcss(), tsconfigPaths()],
   envPrefix: ["VITE_", "NEXT_PUBLIC_"],
+  build: {
+    chunkSizeWarningLimit: 3000,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          "vendor-react": ["react", "react-dom", "@tanstack/react-query"],
+          "vendor-supabase": ["@supabase/supabase-js"],
+          "vendor-charts": ["recharts"],
+          "vendor-export": ["xlsx", "jspdf", "html2canvas"],
+        },
+      },
+    },
+  },
   server: {
     host: "0.0.0.0",
     port: 8080,

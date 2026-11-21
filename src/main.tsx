@@ -1,6 +1,8 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { Capacitor } from "@capacitor/core";
+import { CapacitorUpdater } from "@capgo/capacitor-updater";
 import { Toaster } from "sonner";
 import "./styles.css";
 import { AuthProvider } from "./lib/auth";
@@ -26,15 +28,11 @@ if (typeof window !== "undefined") {
 
   // Notify Capgo updater that the app initialized successfully
   try {
-    import("@capacitor/core").then(({ Capacitor }) => {
-      if (Capacitor.isNativePlatform()) {
-        import("@capgo/capacitor-updater").then(({ CapacitorUpdater }) => {
-          CapacitorUpdater.notifyAppReady().catch((err) => {
-            console.log("[Capgo] notifyAppReady err:", err);
-          });
-        });
-      }
-    });
+    if (Capacitor.isNativePlatform()) {
+      CapacitorUpdater.notifyAppReady().catch((err) => {
+        console.warn("[Capgo] notifyAppReady notice:", err);
+      });
+    }
   } catch (err) {
     console.warn("[Capgo] Initialization notice:", err);
   }

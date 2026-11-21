@@ -69,8 +69,6 @@ export function ProductsPage() {
   const { t, lang } = useI18n();
   const { query, navigate } = useRouter();
 
-  console.log("Logged in user:", user);
-
   // Role-based access control (RBAC): inspect exact user role structure
   const rawRoleString = (
     profile?.role_name ||
@@ -100,8 +98,10 @@ export function ProductsPage() {
 
   const canManageProducts = !isSalesOfficer;
   const [loading, setLoading] = useState(true);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
+  const [products, setProducts] = useState<Product[]>(() => getProducts() as Product[]);
+  const [categories, setCategories] = useState<Category[]>(() =>
+    getLocalData<Category[]>(STORAGE_KEYS.CATEGORIES, [])
+  );
   const [search, setSearch] = useState(() => query.search || "");
   const [catFilter, setCatFilter] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
