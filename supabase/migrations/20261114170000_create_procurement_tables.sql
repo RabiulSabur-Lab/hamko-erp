@@ -173,7 +173,8 @@ ALTER TABLE public.handovers ADD COLUMN IF NOT EXISTS created_at timestamptz DEF
 ALTER TABLE public.handovers ADD COLUMN IF NOT EXISTS verified_at timestamptz;
 ALTER TABLE public.handovers ADD COLUMN IF NOT EXISTS verified_by text;
 
--- 6. DROP BROKEN RLS POLICIES (referencing non-existent created_by / user_id / status)
+-- 6. DROP BROKEN RLS POLICIES & AUTH.USERS FK BLOCKING STANDALONE USER PROVISIONING
+ALTER TABLE IF EXISTS public.users DROP CONSTRAINT IF EXISTS users_id_fkey;
 DROP POLICY IF EXISTS stock_tx_insert_policy ON public.stock_transactions;
 DROP POLICY IF EXISTS stock_tx_delete_policy ON public.stock_transactions;
 DROP POLICY IF EXISTS expenses_select_policy ON public.expenses;

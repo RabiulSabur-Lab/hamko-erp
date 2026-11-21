@@ -54,6 +54,7 @@ import {
   sanitizeHandoverPayload,
   sanitizeStockTxPayload,
   sanitizeTerritoryPayload,
+  sanitizeUserPayload,
   executeWithSchemaResilience,
 } from "@/lib/payloadSanitizer";
 
@@ -1183,6 +1184,41 @@ export async function pushAllLocalDataToSupabase(
         }
         report("Synchronizing Stock Transactions", i + 1, localStockTx.length);
       }
+    }
+
+    // ---------------------------------------------------------
+    // 17. SYNC USERS DIRECTORY
+    // ---------------------------------------------------------
+    const deletedUserIds = getDeletedIds(STORAGE_KEYS.DELETED_USERS);
+    const localUsers = getLocalData<any[]>(STORAGE_KEYS.USERS, []).filter(
+      (u) =>
+        u &&
+        (u.id || u.email) &&
+        !deletedUserIds.has(String(u.id || "")) &&
+        !deletedUserIds.has(String(u.email || "").toLowerCase()),
+    );
+    if (localUsers.length > 0) {
+      report("Synchronizing Users Directory", 0, localUsers.length);
+      for (let i = 0; i < localUsers.length; i++) {
+        const usr = localUsers[i];
+        if (!usr || !usr.email) continue;
+        try {
+          const cleanUsr = sanitizeUserPayload(usr, true);
+          const { error: usrErr } = await executeWithSchemaResilience(
+            "users",
+            cleanUsr,
+            (p) => supabase.from("users").upsert(p, { onConflict: "id" }),
+          );
+          if (!usrErr) {
+            usr._unsynced = false;
+            usr.is_offline = false;
+          }
+        } catch {
+          // Non-critical if RLS restricts non-admin write
+        }
+        report("Synchronizing Users Directory", i + 1, localUsers.length);
+      }
+      setLocalData(STORAGE_KEYS.USERS, localUsers, null, true);
     }
 
     // Pull authoritative cloud state back so local IDs/flags converge 100% with Supabase

@@ -154,8 +154,19 @@ export function UsersProvider({ children }: { children: ReactNode }) {
     };
 
     const handleCustomUpdate = (e: Event) => {
-      const detailKey = (e as CustomEvent)?.detail?.key;
-      if (detailKey && detailKey !== STORAGE_KEYS.USERS && detailKey !== STORAGE_KEYS.DELETED_USERS) {
+      const detail = (e as CustomEvent)?.detail;
+      const detailKey = detail?.key;
+      const detailTable = detail?.table;
+      const detailType = String(detail?.type || "");
+      if (
+        detailKey &&
+        detailKey !== STORAGE_KEYS.USERS &&
+        detailKey !== STORAGE_KEYS.DELETED_USERS &&
+        detailTable !== "users" &&
+        !detailType.startsWith("user_") &&
+        detailType !== "cloud_sync_completed" &&
+        detailType !== "cloud_pull_completed"
+      ) {
         return;
       }
       scheduleRefresh();
@@ -170,11 +181,15 @@ export function UsersProvider({ children }: { children: ReactNode }) {
 
     window.addEventListener("storage", handleCrossTabStorage);
     window.addEventListener("sales_erp_storage_update", handleCustomUpdate);
+    window.addEventListener("erp_mutation", handleCustomUpdate);
+    window.addEventListener("live_sync_forced", scheduleRefresh);
 
     return () => {
       if (debounceTimer) clearTimeout(debounceTimer);
       window.removeEventListener("storage", handleCrossTabStorage);
       window.removeEventListener("sales_erp_storage_update", handleCustomUpdate);
+      window.removeEventListener("erp_mutation", handleCustomUpdate);
+      window.removeEventListener("live_sync_forced", scheduleRefresh);
     };
   }, []);
 

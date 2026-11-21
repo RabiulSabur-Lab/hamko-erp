@@ -265,11 +265,16 @@ export const ALLOWED_TABLE_COLUMNS = {
 
 export type SupabaseTableName = keyof typeof ALLOWED_TABLE_COLUMNS;
 
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const NIL_UUID = "00000000-0000-0000-0000-000000000000";
 
 export function isValidUuid(str: unknown): boolean {
   if (typeof str !== "string") return false;
-  return UUID_REGEX.test(str.trim());
+  const trimmed = str.trim().toLowerCase();
+  if (!trimmed || trimmed === NIL_UUID || /^0+$/.test(trimmed.replace(/-/g, ""))) {
+    return false;
+  }
+  return UUID_REGEX.test(trimmed);
 }
 
 export function generateUuid(): string {
@@ -374,7 +379,9 @@ const TABLE_KEY_ALIASES: Record<string, Record<string, string>> = {
   },
   users: {
     fullName: "full_name",
+    name: "full_name",
     roleName: "role_name",
+    role: "role_name",
     territoryId: "territory_id",
     isActive: "is_active",
   },
@@ -671,6 +678,36 @@ export function sanitizeInventoryPayload<T extends Record<string, any>>(raw: T):
 
 export function sanitizeSalesTargetPayload<T extends Record<string, any>>(raw: T, isInsert = false): Record<string, any> {
   return sanitizePayload("sales_targets", raw, { generateIdIfMissing: isInsert });
+}
+
+export function sanitizeUserPayload<T extends Record<string, any>>(raw: T, isInsert = false): Record<string, any> {
+  const sanitized = sanitizePayload("users", raw, { generateIdIfMissing: isInsert });
+  if (sanitized.email) {
+    sanitized.email = String(sanitized.email).trim().toLowerCase();
+  }
+  if (!sanitized.full_name) {
+    const fallbackName = String(raw?.full_name || raw?.fullName || raw?.name || "").trim();
+    sanitized.full_name = fallbackName || (sanitized.email ? String(sanitized.email).split("@")[0] : "User");
+  }
+  const rawRole = String(raw?.role_name || raw?.roleName || raw?.role || sanitized.role_name || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, "");
+  if (rawRole.includes("superadmin") || rawRole === "admin") {
+    sanitized.role_name = "Super Admin";
+  } else if (rawRole.includes("manager")) {
+    sanitized.role_name = "Sales Manager";
+  } else if (rawRole.includes("accountant")) {
+    sanitized.role_name = "Accountant";
+  } else if (rawRole.includes("distributor")) {
+    sanitized.role_name = "Distributor";
+  } else {
+    sanitized.role_name = "Sales Officer";
+  }
+  if (sanitized.is_active === undefined) {
+    sanitized.is_active = raw?.is_active !== false;
+  }
+  return sanitized;
 }
 
 /**

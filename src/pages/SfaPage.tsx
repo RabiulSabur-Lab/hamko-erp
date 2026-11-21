@@ -62,6 +62,8 @@ import {
   reconcileVisitsWithRemote,
   reconcileOrdersWithRemote,
   reconcileSalesTargetsWithRemote,
+  reconcileUsersWithRemote,
+  getVisits,
   getAreas,
   type Area,
   r2,
@@ -92,11 +94,11 @@ export function SfaPage() {
   const { getUserName } = useUsers();
   const [tab, setTab] = useState("visits");
   const [loading, setLoading] = useState<boolean>(true);
-  const [visits, setVisits] = useState<Visit[]>([]);
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [targets, setTargets] = useState<SalesTarget[]>([]);
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [users, setUsers] = useState<UserProfile[]>([]);
+  const [visits, setVisits] = useState<Visit[]>(() => getVisits());
+  const [customers, setCustomers] = useState<Customer[]>(() => getCustomers());
+  const [targets, setTargets] = useState<SalesTarget[]>(() => getLocalData<SalesTarget[]>(STORAGE_KEYS.TARGETS, []));
+  const [orders, setOrders] = useState<Order[]>(() => getOrders());
+  const [users, setUsers] = useState<UserProfile[]>(() => getLocalData<UserProfile[]>(STORAGE_KEYS.USERS, []));
   const [isOfflineMode, setIsOfflineMode] = useState<boolean>(() => typeof navigator !== "undefined" && !navigator.onLine);
 
   // Route Plan State
@@ -222,7 +224,12 @@ export function SfaPage() {
       if (!tRes.error && Array.isArray(tRes.data)) {
         setTargets(tRes.data as SalesTarget[]);
       }
-      if (uRes.data) setUsers(uRes.data as UserProfile[]);
+      if (uRes.data && Array.isArray(uRes.data)) {
+        const reconciledUsers = reconcileUsersWithRemote(uRes.data as any[], { persist: true });
+        setUsers(reconciledUsers as UserProfile[]);
+      } else {
+        setUsers(getLocalData<UserProfile[]>(STORAGE_KEYS.USERS, []));
+      }
 
       if (!oRes.error && Array.isArray(oRes.data)) {
         setOrders(oRes.data as Order[]);

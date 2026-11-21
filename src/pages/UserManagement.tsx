@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -25,11 +25,13 @@ import {
   Pencil,
   Trash2,
   Phone,
+  RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth";
 import { useI18n } from "@/lib/i18n";
+import { useAutoSync } from "@/hooks/useAutoSync";
 import {
   type SystemRole,
   type ManagedUser,
@@ -37,6 +39,7 @@ import {
   getUserDisplayCode,
   getStoredUsers,
   fetchManagedUsers,
+  mergeAndEnrichUsers,
   updateManagedUser,
   deleteManagedUser,
   createManagedUser,
@@ -50,9 +53,11 @@ export function UserManagement() {
   const { t } = useI18n();
 
   const [users, setUsers] = useState<ManagedUser[]>(() => getStoredUsers());
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => getStoredUsers().length === 0);
+  const [syncing, setSyncing] = useState(false);
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
+  const mutationVersionRef = useRef(0);
 
   // Create Modal State
   const [modalOpen, setModalOpen] = useState(false);
@@ -97,22 +102,46 @@ export function UserManagement() {
     newPassword: "",
   });
 
-  // Load and reconcile users from Supabase and local store
-  async function loadUsers() {
-    setLoading(true);
+  // Load and reconcile users from Supabase and local store without wiping optimistic mutations
+  const loadUsers = useCallback(async (isManual = false) => {
+    const startVersion = mutationVersionRef.current;
+    if (isManual) {
+      setSyncing(true);
+    } else if (getStoredUsers().length === 0) {
+      setLoading(true);
+    }
+
     try {
       const reconciled = await fetchManagedUsers();
-      setUsers(reconciled);
+      // Always merge with the latest local store snapshot so in-flight mutations are never lost
+      const latestLocal = getStoredUsers();
+      const safeMerged =
+        mutationVersionRef.current !== startVersion
+          ? mergeAndEnrichUsers(reconciled, latestLocal)
+          : reconciled.length >= latestLocal.length
+            ? reconciled
+            : mergeAndEnrichUsers(reconciled, latestLocal);
+      setUsers(safeMerged);
+      if (isManual) {
+        toast.success("User directory synchronized!");
+      }
     } catch (err) {
       console.warn("User fetch notice, using local store:", err);
       setUsers(getStoredUsers());
     } finally {
       setLoading(false);
+      setSyncing(false);
     }
-  }
+  }, []);
+
+  useAutoSync(
+    useCallback(() => {
+      setUsers(getStoredUsers());
+    }, []),
+  );
 
   useEffect(() => {
-    loadUsers();
+    void loadUsers(false);
 
     const handleStorageUpdate = () => {
       setUsers(getStoredUsers());
@@ -124,7 +153,7 @@ export function UserManagement() {
     const usersChannel = supabase
       .channel("users-page-realtime")
       .on("postgres_changes", { event: "*", schema: "public", table: "users" }, () => {
-        loadUsers();
+        void loadUsers(false);
       })
       .subscribe();
 
@@ -133,16 +162,23 @@ export function UserManagement() {
       window.removeEventListener("sales_erp_storage_update", handleStorageUpdate);
       window.removeEventListener("storage", handleStorageUpdate);
     };
-  }, []);
+  }, [loadUsers]);
 
   // Filtered users for table
   const filteredUsers = useMemo(() => {
+    const q = search.toLowerCase();
     return users.filter((u) => {
+      const fullName = String(u.full_name || "").toLowerCase();
+      const email = String(u.email || "").toLowerCase();
+      const phone = String(u.phone || "").toLowerCase();
+      const roleStr = String(u.role_name || u.role || "").toLowerCase();
+
       const matchesSearch =
-        u.full_name.toLowerCase().includes(search.toLowerCase()) ||
-        u.email.toLowerCase().includes(search.toLowerCase()) ||
-        (u.phone && u.phone.toLowerCase().includes(search.toLowerCase())) ||
-        (u.role_name || u.role).toLowerCase().includes(search.toLowerCase());
+        !q ||
+        fullName.includes(q) ||
+        email.includes(q) ||
+        phone.includes(q) ||
+        roleStr.includes(q);
 
       const normalizedRole = (u.role || u.role_name || "").toLowerCase().replace(/[\s_-]+/g, "");
       let matchesRole = true;
@@ -150,7 +186,7 @@ export function UserManagement() {
         if (roleFilter === "super_admin") {
           matchesRole = normalizedRole.includes("admin");
         } else if (roleFilter === "sales_officer") {
-          matchesRole = normalizedRole.includes("officer") || normalizedRole === "so";
+          matchesRole = normalizedRole.includes("officer") || normalizedRole === "so" || !normalizedRole.includes("admin");
         }
       }
 
@@ -249,6 +285,7 @@ export function UserManagement() {
     }
 
     setSubmitting(true);
+    mutationVersionRef.current += 1;
 
     try {
       const { user: newUser } = await createManagedUser({
@@ -260,8 +297,12 @@ export function UserManagement() {
         is_active: formData.is_active,
       });
 
-      // Update local state immediately
-      setUsers((prev) => [newUser, ...prev.filter((u) => u.id !== newUser.id && u.email.toLowerCase() !== email)]);
+      mutationVersionRef.current += 1;
+      // Update local state immediately from authoritative reconciled localStore
+      setUsers((prev) => [
+        newUser,
+        ...prev.filter((u) => u.id !== newUser.id && (u.email || "").toLowerCase() !== email),
+      ]);
 
       // Explicit React-Query cache invalidation
       await queryClient.invalidateQueries({ queryKey: ["users"] });
@@ -318,6 +359,7 @@ export function UserManagement() {
     const finalIsActive = isEditingSelf ? true : editForm.is_active;
 
     setSavingEdit(true);
+    mutationVersionRef.current += 1;
     try {
       const result = await updateManagedUser(
         editingUser,
@@ -332,12 +374,13 @@ export function UserManagement() {
         currentAuthUser
       );
 
+      mutationVersionRef.current += 1;
       // Instantly update table row and user state without manual reload
       setUsers((prev) =>
         prev.map((u) =>
           u.id === editingUser.id ||
           u.id === result.user.id ||
-          u.email.toLowerCase() === editingUser.email.toLowerCase()
+          (u.email || "").toLowerCase() === editingUser.email.toLowerCase()
             ? result.user
             : u
         )
@@ -387,12 +430,14 @@ export function UserManagement() {
     );
     if (!confirmed) return;
 
+    mutationVersionRef.current += 1;
     try {
       await deleteManagedUser(user, currentAuthUser);
+      mutationVersionRef.current += 1;
 
       // Instantly remove row from DOM and update KPI counter metrics
       setUsers((prev) =>
-        prev.filter((u) => u.id !== user.id && u.email.toLowerCase() !== user.email.toLowerCase())
+        prev.filter((u) => u.id !== user.id && (u.email || "").toLowerCase() !== (user.email || "").toLowerCase())
       );
 
       // Explicit React-Query cache invalidation
@@ -455,14 +500,26 @@ export function UserManagement() {
             Super Admin portal to provision and manage system users (Super Admin & Sales Officer accounts).
           </p>
         </div>
-        <Button
-          onClick={() => setModalOpen(true)}
-          className="gap-1.5 shadow-sm"
-          size="sm"
-        >
-          <UserPlus className="h-4 w-4" />
-          + Add New User
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void loadUsers(true)}
+            disabled={syncing}
+            className="gap-1.5"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
+            Live Sync
+          </Button>
+          <Button
+            onClick={() => setModalOpen(true)}
+            className="gap-1.5 shadow-sm"
+            size="sm"
+          >
+            <UserPlus className="h-4 w-4" />
+            + Add New User
+          </Button>
+        </div>
       </div>
 
       {/* Summary KPI Cards */}
@@ -535,7 +592,7 @@ export function UserManagement() {
       {/* Users Table */}
       <Card className="overflow-hidden">
         <CardContent className="p-0">
-          {loading ? (
+          {loading && users.length === 0 ? (
             <div className="flex h-64 items-center justify-center">
               <Loader2 className="h-6 w-6 animate-spin text-primary" />
             </div>

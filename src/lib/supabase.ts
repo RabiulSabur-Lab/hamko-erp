@@ -507,11 +507,19 @@ if (typeof window !== "undefined") {
  */
 export function createSecondaryAuthClient() {
   try {
+    const isolatedMemoryStorage = {
+      getItem: (_key: string) => null,
+      setItem: (_key: string, _value: string) => {},
+      removeItem: (_key: string) => {},
+    };
     return createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       auth: {
+        storageKey: "hamko-secondary-user-provisioning-auth",
+        storage: isolatedMemoryStorage,
         persistSession: false,
         autoRefreshToken: false,
         detectSessionInUrl: false,
+        lock: safeAuthLock,
       },
     });
   } catch (err) {

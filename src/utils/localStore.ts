@@ -2728,47 +2728,191 @@ export function reconcileNotificationsWithRemote(
 }
 
 /**
- * Cloud-Authoritative reconciler for Users directory.
+ * Normalizes a raw user record into a consistent ManagedUser object with guaranteed
+ * id, email, full_name, role ("super_admin" | "sales_officer"), and role_name.
+ */
+function normalizeUserEntry(raw: any): any | null {
+  if (!raw || typeof raw !== "object") return null;
+  const rawId = raw.id ? String(raw.id).trim() : "";
+  const rawEmail = raw.email ? String(raw.email).trim().toLowerCase() : "";
+  if (!rawId && !rawEmail) return null;
+
+  const isNilOrPlaceholder =
+    !rawId ||
+    rawId === "00000000-0000-0000-0000-000000000000" ||
+    /^0+$/.test(rawId.replace(/-/g, "")) ||
+    rawId.startsWith("dummy-") ||
+    rawId.startsWith("temp-") ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawId);
+
+  const resolvedId = isNilOrPlaceholder ? generateUUID() : rawId;
+  const rawRoleStr = String(raw.role_name || raw.roleName || raw.role || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, "");
+  const isSuperAdmin = rawRoleStr.includes("admin");
+  const normalizedRole = isSuperAdmin ? "super_admin" : "sales_officer";
+  const normalizedRoleName =
+    raw.role_name && ["Super Admin", "Sales Manager", "Sales Officer", "Distributor", "Accountant"].includes(raw.role_name)
+      ? raw.role_name
+      : isSuperAdmin
+        ? "Super Admin"
+        : "Sales Officer";
+
+  const fullName =
+    String(raw.full_name || raw.fullName || raw.name || "").trim() ||
+    (rawEmail ? rawEmail.split("@")[0] : "User");
+
+  const clone = {
+    ...raw,
+    id: resolvedId,
+    email: rawEmail,
+    full_name: fullName,
+    phone: raw.phone !== undefined ? raw.phone : null,
+    role: normalizedRole,
+    role_name: normalizedRoleName,
+    is_active: raw.is_active !== false,
+    created_at: raw.created_at || new Date().toISOString(),
+    updated_at: raw.updated_at || raw.created_at || new Date().toISOString(),
+  };
+  delete clone.password;
+  return clone;
+}
+
+/**
+ * Cloud-Authoritative reconciler for Users directory with strict Local-First & Cold-Start protection.
+ * Matches records by both `id` and `email`, preserves local unsynced/newly-created users,
+ * respects DELETED_USERS tombstones (by ID and email), and guarantees normalized role/role_name fields.
  */
 export function reconcileUsersWithRemote(
   remoteUsers: any[],
   options?: { persist?: boolean; incremental?: boolean },
 ): any[] {
   const deletedUserIds = getDeletedIds(STORAGE_KEYS.DELETED_USERS);
-  const currentLocal = getLocalData<any[]>(STORAGE_KEYS.USERS, []).filter(
-    (u) => Boolean(u && u.id) && !deletedUserIds.has(String(u.id)),
-  );
-  const validRemote = (Array.isArray(remoteUsers) ? remoteUsers : []).filter(
-    (u) => Boolean(u && u.id) && !deletedUserIds.has(String(u.id)),
-  );
+  const isDeletedUser = (u: any): boolean => {
+    if (!u || typeof u !== "object") return true;
+    const uid = u.id ? String(u.id).trim() : "";
+    const uemail = u.email ? String(u.email).trim().toLowerCase() : "";
+    if (uid && (deletedUserIds.has(uid) || deletedUserIds.has(uid.toLowerCase()))) return true;
+    if (uemail && deletedUserIds.has(uemail)) return true;
+    return false;
+  };
 
-  if (options?.incremental) {
-    const map = new Map<string, any>();
-    currentLocal.forEach((u) => {
-      if (u && u.id) map.set(String(u.id), u);
-    });
-    for (const ru of validRemote) {
-      const existing = map.get(String(ru.id));
-      if (!existing || isRemoteAuthoritative(ru, existing)) {
-        map.set(String(ru.id), { ...(existing || {}), ...ru });
+  const currentLocal = getLocalData<any[]>(STORAGE_KEYS.USERS, [])
+    .map((u) => normalizeUserEntry(u))
+    .filter((u) => Boolean(u) && !isDeletedUser(u));
+
+  const validRemote = (Array.isArray(remoteUsers) ? remoteUsers : [])
+    .map((u) => normalizeUserEntry(u))
+    .filter((u) => Boolean(u) && !isDeletedUser(u));
+
+  const localById = new Map<string, any>();
+  const localByEmail = new Map<string, any>();
+  currentLocal.forEach((lu) => {
+    if (lu.id) localById.set(String(lu.id), lu);
+    if (lu.email) localByEmail.set(String(lu.email).toLowerCase(), lu);
+  });
+
+  const mergedById = new Map<string, any>();
+  const seenEmails = new Map<string, string>(); // email -> id in mergedById
+
+  const upsertIntoMerged = (userObj: any) => {
+    if (!userObj || !userObj.id) return;
+    const uid = String(userObj.id);
+    const uemail = userObj.email ? String(userObj.email).toLowerCase() : "";
+    if (uemail && seenEmails.has(uemail)) {
+      const existingId = seenEmails.get(uemail)!;
+      const existingObj = mergedById.get(existingId);
+      if (existingObj) {
+        const merged = isRemoteAuthoritative(userObj, existingObj)
+          ? { ...existingObj, ...userObj, id: existingObj.id }
+          : { ...userObj, ...existingObj };
+        mergedById.set(existingObj.id, merged);
+        return;
       }
     }
-    const result = Array.from(map.values()).sort(
-      (a, b) => (a.full_name || "").localeCompare(b.full_name || ""),
-    );
-    if (options?.persist !== false) {
-      setLocalData(STORAGE_KEYS.USERS, result, null, false);
+    mergedById.set(uid, userObj);
+    if (uemail) seenEmails.set(uemail, uid);
+  };
+
+  if (options?.incremental) {
+    currentLocal.forEach((lu) => upsertIntoMerged(lu));
+    for (const ru of validRemote) {
+      const uemail = ru.email ? String(ru.email).toLowerCase() : "";
+      const existing =
+        localById.get(String(ru.id)) ||
+        (uemail ? localByEmail.get(uemail) : undefined);
+      if (!existing) {
+        upsertIntoMerged(ru);
+      } else if (isRemoteAuthoritative(ru, existing)) {
+        upsertIntoMerged({
+          ...existing,
+          ...ru,
+          id: existing.id || ru.id,
+          role: ru.role || existing.role,
+          role_name: ru.role_name || existing.role_name,
+        });
+      } else {
+        upsertIntoMerged({
+          ...ru,
+          ...existing,
+          id: existing.id || ru.id,
+        });
+      }
     }
-    return result;
+  } else {
+    // Process remote users while respecting local pending/newer modifications
+    for (const ru of validRemote) {
+      const uemail = ru.email ? String(ru.email).toLowerCase() : "";
+      const localMatch =
+        localById.get(String(ru.id)) ||
+        (uemail ? localByEmail.get(uemail) : undefined);
+
+      if (localMatch) {
+        if (!isRemoteAuthoritative(ru, localMatch)) {
+          // Local record is unsynced/offline or newer — preserve local modifications
+          upsertIntoMerged({
+            ...ru,
+            ...localMatch,
+            id: localMatch.id || ru.id,
+            email: localMatch.email || ru.email,
+            full_name: localMatch.full_name || ru.full_name,
+            phone: localMatch.phone !== undefined ? localMatch.phone : ru.phone,
+            role: localMatch.role || ru.role,
+            role_name: localMatch.role_name || ru.role_name,
+            is_active: localMatch.is_active !== undefined ? localMatch.is_active : ru.is_active,
+          });
+        } else {
+          upsertIntoMerged({
+            ...localMatch,
+            ...ru,
+            id: ru.id || localMatch.id,
+            phone: ru.phone !== null && ru.phone !== undefined ? ru.phone : localMatch.phone,
+            role: ru.role || localMatch.role,
+            role_name: ru.role_name || localMatch.role_name,
+            _unsynced: false,
+            is_offline: false,
+          });
+        }
+      } else {
+        upsertIntoMerged(ru);
+      }
+    }
+
+    // Strictly preserve all locally created users that are not yet present in remote
+    for (const lu of currentLocal) {
+      const uid = String(lu.id);
+      const uemail = lu.email ? String(lu.email).toLowerCase() : "";
+      if (!mergedById.has(uid) && (!uemail || !seenEmails.has(uemail))) {
+        upsertIntoMerged(lu);
+      }
+    }
   }
 
-  const remoteIdSet = new Set(validRemote.map((u) => String(u.id)));
-  const localNotOnRemote = currentLocal.filter(
-    (lu) => lu && !remoteIdSet.has(String(lu.id))
+  const reconciled = Array.from(mergedById.values()).sort(
+    (a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime(),
   );
-  const reconciled = [...localNotOnRemote, ...validRemote].sort(
-    (a, b) => (a.full_name || "").localeCompare(b.full_name || ""),
-  );
+
   if (options?.persist !== false) {
     setLocalData(STORAGE_KEYS.USERS, reconciled, null, false);
   }

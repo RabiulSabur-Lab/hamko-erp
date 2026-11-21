@@ -1,5 +1,6 @@
 import { supabase, createSecondaryAuthClient } from "@/lib/supabase";
 import { withQueryTimeout } from "@/lib/supabaseQuery";
+import { sanitizeUserPayload, executeWithSchemaResilience } from "@/lib/payloadSanitizer";
 import {
   STORAGE_KEYS,
   getLocalData,
@@ -7,6 +8,7 @@ import {
   getDeletedIds,
   saveDeletedId,
   removeDeletedId,
+  broadcastCrossTabSync,
 } from "@/utils/localStore";
 import { TTL } from "@/lib/storageManager";
 
@@ -19,11 +21,15 @@ export interface ManagedUser {
   phone?: string | null;
   role: SystemRole | string;
   role_name?: string;
+  territory_id?: string | null;
   is_active?: boolean;
   created_at: string;
   updated_at?: string;
   employee_id?: string;
   employee_code?: string;
+  _unsynced?: boolean;
+  is_offline?: boolean;
+  _modifiedAt?: number;
 }
 
 export interface StoredAuthCredential {
@@ -245,16 +251,18 @@ export function generateUUID(): string {
 
 /**
  * Checks whether an ID string is a legacy placeholder or dummy zeroed ID.
+ * Note: Preserves valid non-nil PostgreSQL UUIDs such as 00000000-0000-0000-0000-000000000001
+ * and 00000000-0000-0000-0000-000000000002 which are the seeded primary keys in public.users.
  */
 export function isPlaceholderUUID(id?: string | null): boolean {
-  if (!id) return true;
+  if (!id || typeof id !== "string") return true;
   const clean = id.trim().toLowerCase();
   return (
     clean === "00000000-0000-0000-0000-000000000000" ||
-    clean.startsWith("00000000-") ||
     /^0+$/.test(clean.replace(/-/g, "")) ||
     clean.startsWith("dummy-") ||
-    clean.startsWith("temp-")
+    clean.startsWith("temp-") ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(clean)
   );
 }
 
@@ -438,8 +446,52 @@ export function getSalesOfficerById(id: string | null | undefined): ManagedUser 
 }
 
 /**
+ * Normalizes a raw user object into a complete ManagedUser record with guaranteed
+ * id, email, full_name, role ("super_admin" | "sales_officer"), and role_name.
+ */
+export function normalizeManagedUserRecord(raw: any): ManagedUser | null {
+  if (!raw || typeof raw !== "object") return null;
+  const rawId = raw.id ? String(raw.id).trim() : "";
+  const rawEmail = raw.email ? String(raw.email).trim().toLowerCase() : "";
+  if (!rawId && !rawEmail) return null;
+
+  const resolvedId = isPlaceholderUUID(rawId) ? normalizeUserId(rawId, rawEmail) : rawId;
+  const rawRoleStr = String(raw.role_name || raw.roleName || raw.role || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, "");
+  const isSuperAdmin = rawRoleStr.includes("admin");
+  const normalizedRole: SystemRole = isSuperAdmin ? "super_admin" : "sales_officer";
+  const normalizedRoleName =
+    raw.role_name && ["Super Admin", "Sales Manager", "Sales Officer", "Distributor", "Accountant"].includes(raw.role_name)
+      ? raw.role_name
+      : isSuperAdmin
+        ? "Super Admin"
+        : "Sales Officer";
+
+  const fullName =
+    String(raw.full_name || raw.fullName || raw.name || "").trim() ||
+    (rawEmail ? rawEmail.split("@")[0] : "User");
+
+  const cleaned = sanitizeManagedUser({
+    ...raw,
+    id: resolvedId,
+    email: rawEmail,
+    full_name: fullName,
+    phone: raw.phone !== undefined ? raw.phone : null,
+    role: normalizedRole,
+    role_name: normalizedRoleName,
+    is_active: raw.is_active !== false,
+    created_at: raw.created_at || new Date().toISOString(),
+    updated_at: raw.updated_at || raw.created_at || new Date().toISOString(),
+  }) as ManagedUser;
+
+  return cleaned;
+}
+
+/**
  * Returns current locally stored users, filtering out any deleted/tombstoned IDs or emails,
- * and automatically migrating any legacy placeholder dummy IDs to proper unique UUIDs.
+ * deduplicating by both ID and email, and normalizing fields for zero-error rendering.
  */
 export function getStoredUsers(): ManagedUser[] {
   const deleted = getDeletedIds(STORAGE_KEYS.DELETED_USERS);
@@ -447,19 +499,61 @@ export function getStoredUsers(): ManagedUser[] {
 
   let hasReplacements = false;
   if (Array.isArray(cached) && cached.length > 0) {
-    const valid = cached
-      .filter((u) => !deleted.has(u.id) && !deleted.has((u.email || "").toLowerCase()))
-      .map((u) => {
-        let clean = sanitizeManagedUser(u) as ManagedUser;
-        if (isPlaceholderUUID(clean.id)) {
-          hasReplacements = true;
-          const newId = normalizeUserId(clean.id, clean.email);
-          migrateUserReferences(clean.id, newId);
-          clean = { ...clean, id: newId };
-        }
-        return clean;
-      });
+    const byId = new Map<string, ManagedUser>();
+    const emailToId = new Map<string, string>();
 
+    for (const raw of cached) {
+      if (!raw || typeof raw !== "object") continue;
+      const rawId = raw.id ? String(raw.id).trim() : "";
+      const rawEmail = raw.email ? String(raw.email).trim().toLowerCase() : "";
+      if ((rawId && (deleted.has(rawId) || deleted.has(rawId.toLowerCase()))) || (rawEmail && deleted.has(rawEmail))) {
+        continue;
+      }
+
+      if (isPlaceholderUUID(rawId)) {
+        hasReplacements = true;
+      }
+
+      const normalized = normalizeManagedUserRecord(raw);
+      if (!normalized) continue;
+
+      if (rawId && normalized.id !== rawId) {
+        migrateUserReferences(rawId, normalized.id);
+      }
+
+      if (!raw.role || !raw.role_name || !raw.full_name) {
+        hasReplacements = true;
+      }
+
+      // Deduplicate by email and ID
+      if (normalized.email && emailToId.has(normalized.email)) {
+        hasReplacements = true;
+        const existingId = emailToId.get(normalized.email)!;
+        const existing = byId.get(existingId);
+        if (existing) {
+          const existingTs = Number(existing._modifiedAt || Date.parse(existing.updated_at || existing.created_at || "") || 0);
+          const candidateTs = Number(normalized._modifiedAt || Date.parse(normalized.updated_at || normalized.created_at || "") || 0);
+          const merged = candidateTs > existingTs
+            ? { ...existing, ...normalized, id: existing.id }
+            : { ...normalized, ...existing };
+          byId.set(existing.id, merged);
+          continue;
+        }
+      }
+
+      if (byId.has(normalized.id)) {
+        hasReplacements = true;
+        const existing = byId.get(normalized.id)!;
+        byId.set(normalized.id, { ...existing, ...normalized });
+      } else {
+        byId.set(normalized.id, normalized);
+        if (normalized.email) {
+          emailToId.set(normalized.email, normalized.id);
+        }
+      }
+    }
+
+    const valid = Array.from(byId.values());
     if (valid.length > 0) {
       if (hasReplacements) {
         // Silent write during read-only getter migration to prevent synchronous event recursion
@@ -472,7 +566,9 @@ export function getStoredUsers(): ManagedUser[] {
   // Fallback to default users (excluding any deleted ones) without dispatching events from a getter
   const defaults = DEFAULT_SYSTEM_USERS.filter(
     (du) => !deleted.has(du.id) && !deleted.has(du.email.toLowerCase())
-  ).map((du) => sanitizeManagedUser(du) as ManagedUser);
+  )
+    .map((du) => normalizeManagedUserRecord(du))
+    .filter((du): du is ManagedUser => Boolean(du));
   if (defaults.length > 0) {
     setLocalData(STORAGE_KEYS.USERS, defaults, TTL.PERMANENT, true);
   }
@@ -482,11 +578,97 @@ export function getStoredUsers(): ManagedUser[] {
 /**
  * Persists users to localStorage and triggers storage update events for live UI reactivity.
  * Uses TTL.PERMANENT so created and updated user accounts NEVER expire or disappear.
- * Strips any sensitive password properties before storage.
+ * Strips any sensitive password properties and normalizes all records before storage.
  */
 export function saveStoredUsers(users: ManagedUser[], silent = false): void {
-  const sanitized = users.map((u) => sanitizeManagedUser(u) as ManagedUser);
-  setLocalData(STORAGE_KEYS.USERS, sanitized, TTL.PERMANENT, silent);
+  const byId = new Map<string, ManagedUser>();
+  const seenEmails = new Set<string>();
+
+  for (const raw of users) {
+    const normalized = normalizeManagedUserRecord(raw);
+    if (!normalized) continue;
+    if (byId.has(normalized.id)) continue;
+    if (normalized.email && seenEmails.has(normalized.email)) continue;
+    byId.set(normalized.id, normalized);
+    if (normalized.email) seenEmails.add(normalized.email);
+  }
+
+  setLocalData(STORAGE_KEYS.USERS, Array.from(byId.values()), TTL.PERMANENT, silent);
+}
+
+/**
+ * Upserts a sanitized user payload to Supabase `public.users` with schema resilience
+ * and automatic conflict fallback on `id` or `email`.
+ */
+async function syncUserRecordToSupabase(user: ManagedUser, isInsert = false): Promise<{ synced: boolean; error?: any }> {
+  const cleanPayload = sanitizeUserPayload(
+    {
+      id: user.id,
+      email: user.email,
+      full_name: user.full_name,
+      phone: user.phone || null,
+      role_name: user.role_name || (user.role === "super_admin" ? "Super Admin" : "Sales Officer"),
+      territory_id: user.territory_id || null,
+      is_active: user.is_active !== false,
+      created_at: user.created_at || new Date().toISOString(),
+      updated_at: user.updated_at || new Date().toISOString(),
+    },
+    isInsert,
+  );
+
+  try {
+    const { error } = await withQueryTimeout(
+      executeWithSchemaResilience("users", cleanPayload, (p) =>
+        supabase.from("users").upsert(p, { onConflict: "id" }),
+      ),
+      8500,
+      "Upsert managed user to Supabase",
+    );
+
+    if (!error) {
+      return { synced: true };
+    }
+
+    // If unique email constraint (23505) triggered, retry conflict resolution on email
+    const errCode = String(error.code || "");
+    const errMsg = String(error.message || "").toLowerCase();
+    if (errCode === "23505" || errMsg.includes("users_email_key") || errMsg.includes("duplicate key")) {
+      const { error: emailUpsertErr } = await withQueryTimeout(
+        executeWithSchemaResilience("users", cleanPayload, (p) =>
+          supabase.from("users").upsert(p, { onConflict: "email" }),
+        ),
+        8500,
+        "Upsert managed user by email",
+      );
+      if (!emailUpsertErr) {
+        return { synced: true };
+      }
+      return { synced: false, error: emailUpsertErr };
+    }
+
+    return { synced: false, error };
+  } catch (err: any) {
+    return { synced: false, error: err };
+  }
+}
+
+function broadcastUserDirectoryMutation(type: "user_created" | "user_updated" | "user_deleted", userId: string, user?: ManagedUser): void {
+  if (typeof window === "undefined") return;
+  try {
+    const detail = {
+      key: STORAGE_KEYS.USERS,
+      table: "users",
+      type,
+      id: userId,
+      userId,
+      user,
+    };
+    window.dispatchEvent(new CustomEvent("sales_erp_storage_update", { detail }));
+    window.dispatchEvent(new CustomEvent("erp_mutation", { detail }));
+    broadcastCrossTabSync({ key: STORAGE_KEYS.USERS, detail });
+  } catch {
+    // ignore event dispatch errors
+  }
 }
 
 /**
@@ -654,36 +836,67 @@ export function verifyLocalCredential(
 
 /**
  * Merges remote Supabase users with local user changes.
+ * Strictly preserves locally created and edited users by matching on both `id` and `email`.
  */
 export function mergeAndEnrichUsers(
   remoteUsers: ManagedUser[],
   localUsers?: ManagedUser[]
 ): ManagedUser[] {
   const deleted = getDeletedIds(STORAGE_KEYS.DELETED_USERS);
-  const currentLocal = localUsers || getStoredUsers();
+  const isDeleted = (id?: string, email?: string) => {
+    const cleanId = id ? String(id).trim() : "";
+    const cleanEmail = email ? String(email).trim().toLowerCase() : "";
+    if (cleanId && (deleted.has(cleanId) || deleted.has(cleanId.toLowerCase()))) return true;
+    if (cleanEmail && deleted.has(cleanEmail)) return true;
+    return false;
+  };
+
+  const currentLocal = (localUsers || getStoredUsers())
+    .map((u) => normalizeManagedUserRecord(u))
+    .filter((u): u is ManagedUser => Boolean(u) && !isDeleted(u?.id, u?.email));
 
   const localById = new Map<string, ManagedUser>();
   const localByEmail = new Map<string, ManagedUser>();
   currentLocal.forEach((u) => {
-    localById.set(u.id, u);
-    localByEmail.set(u.email.toLowerCase(), u);
+    if (u.id) localById.set(String(u.id), u);
+    if (u.email) localByEmail.set(u.email.toLowerCase(), u);
   });
 
   const mergedMap = new Map<string, ManagedUser>();
+  const seenEmails = new Map<string, string>();
+
+  const registerMerged = (user: ManagedUser) => {
+    const norm = normalizeManagedUserRecord(user);
+    if (!norm || isDeleted(norm.id, norm.email)) return;
+    if (norm.email && seenEmails.has(norm.email)) {
+      const existingId = seenEmails.get(norm.email)!;
+      const existing = mergedMap.get(existingId);
+      if (existing) {
+        mergedMap.set(existing.id, { ...norm, ...existing, id: existing.id });
+        return;
+      }
+    }
+    mergedMap.set(norm.id, norm);
+    if (norm.email) seenEmails.set(norm.email, norm.id);
+  };
 
   // Process remote users
-  (remoteUsers || []).forEach((ru) => {
-    if (deleted.has(ru.id) || deleted.has((ru.email || "").toLowerCase())) {
+  (remoteUsers || []).forEach((rawRemote) => {
+    const ru = normalizeManagedUserRecord(rawRemote);
+    if (!ru || isDeleted(ru.id, ru.email)) {
       return; // Skip deleted users
     }
 
-    const rawId = ru.id;
-    const resolvedId = normalizeUserId(rawId, ru.email);
+    const rawId = rawRemote.id ? String(rawRemote.id).trim() : ru.id;
+    const resolvedId = ru.id;
     if (rawId && resolvedId !== rawId) {
       migrateUserReferences(rawId, resolvedId);
     }
 
-    const localMatch = localById.get(resolvedId) || localById.get(rawId) || localByEmail.get((ru.email || "").toLowerCase());
+    const localMatch =
+      localById.get(resolvedId) ||
+      localById.get(rawId) ||
+      (ru.email ? localByEmail.get(ru.email.toLowerCase()) : undefined);
 
     if (localMatch) {
       // Local changes take precedence over stale remote tables (especially if RLS prevented remote update)
@@ -697,44 +910,42 @@ export function mergeAndEnrichUsers(
         role: localMatch.role || ru.role,
         role_name: localMatch.role_name || ru.role_name,
         is_active: localMatch.is_active !== undefined ? localMatch.is_active : ru.is_active,
+        created_at: localMatch.created_at || ru.created_at,
         updated_at: localMatch.updated_at || ru.updated_at || new Date().toISOString(),
       };
-      mergedMap.set(merged.id, merged);
+      registerMerged(merged);
     } else {
-      mergedMap.set(resolvedId, { ...ru, id: resolvedId });
+      registerMerged({ ...ru, id: resolvedId });
     }
   });
 
   // Preserve local users that weren't in remote (e.g. newly created or offline)
   currentLocal.forEach((lu) => {
-    if (deleted.has(lu.id) || deleted.has((lu.email || "").toLowerCase())) {
+    if (isDeleted(lu.id, lu.email)) {
       return;
     }
     const resolvedLocalId = normalizeUserId(lu.id, lu.email);
     if (resolvedLocalId !== lu.id) {
       migrateUserReferences(lu.id, resolvedLocalId);
     }
-    const normalizedUser = { ...lu, id: resolvedLocalId };
-    if (!mergedMap.has(resolvedLocalId) && !Array.from(mergedMap.values()).some((m) => m.email.toLowerCase() === lu.email.toLowerCase())) {
-      mergedMap.set(resolvedLocalId, normalizedUser);
+    const normalizedUser: ManagedUser = { ...lu, id: resolvedLocalId };
+    if (!mergedMap.has(resolvedLocalId) && (!normalizedUser.email || !seenEmails.has(normalizedUser.email.toLowerCase()))) {
+      registerMerged(normalizedUser);
     }
   });
 
   // Ensure default system accounts exist if neither present nor deleted
   DEFAULT_SYSTEM_USERS.forEach((du) => {
-    if (deleted.has(du.id) || deleted.has(du.email.toLowerCase())) {
+    if (isDeleted(du.id, du.email)) {
       return;
     }
-    const hasEmail = Array.from(mergedMap.values()).some(
-      (m) => m.email.toLowerCase() === du.email.toLowerCase()
-    );
-    if (!mergedMap.has(du.id) && !hasEmail) {
-      mergedMap.set(du.id, du);
+    if (!mergedMap.has(du.id) && (!du.email || !seenEmails.has(du.email.toLowerCase()))) {
+      registerMerged(du);
     }
   });
 
   const result = Array.from(mergedMap.values()).map((u) => sanitizeManagedUser(u) as ManagedUser);
-  result.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  result.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
 
   // Save the reconciled state silently to prevent event recursion
   saveStoredUsers(result, true);
@@ -890,40 +1101,21 @@ export async function updateManagedUser(
     }
   }
 
-  // 2. Update Supabase `users` table (aligned with schema_full.sql + explicit timeout)
-  try {
-    const { error: usersErr } = await withQueryTimeout(
-      supabase.from("users").upsert({
-        id: targetId,
-        email: updates.email,
-        full_name: updates.fullName,
-        phone: updates.phone || null,
-        role_name: roleLabel,
-        is_active: updates.is_active,
-        updated_at: now,
-      }),
-      8500,
-      "Update managed user",
-    );
-    if (usersErr) {
-      console.warn("Supabase users update notice (RLS):", usersErr.message);
-    }
-  } catch (err: any) {
-    console.warn("Users table update error:", err?.message);
-  }
-
-  // 4. Update Local Storage Persistence immediately (guarantees zero UI lag & RLS resilience)
+  // 2. Update Local Storage Persistence immediately (guarantees zero UI lag & sync protection)
   const currentList = getStoredUsers();
   const updatedUser: ManagedUser = {
     ...editingUser,
     id: targetId,
-    email: updates.email,
-    full_name: updates.fullName,
-    phone: updates.phone || null,
+    email: updates.email.trim().toLowerCase(),
+    full_name: updates.fullName.trim(),
+    phone: updates.phone ? updates.phone.trim() : null,
     role: updates.role,
     role_name: roleLabel,
     is_active: updates.is_active,
     updated_at: now,
+    _modifiedAt: Date.now(),
+    _unsynced: true,
+    is_offline: true,
   };
 
   let found = false;
@@ -944,6 +1136,23 @@ export async function updateManagedUser(
   }
 
   saveStoredUsers(updatedList);
+
+  // 3. Dual-Write to Supabase `users` table via sanitized schema-resilient executor
+  const syncRes = await syncUserRecordToSupabase(updatedUser, false);
+  if (syncRes.synced) {
+    updatedUser._unsynced = false;
+    updatedUser.is_offline = false;
+    const syncedList = getStoredUsers().map((u) =>
+      u.id === updatedUser.id || u.email.toLowerCase() === updatedUser.email.toLowerCase()
+        ? { ...u, ...updatedUser, _unsynced: false, is_offline: false }
+        : u,
+    );
+    saveStoredUsers(syncedList, true);
+  } else if (syncRes.error) {
+    console.warn("Supabase users update notice (local cache protected):", syncRes.error?.message || syncRes.error);
+  }
+
+  broadcastUserDirectoryMutation("user_updated", updatedUser.id, updatedUser);
 
   return { success: true, user: updatedUser, warning, credentialsUpdated };
 }
@@ -973,31 +1182,42 @@ export async function deleteManagedUser(
   // 2. Remove from auth credentials store
   removeAuthCredential(user.id, user.email);
 
-  // 3. Remove from Supabase `users` table (aligned with schema_full.sql + explicit timeout)
+  // 3. Update local storage persistence immediately
+  const currentList = getStoredUsers();
+  const remaining = currentList.filter(
+    (u) => u.id !== user.id && u.email.toLowerCase() !== user.email.toLowerCase()
+  );
+  saveStoredUsers(remaining);
+
+  // 4. Dual-Delete from Supabase `users` table (by ID and email fallback)
   try {
     const { error } = await withQueryTimeout(
       supabase.from("users").delete().eq("id", user.id),
       8500,
       "Delete managed user",
     );
-    if (error) console.warn("Supabase users delete notice (RLS):", error.message);
+    if (error) {
+      console.warn("Supabase users delete notice (RLS):", error.message);
+    }
+    if (user.email) {
+      await withQueryTimeout(
+        supabase.from("users").delete().eq("email", user.email.toLowerCase()),
+        5000,
+        "Delete managed user by email",
+      ).catch(() => {});
+    }
   } catch (err: any) {
     console.warn("Users delete notice:", err?.message);
   }
 
-  // 5. Update local storage persistence immediately
-  const currentList = getStoredUsers();
-  const remaining = currentList.filter(
-    (u) => u.id !== user.id && u.email.toLowerCase() !== user.email.toLowerCase()
-  );
-
-  saveStoredUsers(remaining);
+  broadcastUserDirectoryMutation("user_deleted", user.id, user);
 
   return { success: true };
 }
 
 /**
- * Creates a new user record via isolated Supabase Auth client, records to DB, and persists to local state.
+ * Creates a new user record via isolated Supabase Auth client, persists immediately to localStore
+ * with optimistic lock protection, performs a sanitized dual-write to Supabase `users`, and broadcasts global sync.
  */
 export async function createManagedUser(formData: {
   fullName: string;
@@ -1023,35 +1243,43 @@ export async function createManagedUser(formData: {
 
   let newUserId: string = generateUUID();
   try {
-    const { data: authData, error: authError } = await secondaryAuthClient.auth.signUp({
-      email,
-      password,
-      options: {
-        data: {
-          full_name: name,
-          phone: phone || null,
-          role: role,
-          role_name: roleLabel,
+    const { data: authData, error: authError } = await withQueryTimeout(
+      secondaryAuthClient.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            full_name: name,
+            phone: phone || null,
+            role: role,
+            role_name: roleLabel,
+          },
         },
-      },
-    });
+      }),
+      6500,
+      "Secondary auth sign-up",
+    );
 
     if (authError) {
       if (
         authError.message.toLowerCase().includes("already registered") ||
         authError.message.toLowerCase().includes("taken")
       ) {
-        throw new Error("This email is already registered in the system.");
+        // Check if already in active local users
+        const existingLocal = getStoredUsers().find((u) => u.email.toLowerCase() === email);
+        if (existingLocal) {
+          throw new Error("This email is already registered in the system.");
+        }
       }
       console.warn("Supabase auth.signUp notice:", authError.message);
-    } else if (authData.user?.id) {
+    } else if (authData?.user?.id && !isPlaceholderUUID(authData.user.id)) {
       newUserId = authData.user.id;
     }
   } catch (err: any) {
-    if (err.message.includes("already registered")) {
+    if (err?.message?.includes("already registered in the system")) {
       throw err;
     }
-    console.warn("Secondary auth client notice:", err.message);
+    console.warn("Secondary auth client notice:", err?.message || err);
   }
 
   // Remove potential tombstone on the new UUID
@@ -1067,9 +1295,12 @@ export async function createManagedUser(formData: {
     is_active: formData.is_active,
     created_at: now,
     updated_at: now,
+    _modifiedAt: Date.now(),
+    _unsynced: true,
+    is_offline: true,
   };
 
-  // Synchronize local auth credentials store
+  // 2. Synchronize local auth credentials & local users cache IMMEDIATELY (before table upsert)
   syncAuthCredential({
     id: newUserId,
     email,
@@ -1080,30 +1311,30 @@ export async function createManagedUser(formData: {
     is_active: formData.is_active,
   });
 
-  // 2. Insert into `users` table (aligned with schema_full.sql + explicit timeout)
-  try {
-    await withQueryTimeout(
-      supabase.from("users").upsert({
-        id: newUserId,
-        email,
-        full_name: name,
-        phone: phone || null,
-        role_name: roleLabel,
-        is_active: formData.is_active,
-        created_at: now,
-        updated_at: now,
-      }),
-      8500,
-      "Create managed user",
+  const currentList = getStoredUsers();
+  const updatedList = [
+    newUser,
+    ...currentList.filter((u) => u.id !== newUserId && u.email.toLowerCase() !== email),
+  ];
+  saveStoredUsers(updatedList);
+
+  // 3. Sanitized Dual-Write into Supabase `users` table via executeWithSchemaResilience
+  const syncRes = await syncUserRecordToSupabase(newUser, true);
+  if (syncRes.synced) {
+    newUser._unsynced = false;
+    newUser.is_offline = false;
+    const postSyncList = getStoredUsers().map((u) =>
+      u.id === newUser.id || u.email.toLowerCase() === email
+        ? { ...u, ...newUser, _unsynced: false, is_offline: false }
+        : u,
     );
-  } catch (err: any) {
-    console.info("Notice inserting into users table:", err?.message);
+    saveStoredUsers(postSyncList, true);
+  } else if (syncRes.error) {
+    console.info("Notice inserting into users table (local record protected):", syncRes.error?.message || syncRes.error);
   }
 
-  // 4. Update local storage
-  const currentList = getStoredUsers();
-  const updatedList = [newUser, ...currentList.filter((u) => u.id !== newUserId && u.email.toLowerCase() !== email)];
-  saveStoredUsers(updatedList);
+  // 4. Broadcast global sync events across all active contexts and tabs
+  broadcastUserDirectoryMutation("user_created", newUser.id, newUser);
 
   return { success: true, user: newUser };
 }
@@ -1163,53 +1394,10 @@ export function updatePasswordByEmail(email: string, newPassword: string): boole
 }
 
 /**
- * Dynamically fetches active Sales Officers directly from the users table
- * where role/role_name IN ('sales_officer', 'sales_rep', 'Sales Officer').
+ * Dynamically fetches active Sales Officers from the reconciled user directory
+ * (merging remote Supabase users with locally created/stored users).
  */
 export async function fetchActiveSalesOfficers(): Promise<ManagedUser[]> {
-  try {
-    const { data, error } = await withQueryTimeout(
-      supabase
-        .from("users")
-        .select("id, email, full_name, phone, role_name, is_active, created_at")
-        .eq("is_active", true),
-      8500,
-      "Active sales officers fetch",
-    );
-
-    if (!error && Array.isArray(data) && data.length > 0) {
-      const officers: ManagedUser[] = [];
-      data.forEach((u: any) => {
-        const rawRole = (u.role_name || u.role || "").toLowerCase().replace(/[\s_-]+/g, "");
-        const isSalesOfficer =
-          rawRole === "salesofficer" ||
-          rawRole === "salesrep" ||
-          rawRole.includes("officer") ||
-          rawRole.includes("rep") ||
-          (rawRole !== "superadmin" && !rawRole.includes("admin") && rawRole !== "accountant");
-
-        if (isSalesOfficer) {
-          officers.push({
-            id: u.id,
-            email: u.email,
-            full_name: u.full_name || u.name || "",
-            phone: u.phone || null,
-            role: "sales_officer",
-            role_name: u.role_name || "Sales Officer",
-            is_active: true,
-            created_at: u.created_at || new Date().toISOString(),
-          });
-        }
-      });
-      if (officers.length > 0) {
-        return officers;
-      }
-    }
-  } catch (err) {
-    console.warn("Direct query for active sales officers notice:", err);
-  }
-
-  // Fallback to fetchManagedUsers and DEFAULT_SYSTEM_USERS
   const all: ManagedUser[] = await fetchManagedUsers();
   const filtered = all.filter((u: ManagedUser) => {
     const rawRole = (u.role_name || u.role || "").toLowerCase().replace(/[\s_-]+/g, "");
@@ -1360,61 +1548,23 @@ export function buildUserLookupMap(
 export async function fetchAllUsersMap(
   existingMap: Record<string, UserLookupInfo> = {}
 ): Promise<Record<string, UserLookupInfo>> {
-  const nextMap: Record<string, UserLookupInfo> = { ...existingMap };
+  const nextMap: Record<string, UserLookupInfo> = {
+    ...buildUserLookupMap(),
+    ...existingMap,
+  };
   try {
-    const { data: usersData, error: usersErr } = await withQueryTimeout(
-      supabase
-        .from("users")
-        .select("id, full_name, email, phone, role_name, is_active, created_at")
-        .order("full_name"),
-      8500,
-      "Users map fetch",
-    );
-
-    if (!usersErr && Array.isArray(usersData) && usersData.length > 0) {
-      usersData.forEach((u: any) => {
-        if (u.id) {
-          nextMap[String(u.id)] = {
-            id: String(u.id),
-            full_name: u.full_name || u.name || nextMap[String(u.id)]?.full_name || "",
-            email: u.email || nextMap[String(u.id)]?.email,
-            role_name: u.role_name || nextMap[String(u.id)]?.role_name,
-          };
-        }
-      });
-
-      // Synchronize with stored users
-      const currentStored = getStoredUsers();
-      const storedMap = new Map(currentStored.map((cu) => [String(cu.id), cu]));
-      usersData.forEach((u: any) => {
-        if (u.id) {
-          storedMap.set(String(u.id), {
-            id: String(u.id),
-            email: u.email || "",
-            full_name: u.full_name || u.name || "",
-            phone: u.phone || null,
-            role: (u.role_name || "").toLowerCase().includes("admin") ? "super_admin" : "sales_officer",
-            role_name: u.role_name || "Sales Officer",
-            is_active: u.is_active ?? true,
-            created_at: u.created_at || new Date().toISOString(),
-          });
-        }
-      });
-      saveStoredUsers(Array.from(storedMap.values()), true);
-    } else {
-      // Fallback: fetchManagedUsers
-      const managed = await fetchManagedUsers();
-      managed.forEach((u) => {
-        if (u.id) {
-          nextMap[String(u.id)] = {
-            id: String(u.id),
-            full_name: u.full_name || nextMap[String(u.id)]?.full_name || "",
-            email: u.email || nextMap[String(u.id)]?.email,
-            role_name: u.role_name || nextMap[String(u.id)]?.role_name,
-          };
-        }
-      });
-    }
+    const managed = await fetchManagedUsers();
+    managed.forEach((u) => {
+      if (u.id) {
+        nextMap[String(u.id)] = {
+          id: String(u.id),
+          full_name: u.full_name || nextMap[String(u.id)]?.full_name || "",
+          email: u.email || nextMap[String(u.id)]?.email,
+          role: u.role || nextMap[String(u.id)]?.role,
+          role_name: u.role_name || nextMap[String(u.id)]?.role_name,
+        };
+      }
+    });
   } catch (err) {
     console.warn("Notice fetching all users map:", err);
   }
