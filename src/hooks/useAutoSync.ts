@@ -69,12 +69,36 @@ export function useAutoSync(
       triggerSync(true);
     };
 
+    const handleGlobalCloudUpdate = (e: Event) => {
+      const detail = (e as CustomEvent)?.detail;
+      const eventType = String(detail?.type || "");
+      // When an authoritative global cloud pull, live sync, or cross-device broadcast finishes,
+      // re-invoke the component's onSync callback without re-triggering another full cloud pull.
+      if (
+        eventType === "cloud_pull_completed" ||
+        eventType === "cloud_sync_completed" ||
+        eventType === "live_sync_forced" ||
+        eventType === "erp_mutation"
+      ) {
+        const now = Date.now();
+        if (now - lastSyncRef.current > 1200) {
+          lastSyncRef.current = now;
+          try {
+            void onSyncRef.current();
+          } catch (err) {
+            console.warn("AutoSync cloud update warning:", err);
+          }
+        }
+      }
+    };
+
     document.addEventListener("visibilitychange", handleVisibilityChange);
     document.addEventListener("resume", handleResume as EventListener);
     window.addEventListener("focus", handleFocus);
     window.addEventListener("pageshow", handlePageShow);
     window.addEventListener("resume", handleResume as EventListener);
     window.addEventListener("online", handleOnline);
+    window.addEventListener("sales_erp_storage_update", handleGlobalCloudUpdate);
 
     return () => {
       if (intervalId) clearInterval(intervalId);
@@ -84,6 +108,7 @@ export function useAutoSync(
       window.removeEventListener("pageshow", handlePageShow);
       window.removeEventListener("resume", handleResume as EventListener);
       window.removeEventListener("online", handleOnline);
+      window.removeEventListener("sales_erp_storage_update", handleGlobalCloudUpdate);
     };
   }, [enabled, debounceMs, pollIntervalMs]);
 }
