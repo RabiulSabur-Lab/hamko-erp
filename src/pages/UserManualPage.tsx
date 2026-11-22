@@ -816,220 +816,869 @@ function ChapterScreenMockup({ mockupKey }: { mockupKey: ManualChapter["mockupKe
   switch (mockupKey) {
     case "login":
       return (
-        <div className="rounded-xl border border-sky-500/30 bg-slate-950 text-slate-100 p-3.5 text-xs space-y-2.5 shadow-inner">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
-            <div className="flex items-center gap-2">
-              <span className="h-2.5 w-2.5 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="font-bold text-sky-300">ড্যাশবোর্ড (Dashboard) • লাইভ ক্লাউড সক্রিয়</span>
-            </div>
+        <div className="rounded-xl border-2 border-sky-500/40 bg-card text-foreground overflow-hidden shadow-sm">
+          {/* Simulated Window Chrome */}
+          <div className="flex items-center justify-between bg-sky-500/15 border-b border-sky-500/30 px-3 py-1.5 text-[11px]">
             <div className="flex items-center gap-1.5">
-              <span className="px-2 py-0.5 rounded bg-emerald-600 text-white text-[10px] font-semibold">
-                ① + নতুন অর্ডার
-              </span>
-              <span className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-sky-200 text-[10px] font-semibold">
-                ② রিফ্রেশ (Refresh)
-              </span>
-              <span className="px-2 py-0.5 rounded bg-amber-500/20 border border-amber-400/40 text-amber-300 text-[10px] font-semibold">
-                ③ EN / বাং
+              <span className="h-2.5 w-2.5 rounded-full bg-rose-500" />
+              <span className="h-2.5 w-2.5 rounded-full bg-amber-500" />
+              <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
+              <span className="ml-1.5 font-bold text-foreground">
+                🖥️ স্ক্রিন মডেল ১: লগইন ও ড্যাশবোর্ড (Login &amp; Dashboard View)
               </span>
             </div>
+            <span className="font-mono text-[10px] text-sky-700 dark:text-sky-300 font-semibold">
+              /#/login → /#/dashboard
+            </span>
           </div>
-          <div className="grid grid-cols-4 gap-2 text-[10px]">
-            <div className="rounded-lg bg-slate-900 border border-slate-800 p-2 text-center">
-              <p className="text-emerald-400 font-bold">① + নতুন অর্ডার</p>
-              <p className="text-slate-400 mt-0.5">ইনভয়েস তৈরি</p>
+
+          <div className="p-3.5 grid grid-cols-1 lg:grid-cols-12 gap-3 text-xs bg-muted/15">
+            {/* Left: Login Form Mockup */}
+            <div className="lg:col-span-5 rounded-xl border border-border bg-card p-3 space-y-2 shadow-2xs">
+              <div className="flex items-center justify-between border-b border-border/60 pb-1.5">
+                <span className="font-bold text-foreground">🔐 Sales ERP Sign In</span>
+                <span className="inline-flex items-center gap-1 rounded-full bg-sky-500/15 text-sky-700 dark:text-sky-300 border border-sky-500/30 px-2 py-0.5 text-[10px] font-bold">
+                  ① এখানে লগইন করুন
+                </span>
+              </div>
+              <div className="space-y-1.5 text-[11px]">
+                <div className="rounded-lg border border-border bg-muted/40 px-2.5 py-1.5 flex items-center justify-between">
+                  <span className="text-muted-foreground">Email:</span>
+                  <span className="font-mono font-semibold text-foreground">officer@hamko.com.bd</span>
+                </div>
+                <div className="rounded-lg border border-border bg-muted/40 px-2.5 py-1.5 flex items-center justify-between">
+                  <span className="text-muted-foreground">Password:</span>
+                  <span className="font-mono font-bold text-foreground">••••••••</span>
+                </div>
+                <div className="flex items-center justify-between pt-1">
+                  <span className="inline-flex items-center gap-1 rounded-lg bg-primary text-primary-foreground px-3 py-1 font-bold text-[11px] shadow-2xs">
+                    [ Sign In (প্রবেশ করুন) ] ◄── ① চাপুন
+                  </span>
+                  <span className="text-[10px] text-amber-600 dark:text-amber-400 underline font-semibold">
+                    Forgot Password?
+                  </span>
+                </div>
+              </div>
             </div>
-            <div className="rounded-lg bg-slate-900 border border-slate-800 p-2 text-center">
-              <p className="text-teal-400 font-bold">① $ ক্যাশ কালেকশন</p>
-              <p className="text-slate-400 mt-0.5">বকেয়া আদায়</p>
-            </div>
-            <div className="rounded-lg bg-slate-900 border border-slate-800 p-2 text-center">
-              <p className="text-violet-400 font-bold">① + কাস্টমার</p>
-              <p className="text-slate-400 mt-0.5">নতুন দোকান</p>
-            </div>
-            <div className="rounded-lg bg-slate-900 border border-slate-800 p-2 text-center">
-              <p className="text-indigo-400 font-bold">① ফিল্ড ভিজিট</p>
-              <p className="text-slate-400 mt-0.5">রুট ও হ্যান্ডওভার</p>
+
+            {/* Right: Dashboard Top Bar & Quick Actions Mockup */}
+            <div className="lg:col-span-7 rounded-xl border border-border bg-card p-3 space-y-2.5 shadow-2xs">
+              <div className="flex flex-wrap items-center justify-between gap-1.5 border-b border-border/60 pb-2">
+                <div className="flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                  <span className="font-bold text-foreground text-[11px]">Dashboard • Live Cloud</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="inline-flex items-center gap-1 rounded-lg border border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-300 px-2 py-0.5 text-[10px] font-bold">
+                    ② [🔄 রিফ্রেশ / Refresh]
+                  </span>
+                  <span className="inline-flex items-center gap-1 rounded-lg border border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300 px-2 py-0.5 text-[10px] font-bold">
+                    ③ [🌐 EN / বাং]
+                  </span>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-[10px]">
+                  <span className="font-bold text-muted-foreground uppercase">
+                    দ্রুত সেবা (Quick Action Hub) ◄── এক ট্যাপে কাজ শুরু করুন
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-[10px]">
+                  <div className="rounded-lg border-2 border-emerald-500/40 bg-emerald-500/10 p-2 text-center">
+                    <p className="font-extrabold text-emerald-700 dark:text-emerald-300">① [+ নতুন অর্ডার]</p>
+                    <p className="text-muted-foreground mt-0.5">ইনভয়েস তৈরি</p>
+                  </div>
+                  <div className="rounded-lg border border-teal-500/30 bg-teal-500/10 p-2 text-center">
+                    <p className="font-bold text-teal-700 dark:text-teal-300">① [$ কালেকশন]</p>
+                    <p className="text-muted-foreground mt-0.5">বকেয়া আদায়</p>
+                  </div>
+                  <div className="rounded-lg border border-violet-500/30 bg-violet-500/10 p-2 text-center">
+                    <p className="font-bold text-violet-700 dark:text-violet-300">① [+ কাস্টমার]</p>
+                    <p className="text-muted-foreground mt-0.5">নতুন দোকান</p>
+                  </div>
+                  <div className="rounded-lg border border-indigo-500/30 bg-indigo-500/10 p-2 text-center">
+                    <p className="font-bold text-indigo-700 dark:text-indigo-300">① [ফিল্ড ভিজিট]</p>
+                    <p className="text-muted-foreground mt-0.5">রুট ও হ্যান্ডওভার</p>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
       );
+
     case "crm":
       return (
-        <div className="rounded-xl border border-violet-500/30 bg-slate-950 text-slate-100 p-3.5 text-xs space-y-2 shadow-inner">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
-            <span className="px-2.5 py-1 rounded bg-violet-600 text-white text-[10px] font-semibold">
-              ① + নতুন কাস্টমার (+ Add Customer)
+        <div className="rounded-xl border-2 border-violet-500/40 bg-card text-foreground overflow-hidden shadow-sm">
+          <div className="flex items-center justify-between bg-violet-500/15 border-b border-violet-500/30 px-3 py-1.5 text-[11px]">
+            <span className="font-bold text-foreground">
+              🏪 স্ক্রিন মডেল ২: নতুন কাস্টমার বা দোকান যোগ (CRM / Customers Screen)
             </span>
-            <span className="px-2 py-0.5 rounded bg-slate-900 border border-slate-700 text-amber-300 text-[10px]">
-              ② ফিল্টার: এলাকা (Territory) • Dealer / Retailer • বকেয়া (Overdue)
+            <span className="font-mono text-[10px] text-violet-700 dark:text-violet-300 font-semibold">
+              /#/customers
             </span>
           </div>
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-900 border border-slate-800 p-2.5 text-[11px]">
-            <div>
-              <p className="font-bold text-white">বিসমিল্লাহ ক্রোকারিজ (Bismillah Crockeries) • Dealer</p>
-              <p className="text-[10px] text-slate-400">মালিক: মো. করিম • চকবাজার, ঢাকা • ফোন: 01711-XXXXXX</p>
+
+          <div className="p-3.5 space-y-2.5 text-xs bg-muted/15">
+            {/* Top Toolbar */}
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-card p-2.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center gap-1 rounded-lg bg-violet-600 text-white px-3 py-1 font-bold text-[11px] shadow-2xs">
+                  ① [ + নতুন কাস্টমার (+ Add Customer) ] ◄── এখানে ক্লিক করুন
+                </span>
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
+                <span className="rounded-lg border border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300 px-2 py-1 font-bold">
+                  ② [এলাকা: চকবাজার ▾]
+                </span>
+                <span className="rounded-lg border border-border bg-muted px-2 py-1 font-semibold">
+                  [ধরন: Dealer / Retailer ▾]
+                </span>
+                <span className="rounded-lg border border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300 px-2 py-1 font-bold">
+                  [বকেয়া: Overdue ▾]
+                </span>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[10px] font-bold">
-                বর্তমান বকেয়া: ৳৩৪,৫০০
-              </span>
-              <span className="px-2 py-0.5 rounded bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-[10px]">
-                ③ কল / পেমেন্ট রিমাইন্ডার
-              </span>
+
+            {/* Simulated Form + Saved Customer Row */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-2.5">
+              <div className="lg:col-span-7 rounded-xl border border-violet-500/30 bg-card p-3 space-y-1.5">
+                <p className="text-[11px] font-bold text-violet-700 dark:text-violet-300 border-b border-border/60 pb-1">
+                  📝 নতুন দোকান নিবন্ধনের ফরম (Add Customer Form):
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-[11px]">
+                  <div className="rounded border border-border bg-muted/30 px-2 py-1">
+                    <span className="text-muted-foreground text-[10px] block">Shop / Outlet Name *</span>
+                    <span className="font-bold text-foreground">বিসমিল্লাহ ক্রোকারিজ - চকবাজার</span>
+                  </div>
+                  <div className="rounded border border-border bg-muted/30 px-2 py-1">
+                    <span className="text-muted-foreground text-[10px] block">Owner / Contact Person</span>
+                    <span className="font-semibold text-foreground">মো. করিম সাহেব</span>
+                  </div>
+                  <div className="rounded border border-border bg-muted/30 px-2 py-1">
+                    <span className="text-muted-foreground text-[10px] block">Mobile Phone *</span>
+                    <span className="font-mono font-bold text-foreground">01711-234567</span>
+                  </div>
+                  <div className="rounded border border-border bg-muted/30 px-2 py-1">
+                    <span className="text-muted-foreground text-[10px] block">Type &amp; Opening Balance</span>
+                    <span className="font-semibold text-foreground">Dealer • বকেয়া: ৳০</span>
+                  </div>
+                </div>
+                <div className="pt-1 flex justify-end">
+                  <span className="rounded-lg bg-emerald-600 text-white px-3 py-1 text-[10px] font-bold">
+                    [ ✓ Save Customer (সেভ করুন) ]
+                  </span>
+                </div>
+              </div>
+
+              <div className="lg:col-span-5 rounded-xl border border-border bg-card p-3 flex flex-col justify-between space-y-2">
+                <div>
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-foreground text-xs">বিসমিল্লাহ ক্রোকারিজ</span>
+                    <span className="rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 text-[10px] font-bold">
+                      Active • Dealer
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">📍 চকবাজার • 📞 01711-234567</p>
+                  <div className="mt-2 rounded-lg bg-amber-500/10 border border-amber-500/30 p-2 flex items-center justify-between">
+                    <span className="text-[11px] font-semibold">বর্তমান বকেয়া (Current Due):</span>
+                    <span className="font-extrabold text-amber-700 dark:text-amber-300 text-xs">৳৩৪,৫০০</span>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between gap-1.5 pt-1 border-t border-border/60">
+                  <span className="inline-flex items-center gap-1 rounded-lg bg-emerald-500/15 border border-emerald-500/40 text-emerald-700 dark:text-emerald-300 px-2.5 py-1 text-[10px] font-bold">
+                    ③ [💬 বাংলা তাগাদা মেসেজ (AI Reminder)]
+                  </span>
+                  <span className="rounded-lg border border-border bg-muted px-2 py-1 text-[10px] font-semibold">
+                    [লেজার]
+                  </span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
       );
+
     case "products":
       return (
-        <div className="rounded-xl border border-amber-500/30 bg-slate-950 text-slate-100 p-3.5 text-xs space-y-2 shadow-inner">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
-            <span className="px-2.5 py-1 rounded bg-slate-900 border border-slate-700 text-slate-200 text-[10px]">
-              ① সার্চ: &quot;Pressure Cooker 5.5L&quot; বা ক্যাটাগরি সিলেক্ট করুন...
+        <div className="rounded-xl border-2 border-amber-500/40 bg-card text-foreground overflow-hidden shadow-sm">
+          <div className="flex items-center justify-between bg-amber-500/15 border-b border-amber-500/30 px-3 py-1.5 text-[11px]">
+            <span className="font-bold text-foreground">
+              🍲 স্ক্রিন মডেল ৩: পণ্যের দাম ও গোডাউন স্টক যাচাই (Products &amp; Pricing Catalog)
             </span>
-            <span className="text-[10px] text-amber-300 font-semibold">
-              ② প্রাইস টিয়ার: DP (ডিলার প্রাইস) • D10 • B12 • MRP
+            <span className="font-mono text-[10px] text-amber-700 dark:text-amber-300 font-semibold">
+              /#/products
             </span>
           </div>
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-900 border border-slate-800 p-2.5 text-[11px]">
-            <div>
-              <p className="font-bold text-white">HAMKO Aluminum Pressure Cooker 5.5L</p>
-              <p className="text-[10px] text-slate-300">
-                SKU: HPC-550 • <strong className="text-amber-300">DP: ৳১,৪৫০</strong> • <strong className="text-sky-300">D10: ৳১,৩৮০</strong> • MRP: ৳১,৮৫০
-              </p>
+
+          <div className="p-3.5 space-y-2.5 text-xs bg-muted/15">
+            {/* Search & Category Filter */}
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-card p-2.5">
+              <div className="flex items-center gap-2 flex-1 min-w-[200px] rounded-lg border border-amber-500/40 bg-amber-500/5 px-2.5 py-1.5">
+                <span className="font-bold text-amber-700 dark:text-amber-300 text-[11px]">
+                  ① [ 🔍 সার্চ বক্স: &quot;Pressure Cooker 5.5L&quot; বা SKU লিখুন... ]
+                </span>
+              </div>
+              <span className="rounded-lg border border-border bg-muted px-2.5 py-1.5 text-[10px] font-bold">
+                ① [ক্যাটাগরি: Pressure Cooker ▾]
+              </span>
             </div>
-            <span className="px-2.5 py-0.5 rounded bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-[10px] font-bold">
-              ③ স্টকে আছে (In Stock): ১২০ পিস
-            </span>
+
+            {/* Simulated Product Row with Price Tiers & Stock Badges */}
+            <div className="rounded-xl border border-border bg-card p-3 space-y-2.5">
+              <div className="flex flex-wrap items-start justify-between gap-2 border-b border-border/60 pb-2">
+                <div>
+                  <p className="font-extrabold text-sm text-foreground">
+                    HAMKO Aluminum Pressure Cooker 5.5L (হামকো প্রেসার কুকার ৫.৫ লিটার)
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">
+                    SKU Code: <strong className="font-mono text-foreground">HPC-550</strong> • Category: Cookware • Unit: pcs
+                  </p>
+                </div>
+                <span className="inline-flex items-center gap-1 rounded-lg border-2 border-emerald-500/40 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 px-2.5 py-1 text-[11px] font-extrabold">
+                  ③ [🟢 স্টকে আছে (In Stock): ১২০ পিস] ◄── অর্ডার নেওয়া যাবে
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+                <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-2">
+                  <span className="text-[10px] font-bold text-amber-700 dark:text-amber-300 block">
+                    ② সাধারণ ডিলার রেট (DP)
+                  </span>
+                  <span className="text-sm font-extrabold text-foreground">৳১,৪৫০ / পিস</span>
+                </div>
+                <div className="rounded-lg border border-sky-500/40 bg-sky-500/10 p-2">
+                  <span className="text-[10px] font-bold text-sky-700 dark:text-sky-300 block">
+                    ② স্পেশাল ডিলার (D10 Tier)
+                  </span>
+                  <span className="text-sm font-extrabold text-foreground">৳১,৩৮০ / পিস</span>
+                </div>
+                <div className="rounded-lg border border-purple-500/40 bg-purple-500/10 p-2">
+                  <span className="text-[10px] font-bold text-purple-700 dark:text-purple-300 block">
+                    ② বাল্ক ডিলার (B12 Tier)
+                  </span>
+                  <span className="text-sm font-extrabold text-foreground">৳১,৩৫০ / পিস</span>
+                </div>
+                <div className="rounded-lg border border-border bg-muted/40 p-2">
+                  <span className="text-[10px] font-semibold text-muted-foreground block">
+                    খুচরা মূল্য (MRP)
+                  </span>
+                  <span className="text-sm font-bold text-foreground">৳১,৮৫০ / পিস</span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       );
+
     case "orders":
       return (
-        <div className="rounded-xl border border-emerald-500/30 bg-slate-950 text-slate-100 p-3.5 text-xs space-y-2 shadow-inner">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
-            <div className="flex items-center gap-1.5">
-              <span className="px-2.5 py-1 rounded bg-emerald-600 text-white text-[10px] font-semibold">
-                ① + নতুন অর্ডার (+ New Order)
-              </span>
-              <span className="px-2 py-1 rounded bg-purple-500/20 border border-purple-500/40 text-purple-200 text-[10px] font-semibold">
-                ① Smart Voice AI (মুখে বলে অর্ডার)
-              </span>
-            </div>
-            <span className="text-[10px] text-emerald-300">
-              ② টিয়ার রেট ও বকেয়া স্বয়ংক্রিয় হিসাব
+        <div className="rounded-xl border-2 border-emerald-500/40 bg-card text-foreground overflow-hidden shadow-sm">
+          <div className="flex items-center justify-between bg-emerald-500/15 border-b border-emerald-500/30 px-3 py-1.5 text-[11px]">
+            <span className="font-bold text-foreground">
+              🧾 স্ক্রিন মডেল ৪: নতুন অর্ডার বুকিং ও ইনভয়েস প্রিন্ট (New Order &amp; Invoice Screen)
+            </span>
+            <span className="font-mono text-[10px] text-emerald-700 dark:text-emerald-300 font-semibold">
+              /#/orders/create
             </span>
           </div>
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-900 border border-slate-800 p-2.5 text-[11px]">
-            <div>
-              <p className="font-bold text-white">অর্ডার #ORD-202611-089 • মায়ের দোয়া স্টোর</p>
-              <p className="text-[10px] text-slate-300">
-                মোট বিল: ৳২৮,৪০০ • নগদ জমা: ৳৫,০০০ • <strong className="text-amber-300">বাকি (Due): ৳২৩,৪০০</strong>
-              </p>
+
+          <div className="p-3.5 space-y-2.5 text-xs bg-muted/15">
+            {/* Top Action Buttons */}
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-card p-2.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 text-white px-3 py-1 font-bold text-[11px] shadow-2xs">
+                  ① [ 🛒 + নতুন অর্ডার (+ New Order) ]
+                </span>
+                <span className="inline-flex items-center gap-1 rounded-lg border border-purple-500/40 bg-purple-500/15 text-purple-700 dark:text-purple-300 px-2.5 py-1 font-bold text-[11px]">
+                  ① [ 🎙️ Smart Order AI (বাংলায় বলে বা লিখে অর্ডার) ]
+                </span>
+              </div>
+              <span className="text-[10px] font-semibold text-muted-foreground">
+                অর্ডার নম্বর অটো তৈরি হবে: #ORD-202611-089
+              </span>
             </div>
-            <div className="flex items-center gap-1.5">
-              <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[10px] font-semibold">
-                Delivered
-              </span>
-              <span className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-sky-300 text-[10px]">
-                ③ প্রিন্ট ইনভয়েস / রিটার্ন
-              </span>
+
+            {/* Simulated Order Form */}
+            <div className="rounded-xl border border-emerald-500/30 bg-card p-3 space-y-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+                <div className="rounded-lg border border-border bg-muted/30 px-2.5 py-1.5">
+                  <span className="text-[10px] text-muted-foreground block">১. কাস্টমার / দোকান নির্বাচন (Select Customer) *</span>
+                  <span className="font-bold text-foreground">মায়ের দোয়া স্টোর — মিরপুর ১০ (পূর্বের বকেয়া: ৳১২,০০০) ▾</span>
+                </div>
+                <div className="rounded-lg border border-border bg-muted/30 px-2.5 py-1.5">
+                  <span className="text-[10px] text-muted-foreground block">সেলস অফিসার ও তারিখ (Sales Officer &amp; Date)</span>
+                  <span className="font-semibold text-foreground">তানভীর আহমেদ (SO-101) • আজ</span>
+                </div>
+              </div>
+
+              {/* Order Item Row */}
+              <div className="rounded-lg border-2 border-sky-500/30 bg-sky-500/5 p-2.5 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-extrabold text-sky-700 dark:text-sky-300 uppercase">
+                    ② অর্ডারের পণ্য, প্রাইস টিয়ার ও পরিমাণ যোগ করুন (Order Items):
+                  </span>
+                  <span className="rounded bg-sky-600 text-white px-2 py-0.5 text-[10px] font-bold">
+                    [+ Add Item (আরও পণ্য)]
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-1.5 text-[11px] items-center">
+                  <div className="sm:col-span-5 rounded border border-border bg-card px-2 py-1 font-semibold">
+                    পণ্য: Hamko Pressure Cooker 5.5L ▾
+                  </div>
+                  <div className="sm:col-span-3 rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 font-bold text-amber-800 dark:text-amber-300">
+                    ② টিয়ার: [ D10 (৳১,৩৮০) ▾ ]
+                  </div>
+                  <div className="sm:col-span-2 rounded border border-border bg-card px-2 py-1 font-bold">
+                    পরিমাণ: [ 20 ] পিস
+                  </div>
+                  <div className="sm:col-span-2 text-right font-extrabold text-foreground">
+                    = ৳২৭,৬০০
+                  </div>
+                </div>
+              </div>
+
+              {/* Totals + Submit + Print */}
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-1.5 border-t border-border/60 text-[11px]">
+                <div className="flex flex-wrap items-center gap-3">
+                  <span>মোট বিল: <strong>৳২৭,৬০০</strong></span>
+                  <span>ডিসকাউন্ট: <strong>[ ৳৬০০ ]</strong></span>
+                  <span>নগদ জমা (Paid): <strong className="text-emerald-600">[ ৳৭,০০০ ]</strong></span>
+                  <span className="rounded bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 font-extrabold text-amber-700 dark:text-amber-300">
+                    নিট বাকি (Due): ৳২০,০০০
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="rounded-lg bg-emerald-600 text-white px-3 py-1 font-bold text-[11px]">
+                    [ ✓ Create Order (সেভ) ]
+                  </span>
+                  <span className="rounded-lg border border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-300 px-2.5 py-1 font-bold text-[10px]">
+                    ③ [🖨️ প্রিন্ট ইনভয়েস]
+                  </span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
       );
+
     case "collections":
       return (
-        <div className="rounded-xl border border-teal-500/30 bg-slate-950 text-slate-100 p-3.5 text-xs space-y-2 shadow-inner">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
-            <span className="px-2.5 py-1 rounded bg-emerald-600 text-white text-[10px] font-semibold">
-              ① + নগদ কালেকশন (+ Cash Collection)
+        <div className="rounded-xl border-2 border-teal-500/40 bg-card text-foreground overflow-hidden shadow-sm">
+          <div className="flex items-center justify-between bg-teal-500/15 border-b border-teal-500/30 px-3 py-1.5 text-[11px]">
+            <span className="font-bold text-foreground">
+              💵 স্ক্রিন মডেল ৫: ক্যাশ কালেকশন এন্ট্রি ও কাস্টমার বকেয়া খাতা (Cash Collection &amp; Due)
             </span>
-            <span className="text-[10px] text-teal-300 font-semibold">
-              ③ ট্যাব: নগদ কালেকশন • খরচ এন্ট্রি • দৈনিক ক্যাশ বুক • কাস্টমার বকেয়া
+            <span className="font-mono text-[10px] text-teal-700 dark:text-teal-300 font-semibold">
+              /#/accounts
             </span>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[10px]">
-            <div className="rounded bg-slate-900 border border-slate-800 p-2">
-              <p className="text-slate-400">② আমার মোট কালেকশন</p>
-              <p className="font-bold text-emerald-400 text-xs">৳১,৪৫,০০০ (Logged by you)</p>
+
+          <div className="p-3.5 space-y-2.5 text-xs bg-muted/15">
+            {/* Top Action Bar & 4 Financial Tabs */}
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-card p-2.5">
+              <span className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 text-white px-3 py-1 font-bold text-[11px] shadow-2xs">
+                ① [ 💵 + নগদ কালেকশন (+ Cash Collection) ] ◄── টাকা আদায় এন্ট্রি
+              </span>
+              <div className="flex flex-wrap items-center gap-1 text-[10px]">
+                <span className="rounded-md bg-primary text-primary-foreground px-2 py-1 font-bold">
+                  [১. নগদ কালেকশন]
+                </span>
+                <span className="rounded-md bg-muted px-2 py-1 text-muted-foreground font-semibold">
+                  [২. খরচ এন্ট্রি]
+                </span>
+                <span className="rounded-md bg-muted px-2 py-1 text-muted-foreground font-semibold">
+                  [৩. দৈনিক ক্যাশ বুক]
+                </span>
+                <span className="rounded-md border border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300 px-2 py-1 font-bold">
+                  ③ [৪. কাস্টমার বকেয়া (Customer Due)]
+                </span>
+              </div>
             </div>
-            <div className="rounded bg-slate-900 border border-slate-800 p-2">
-              <p className="text-slate-400">রিসিট #COL-2041 (বিসমিল্লাহ ক্রোকারিজ)</p>
-              <p className="font-bold text-sky-400 text-xs">আদায়: ৳২০,০০০ (Cash)</p>
-            </div>
-            <div className="rounded bg-slate-900 border border-slate-800 p-2">
-              <p className="text-slate-400">কাস্টমারের নতুন বকেয়া</p>
-              <p className="font-bold text-amber-400 text-xs">৳১৪,৫০০ (অটো আপডেট)</p>
+
+            {/* Simulated Collection Form & Auto Due Reduction Result */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-2.5">
+              <div className="lg:col-span-7 rounded-xl border border-teal-500/30 bg-card p-3 space-y-1.5 text-[11px]">
+                <p className="font-bold text-teal-700 dark:text-teal-300 border-b border-border/60 pb-1">
+                  📝 টাকা আদায়ের ফরম (Record Customer Payment):
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                  <div className="rounded border border-border bg-muted/30 px-2 py-1">
+                    <span className="text-[10px] text-muted-foreground block">Customer (দোকানের নাম) *</span>
+                    <span className="font-bold">বিসমিল্লাহ ক্রোকারিজ (বকেয়া: ৳৩৪,৫০০) ▾</span>
+                  </div>
+                  <div className="rounded border border-emerald-500/40 bg-emerald-500/10 px-2 py-1">
+                    <span className="text-[10px] text-emerald-700 dark:text-emerald-300 font-bold block">Amount (আদায়কৃত টাকা) *</span>
+                    <span className="font-extrabold text-sm text-foreground">৳২০,০০০</span>
+                  </div>
+                  <div className="rounded border border-border bg-muted/30 px-2 py-1">
+                    <span className="text-[10px] text-muted-foreground block">Payment Method (মাধ্যম)</span>
+                    <span className="font-semibold">Cash / Mobile Banking (bKash) ▾</span>
+                  </div>
+                  <div className="rounded border border-border bg-muted/30 px-2 py-1">
+                    <span className="text-[10px] text-muted-foreground block">Notes / TrxID / Cheque No</span>
+                    <span className="font-semibold">নগদ প্রাপ্তি (রিসিট #COL-2041)</span>
+                  </div>
+                </div>
+                <div className="pt-1 flex justify-end">
+                  <span className="rounded-lg bg-emerald-600 text-white px-3 py-1 text-[10px] font-bold">
+                    [ ✓ Save &amp; Print Money Receipt ]
+                  </span>
+                </div>
+              </div>
+
+              <div className="lg:col-span-5 rounded-xl border border-border bg-card p-3 space-y-2 flex flex-col justify-between text-[11px]">
+                <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/30 p-2">
+                  <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 block">
+                    ② আমার মোট কালেকশন (My Total Collections)
+                  </span>
+                  <span className="text-base font-extrabold text-foreground">৳১,৪৫,০০০</span>
+                </div>
+                <div className="rounded-lg bg-muted/40 border border-border p-2 space-y-1">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">আগের বকেয়া ছিল:</span>
+                    <span className="font-semibold">৳৩৪,৫০০</span>
+                  </div>
+                  <div className="flex justify-between text-emerald-600 font-bold">
+                    <span>আজ আদায় (−):</span>
+                    <span>− ৳২০,০০০</span>
+                  </div>
+                  <div className="flex justify-between border-t border-border pt-1 font-extrabold text-amber-600">
+                    <span>নতুন বকেয়া (Auto Updated):</span>
+                    <span>৳১৪,৫০০</span>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
       );
+
     case "inventory":
       return (
-        <div className="rounded-xl border border-orange-500/30 bg-slate-950 text-slate-100 p-3.5 text-xs space-y-2 shadow-inner">
-          <div className="grid grid-cols-3 gap-2 text-[10px] border-b border-slate-800 pb-2">
-            <div className="rounded bg-slate-900 border border-slate-800 p-2">
-              <p className="text-slate-400">① সচল পণ্য (Available SKUs)</p>
-              <p className="font-bold text-emerald-400">৬৮টি আইটেম</p>
-            </div>
-            <div className="rounded bg-slate-900 border border-slate-800 p-2">
-              <p className="text-slate-400">① কম স্টক (Low Stock)</p>
-              <p className="font-bold text-amber-400">৩টি আইটেম</p>
-            </div>
-            <div className="rounded bg-slate-900 border border-slate-800 p-2">
-              <p className="text-slate-400">① স্টকে নেই (Out of Stock)</p>
-              <p className="font-bold text-rose-400">০টি আইটেম</p>
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] text-slate-300">
-            <span>② সার্চ ও ফিল্টার: All • Low Stock • Out of Stock</span>
-            <span className="text-cyan-300">③ অটো স্টক সমন্বয়: চালান (+) ও অর্ডার ডেলিভারি (−)</span>
-          </div>
-        </div>
-      );
-    case "sfa":
-      return (
-        <div className="rounded-xl border border-indigo-500/30 bg-slate-950 text-slate-100 p-3.5 text-xs space-y-2 shadow-inner">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
-            <div className="flex items-center gap-1.5">
-              <span className="px-2.5 py-1 rounded bg-indigo-600 text-white text-[10px] font-semibold">
-                ① + ভিজিট লগ করুন (+ Log Visit)
-              </span>
-              <span className="px-2 py-1 rounded bg-slate-800 border border-slate-700 text-indigo-200 text-[10px]">
-                ② রুট প্ল্যান (শনি–বৃহস্পতি) ও সেলস টার্গেট
-              </span>
-            </div>
-            <span className="px-2.5 py-1 rounded bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-[10px] font-bold">
-              ③ Evening Handover (পিন কোড: 4829)
+        <div className="rounded-xl border-2 border-orange-500/40 bg-card text-foreground overflow-hidden shadow-sm">
+          <div className="flex items-center justify-between bg-orange-500/15 border-b border-orange-500/30 px-3 py-1.5 text-[11px]">
+            <span className="font-bold text-foreground">
+              📦 স্ক্রিন মডেল ৬: গোডাউন ইনভেন্টরি ও কম স্টকের তালিকা (Warehouse Inventory Screen)
+            </span>
+            <span className="font-mono text-[10px] text-orange-700 dark:text-orange-300 font-semibold">
+              /#/inventory
             </span>
           </div>
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-900 border border-slate-800 p-2 text-[10px]">
-            <span>আজকের রুট: মিরপুর-১০ • ভিজিট সম্পন্ন: ১২টি দোকান • অর্ডার প্রাপ্তি: ৯টি</span>
-            <span className="text-emerald-400 font-bold">মাসিক টার্গেট অর্জন: ৮৪%</span>
+
+          <div className="p-3.5 space-y-2.5 text-xs bg-muted/15">
+            {/* 3 KPI Cards */}
+            <div className="grid grid-cols-3 gap-2 text-[11px]">
+              <div className="rounded-xl border border-emerald-500/30 bg-card p-2.5">
+                <span className="text-[10px] text-muted-foreground block">① সচল পণ্য (Available SKUs)</span>
+                <span className="text-sm font-extrabold text-emerald-600">৬৮টি আইটেম</span>
+              </div>
+              <div className="rounded-xl border-2 border-amber-500/40 bg-amber-500/10 p-2.5">
+                <span className="text-[10px] font-bold text-amber-700 dark:text-amber-300 block">① কম স্টক (Low Stock Alert)</span>
+                <span className="text-sm font-extrabold text-amber-700 dark:text-amber-300">৩টি আইটেম</span>
+              </div>
+              <div className="rounded-xl border border-rose-500/30 bg-card p-2.5">
+                <span className="text-[10px] text-muted-foreground block">① স্টক শেষ (Out of Stock)</span>
+                <span className="text-sm font-extrabold text-rose-600">০টি আইটেম</span>
+              </div>
+            </div>
+
+            {/* Filter Bar + Stock Movement Audit */}
+            <div className="rounded-xl border border-border bg-card p-2.5 space-y-2 text-[11px]">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5">
+                  <span className="rounded-lg bg-primary text-primary-foreground px-2.5 py-1 text-[10px] font-bold">
+                    ② [All Inventory]
+                  </span>
+                  <span className="rounded-lg border border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300 px-2.5 py-1 text-[10px] font-bold">
+                    ② [⚠️ Low Stock (কম স্টক)]
+                  </span>
+                  <span className="rounded-lg border border-border bg-muted px-2.5 py-1 text-[10px] font-semibold">
+                    [Out of Stock]
+                  </span>
+                </div>
+                <span className="text-[10px] font-semibold text-muted-foreground">
+                  ② [ 🔍 পণ্য খুঁজুন... ]
+                </span>
+              </div>
+              <div className="rounded-lg bg-muted/40 border border-border/70 p-2 flex flex-wrap items-center justify-between gap-2 text-[10px]">
+                <span className="font-bold text-foreground">
+                  ③ অটোমেটিক স্টক হিসাব: ফ্যাক্টরি পারচেজ চালান এন্ট্রি দিলে স্টক বাড়ে (+) এবং অর্ডার Delivered হলে স্টক কমে (−)
+                </span>
+                <span className="rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 font-bold">
+                  Main Warehouse
+                </span>
+              </div>
+            </div>
           </div>
         </div>
       );
+
+    case "sfa":
+      return (
+        <div className="rounded-xl border-2 border-indigo-500/40 bg-card text-foreground overflow-hidden shadow-sm">
+          <div className="flex items-center justify-between bg-indigo-500/15 border-b border-indigo-500/30 px-3 py-1.5 text-[11px]">
+            <span className="font-bold text-foreground">
+              📍 স্ক্রিন মডেল ৭: রুট প্ল্যান, ভিজিট লগ ও সন্ধ্যার ক্যাশ হ্যান্ডওভার (SFA &amp; Handover)
+            </span>
+            <span className="font-mono text-[10px] text-indigo-700 dark:text-indigo-300 font-semibold">
+              /#/sfa
+            </span>
+          </div>
+
+          <div className="p-3.5 space-y-2.5 text-xs bg-muted/15">
+            {/* Top Bar */}
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-card p-2.5">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="inline-flex items-center gap-1 rounded-lg bg-indigo-600 text-white px-3 py-1 font-bold text-[11px]">
+                  ① [ 📍 + ভিজিট লগ করুন (+ Log Visit) ]
+                </span>
+                <span className="rounded-lg border border-border bg-muted px-2.5 py-1 text-[10px] font-bold">
+                  ② [🗺️ রুট প্ল্যান: সোমবার]
+                </span>
+                <span className="rounded-lg border border-border bg-muted px-2.5 py-1 text-[10px] font-bold">
+                  ② [🎯 বিক্রয় টার্গেট (84%)]
+                </span>
+              </div>
+              <span className="inline-flex items-center gap-1 rounded-lg border-2 border-emerald-500/50 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 px-3 py-1 font-extrabold text-[11px]">
+                ③ [ 🔐 Evening Handover (দিনশেষের ক্যাশ জমা) ]
+              </span>
+            </div>
+
+            {/* Simulated Visit Log + Evening Handover PIN Card */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-2.5 text-[11px]">
+              <div className="lg:col-span-6 rounded-xl border border-border bg-card p-3 space-y-1.5">
+                <p className="font-bold text-indigo-700 dark:text-indigo-300 border-b border-border/60 pb-1">
+                  ① দোকান ভিজিট লগ (Shop Visit Check-In):
+                </p>
+                <p><strong>দোকান:</strong> মায়ের দোয়া স্টোর (মিরপুর-১০ রুট)</p>
+                <p><strong>উদ্দেশ্য (Purpose):</strong> Order Booking &amp; Due Collection</p>
+                <p><strong>ফলাফল (Outcome):</strong> <span className="text-emerald-600 font-bold">✓ ২০ পিস কুকারের অর্ডার ও ৳৭,০০০ নগদ আদায়</span></p>
+              </div>
+
+              <div className="lg:col-span-6 rounded-xl border-2 border-emerald-500/40 bg-emerald-500/5 p-3 space-y-1.5">
+                <div className="flex items-center justify-between border-b border-emerald-500/30 pb-1">
+                  <span className="font-extrabold text-emerald-700 dark:text-emerald-300">
+                    ③ সন্ধ্যায় ক্যাশিয়ারের কাছে ক্যাশ হ্যান্ডওভার স্লিপ:
+                  </span>
+                  <span className="rounded bg-emerald-600 text-white px-2 py-0.5 font-mono font-extrabold text-xs">
+                    PIN: 4829
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-1.5 text-center pt-0.5">
+                  <div className="rounded bg-card border border-border p-1.5">
+                    <span className="text-[10px] text-muted-foreground block">নগদ (Cash)</span>
+                    <span className="font-bold">৳৩৫,০০০</span>
+                  </div>
+                  <div className="rounded bg-card border border-border p-1.5">
+                    <span className="text-[10px] text-muted-foreground block">বিকাশ (bKash)</span>
+                    <span className="font-bold">৳১০,০০০</span>
+                  </div>
+                  <div className="rounded bg-card border border-emerald-500/40 p-1.5">
+                    <span className="text-[10px] text-emerald-700 dark:text-emerald-300 font-bold block">মোট জমা</span>
+                    <span className="font-extrabold text-emerald-600">৳৪৫,০০০</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+
     case "troubleshooting":
       return (
-        <div className="rounded-xl border border-rose-500/30 bg-slate-950 text-slate-100 p-3.5 text-xs space-y-2 shadow-inner">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[10px]">
-            <div className="rounded bg-slate-900 border border-slate-800 p-2.5">
-              <p className="text-sky-300 font-bold">① Live Sync / Refresh</p>
-              <p className="text-slate-300 mt-0.5">নেটওয়ার্ক ফিরে আসলেই বা নতুন ডেটা দেখতে একবার চাপুন।</p>
+        <div className="rounded-xl border-2 border-rose-500/40 bg-card text-foreground overflow-hidden shadow-sm">
+          <div className="flex items-center justify-between bg-rose-500/15 border-b border-rose-500/30 px-3 py-1.5 text-[11px]">
+            <span className="font-bold text-foreground">
+              🛠️ স্ক্রিন মডেল ৮: জরুরি সমস্যা সমাধান ও লাইভ সিঙ্ক (Quick Troubleshooting Controls)
+            </span>
+            <span className="font-mono text-[10px] text-rose-700 dark:text-rose-300 font-semibold">
+              Instant Self-Service
+            </span>
+          </div>
+
+          <div className="p-3.5 grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-[11px] bg-muted/15">
+            <div className="rounded-xl border border-sky-500/40 bg-card p-3 space-y-1.5">
+              <span className="inline-flex items-center gap-1 rounded-lg bg-sky-600 text-white px-2.5 py-1 font-bold text-[10px]">
+                ① [ 🔄 Live Sync / Refresh ]
+              </span>
+              <p className="font-bold text-foreground">ডেটা আপডেট না দেখালে:</p>
+              <p className="text-muted-foreground text-[10.5px]">
+                যেকোনো পেজের উপরে ডানপাশে থাকা এই বাটনে ১ বার চাপ দিলেই অফিসের সর্বশেষ হিসাব সিঙ্ক হয়ে যাবে।
+              </p>
             </div>
-            <div className="rounded bg-slate-900 border border-slate-800 p-2.5">
-              <p className="text-amber-300 font-bold">② Ctrl + F5 (পিসি রিফ্রেশ)</p>
-              <p className="text-slate-300 mt-0.5">কম্পিউটার ব্রাউজারে কোনো পেজ আটকে থাকলে একসাথে চাপুন।</p>
+
+            <div className="rounded-xl border border-amber-500/40 bg-card p-3 space-y-1.5">
+              <span className="inline-flex items-center gap-1 rounded-lg bg-amber-600 text-white px-2.5 py-1 font-bold text-[10px]">
+                ② [ Ctrl ] + [ F5 ] (হার্ড রিফ্রেশ)
+              </span>
+              <p className="font-bold text-foreground">ব্রাউজার পেজ আটকে গেলে:</p>
+              <p className="text-muted-foreground text-[10.5px]">
+                কম্পিউটারে Ctrl + F5 চাপুন অথবা মোবাইলে পেজটি ওপর থেকে নিচে টেনে (Pull-to-Refresh) রিলোড করুন।
+              </p>
             </div>
-            <div className="rounded bg-slate-900 border border-slate-800 p-2.5">
-              <p className="text-emerald-300 font-bold">③ পাসওয়ার্ড ও অ্যাডমিন সাপোর্ট</p>
-              <p className="text-slate-300 mt-0.5">Forgot Password (OTP) অথবা সুপার অ্যাডমিনের সহায়তা নিন।</p>
+
+            <div className="rounded-xl border border-emerald-500/40 bg-card p-3 space-y-1.5">
+              <span className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 text-white px-2.5 py-1 font-bold text-[10px]">
+                ③ [ 🔑 Forgot Password? (OTP) ]
+              </span>
+              <p className="font-bold text-foreground">পাসওয়ার্ড ভুলে গেলে:</p>
+              <p className="text-muted-foreground text-[10.5px]">
+                লগইন পেজে OTP দিয়ে রিসেট করুন অথবা সুপার অ্যাডমিনকে বললে ১ মিনিটে নতুন পাসওয়ার্ড দিয়ে দেবেন।
+              </p>
             </div>
           </div>
         </div>
       );
+  }
+}
+
+function buildMockupHtmlForPdf(mockupKey: ManualChapter["mockupKey"]): string {
+  switch (mockupKey) {
+    case "login":
+      return `
+      <div class="avoid-break" style="border: 2px solid #0284c7; border-radius: 6px; margin-bottom: 10px; background: #f8fafc;">
+        <div style="background: #e0f2fe; border-bottom: 1px solid #7dd3fc; padding: 5px 10px; font-size: 10.5px; font-weight: 700; color: #0369a1;">
+          🖥️ সচিত্র স্ক্রিন মডেল ১: লগইন ও ড্যাশবোর্ড কুইক অ্যাকশন (Visual UI Mockup — Login &amp; Dashboard)
+        </div>
+        <table style="width: 100%; border-collapse: collapse;">
+          <tr>
+            <td style="width: 42%; vertical-align: top; padding: 8px 10px; border-right: 1px solid #cbd5e1;">
+              <div style="font-size: 11px; font-weight: 700; color: #0f172a; margin-bottom: 4px;">🔐 লগইন বক্স (Sign In Form)</div>
+              <div style="border: 1px solid #94a3b8; background: #ffffff; padding: 4px 8px; border-radius: 4px; font-size: 10px; margin-bottom: 4px;">
+                Email: <strong>officer@hamko.com.bd</strong>
+              </div>
+              <div style="border: 1px solid #94a3b8; background: #ffffff; padding: 4px 8px; border-radius: 4px; font-size: 10px; margin-bottom: 6px;">
+                Password: <strong>••••••••</strong>
+              </div>
+              <span style="display: inline-block; background: #0284c7; color: #ffffff; font-weight: 700; font-size: 10px; padding: 3px 9px; border-radius: 4px;">
+                ① [ Sign In (লগইন) ] ◄── এখানে চাপুন
+              </span>
+            </td>
+            <td style="width: 58%; vertical-align: top; padding: 8px 10px;">
+              <div style="margin-bottom: 6px;">
+                <span style="display: inline-block; background: #e0f2fe; border: 1px solid #0284c7; color: #0369a1; font-weight: 700; font-size: 10px; padding: 2px 7px; border-radius: 4px; margin-right: 4px;">
+                  ② [🔄 রিফ্রেশ / Refresh]
+                </span>
+                <span style="display: inline-block; background: #fef3c7; border: 1px solid #d97706; color: #b45309; font-weight: 700; font-size: 10px; padding: 2px 7px; border-radius: 4px;">
+                  ③ [🌐 EN / বাং]
+                </span>
+              </div>
+              <table style="width: 100%; border-collapse: collapse;">
+                <tr>
+                  <td style="border: 1.5px solid #059669; background: #ecfdf5; padding: 5px; text-align: center; font-size: 10px; font-weight: 700; color: #065f46;">
+                    ① [+ নতুন অর্ডার]
+                  </td>
+                  <td style="border: 1px solid #0d9488; background: #f0fdfa; padding: 5px; text-align: center; font-size: 10px; font-weight: 700; color: #0f766e;">
+                    ① [$ কালেকশন]
+                  </td>
+                  <td style="border: 1px solid #7c3aed; background: #f5f3ff; padding: 5px; text-align: center; font-size: 10px; font-weight: 700; color: #6d28d9;">
+                    ① [+ কাস্টমার]
+                  </td>
+                  <td style="border: 1px solid #4f46e5; background: #eef2ff; padding: 5px; text-align: center; font-size: 10px; font-weight: 700; color: #4338ca;">
+                    ① [ফিল্ড ভিজিট]
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </div>`;
+
+    case "crm":
+      return `
+      <div class="avoid-break" style="border: 2px solid #7c3aed; border-radius: 6px; margin-bottom: 10px; background: #f8fafc;">
+        <div style="background: #f3e8ff; border-bottom: 1px solid #c4b5fd; padding: 5px 10px; font-size: 10.5px; font-weight: 700; color: #6d28d9;">
+          🏪 সচিত্র স্ক্রিন মডেল ২: নতুন কাস্টমার নিবন্ধন ও বকেয়া খাতা (Visual UI Mockup — CRM Screen)
+        </div>
+        <div style="padding: 8px 10px;">
+          <div style="margin-bottom: 6px;">
+            <span style="display: inline-block; background: #7c3aed; color: #ffffff; font-weight: 700; font-size: 10.5px; padding: 3px 10px; border-radius: 4px; margin-right: 6px;">
+              ① [ + নতুন কাস্টমার (+ Add Customer) ] ◄── নতুন দোকান যোগ করুন
+            </span>
+            <span style="display: inline-block; background: #fef3c7; border: 1px solid #d97706; color: #b45309; font-weight: 700; font-size: 10px; padding: 2px 8px; border-radius: 4px;">
+              ② [ফিল্টার: এলাকা • Dealer/Retailer • বকেয়া (Overdue) ▾]
+            </span>
+          </div>
+          <table style="width: 100%; border-collapse: collapse;">
+            <tr>
+              <td style="width: 60%; border: 1px solid #cbd5e1; background: #ffffff; padding: 6px 8px; font-size: 10px;">
+                <strong>দোকানের নাম:</strong> [ বিসমিল্লাহ ক্রোকারিজ - চকবাজার ] &nbsp;|&nbsp; <strong>মালিক:</strong> [ মো. করিম ]<br/>
+                <strong>মোবাইল:</strong> [ 01711-234567 ] &nbsp;|&nbsp; <strong>ধরন:</strong> [ Dealer ▾ ] &nbsp;➔&nbsp; <strong style="color: #059669;">[✓ Save]</strong>
+              </td>
+              <td style="width: 40%; border: 1px solid #cbd5e1; background: #fffbeb; padding: 6px 8px; font-size: 10px;">
+                <strong>বর্তমান বকেয়া: <span style="color: #b45309;">৳৩৪,৫০০</span></strong><br/>
+                <span style="display: inline-block; background: #ecfdf5; border: 1px solid #059669; color: #065f46; font-weight: 700; padding: 1px 6px; border-radius: 3px; margin-top: 3px;">
+                  ③ [💬 বাংলা তাগাদা মেসেজ (AI Reminder)]
+                </span>
+              </td>
+            </tr>
+          </table>
+        </div>
+      </div>`;
+
+    case "products":
+      return `
+      <div class="avoid-break" style="border: 2px solid #d97706; border-radius: 6px; margin-bottom: 10px; background: #f8fafc;">
+        <div style="background: #fef3c7; border-bottom: 1px solid #fcd34d; padding: 5px 10px; font-size: 10.5px; font-weight: 700; color: #b45309;">
+          🍲 সচিত্র স্ক্রিন মডেল ৩: পণ্যের দাম ও গোডাউন স্টক যাচাই (Visual UI Mockup — Products &amp; Pricing)
+        </div>
+        <div style="padding: 8px 10px; font-size: 10.5px;">
+          <div style="border: 1px solid #94a3b8; background: #ffffff; padding: 4px 8px; border-radius: 4px; margin-bottom: 6px;">
+            <strong>① [ 🔍 সার্চ বক্স: &quot;Pressure Cooker 5.5L&quot; বা SKU লিখুন... ]</strong> &nbsp;|&nbsp; <strong>[ক্যাটাগরি: Cookware ▾]</strong>
+          </div>
+          <table style="width: 100%; border-collapse: collapse;">
+            <tr>
+              <td style="border: 1px solid #cbd5e1; background: #ffffff; padding: 6px 8px;">
+                <strong>HAMKO Aluminum Pressure Cooker 5.5L</strong> (SKU: HPC-550)<br/>
+                <span style="color: #b45309; font-weight: 700;">② [DP রেট: ৳১,৪৫০]</span> &nbsp;|&nbsp;
+                <span style="color: #0369a1; font-weight: 700;">② [D10 টিয়ার: ৳১,৩৮০]</span> &nbsp;|&nbsp;
+                <span style="color: #6d28d9; font-weight: 700;">② [B12 টিয়ার: ৳১,৩৫০]</span> &nbsp;|&nbsp;
+                <span>MRP: ৳১,৮৫০</span>
+              </td>
+              <td style="width: 34%; border: 1.5px solid #059669; background: #ecfdf5; padding: 6px 8px; text-align: center; font-weight: 700; color: #065f46;">
+                ③ [🟢 স্টকে আছে: ১২০ পিস]<br/>
+                <span style="font-size: 9.5px; font-weight: 600;">(অর্ডার নেওয়া যাবে)</span>
+              </td>
+            </tr>
+          </table>
+        </div>
+      </div>`;
+
+    case "orders":
+      return `
+      <div class="avoid-break" style="border: 2px solid #059669; border-radius: 6px; margin-bottom: 10px; background: #f8fafc;">
+        <div style="background: #d1fae5; border-bottom: 1px solid #6ee7b7; padding: 5px 10px; font-size: 10.5px; font-weight: 700; color: #065f46;">
+          🧾 সচিত্র স্ক্রিন মডেল ৪: নতুন অর্ডার বুকিং ও ইনভয়েস প্রিন্ট (Visual UI Mockup — Order Booking)
+        </div>
+        <div style="padding: 8px 10px; font-size: 10.5px;">
+          <div style="margin-bottom: 6px;">
+            <span style="display: inline-block; background: #059669; color: #ffffff; font-weight: 700; padding: 3px 10px; border-radius: 4px; margin-right: 6px;">
+              ① [ 🛒 + নতুন অর্ডার (+ New Order) ]
+            </span>
+            <span style="display: inline-block; background: #f3e8ff; border: 1px solid #7c3aed; color: #6d28d9; font-weight: 700; padding: 2px 8px; border-radius: 4px;">
+              ① [ 🎙️ Smart Order AI (বাংলায় বলে বা লিখে অর্ডার) ]
+            </span>
+          </div>
+          <div style="border: 1px solid #94a3b8; background: #ffffff; padding: 6px 8px; border-radius: 4px; margin-bottom: 5px;">
+            <strong>কাস্টমার:</strong> [ মায়ের দোয়া স্টোর ▾ ] &nbsp;|&nbsp; <strong>পণ্য:</strong> [ Pressure Cooker 5.5L ▾ ] &nbsp;|&nbsp;
+            <strong style="color: #b45309;">② টিয়ার: [ D10 (৳১,৩৮০) ▾ ]</strong> &nbsp;|&nbsp; <strong>পরিমাণ: [ 20 পিস ]</strong> = <strong>৳২৭,৬০০</strong>
+          </div>
+          <div style="border: 1px solid #cbd5e1; background: #f0fdf4; padding: 5px 8px; border-radius: 4px;">
+            মোট বিল: <strong>৳২৭,৬০০</strong> &nbsp;|&nbsp; ছাড়: <strong>[৳৬০০]</strong> &nbsp;|&nbsp; নগদ জমা: <strong style="color: #059669;">[৳৭,০০০]</strong> &nbsp;|&nbsp;
+            <strong style="color: #b45309;">বাকি (Due): ৳২০,০০০</strong> &nbsp;➔&nbsp;
+            <strong style="color: #059669;">[✓ Create Order]</strong> &nbsp;
+            <strong style="color: #0369a1;">③ [🖨️ প্রিন্ট ইনভয়েস]</strong>
+          </div>
+        </div>
+      </div>`;
+
+    case "collections":
+      return `
+      <div class="avoid-break" style="border: 2px solid #0d9488; border-radius: 6px; margin-bottom: 10px; background: #f8fafc;">
+        <div style="background: #ccfbf1; border-bottom: 1px solid #5eead4; padding: 5px 10px; font-size: 10.5px; font-weight: 700; color: #0f766e;">
+          💵 সচিত্র স্ক্রিন মডেল ৫: ক্যাশ কালেকশন ও বকেয়া হিসাব (Visual UI Mockup — Cash Collection)
+        </div>
+        <div style="padding: 8px 10px; font-size: 10.5px;">
+          <div style="margin-bottom: 6px;">
+            <span style="display: inline-block; background: #059669; color: #ffffff; font-weight: 700; padding: 3px 10px; border-radius: 4px; margin-right: 6px;">
+              ① [ 💵 + নগদ কালেকশন (+ Cash Collection) ] ◄── টাকা আদায় এন্ট্রি
+            </span>
+            <span style="display: inline-block; background: #fef3c7; border: 1px solid #d97706; color: #b45309; font-weight: 700; padding: 2px 8px; border-radius: 4px;">
+              ③ [ট্যাব: কাস্টমার বকেয়া (Customer Due) • দৈনিক ক্যাশ বুক]
+            </span>
+          </div>
+          <table style="width: 100%; border-collapse: collapse;">
+            <tr>
+              <td style="width: 62%; border: 1px solid #cbd5e1; background: #ffffff; padding: 6px 8px;">
+                <strong>কাস্টমার:</strong> [ বিসমিল্লাহ ক্রোকারিজ (বকেয়া: ৳৩৪,৫০০) ▾ ]<br/>
+                <strong>আদায় (Amount):</strong> <strong style="color: #059669;">[ ৳২০,০০০ ]</strong> &nbsp;|&nbsp; <strong>মাধ্যম:</strong> [ Cash / bKash ▾ ] &nbsp;➔&nbsp; <strong>[✓ Save]</strong>
+              </td>
+              <td style="width: 38%; border: 1px solid #86efac; background: #f0fdf4; padding: 6px 8px;">
+                <strong>② আমার মোট কালেকশন: ৳১,৪৫,০০০</strong><br/>
+                <span style="color: #b45309; font-weight: 700;">নতুন বকেয়া: ৳১৪,৫০০ (অটো আপডেট)</span>
+              </td>
+            </tr>
+          </table>
+        </div>
+      </div>`;
+
+    case "inventory":
+      return `
+      <div class="avoid-break" style="border: 2px solid #ea580c; border-radius: 6px; margin-bottom: 10px; background: #f8fafc;">
+        <div style="background: #ffedd5; border-bottom: 1px solid #fdba74; padding: 5px 10px; font-size: 10.5px; font-weight: 700; color: #c2410c;">
+          📦 সচিত্র স্ক্রিন মডেল ৬: গোডাউন স্টক ও কম স্টকের সতর্কতা (Visual UI Mockup — Inventory Screen)
+        </div>
+        <div style="padding: 8px 10px; font-size: 10.5px;">
+          <table style="width: 100%; border-collapse: collapse; margin-bottom: 6px;">
+            <tr>
+              <td style="border: 1px solid #86efac; background: #f0fdf4; padding: 5px 8px; font-weight: 700; color: #15803d;">
+                ① সচল পণ্য (Available): ৬৮টি
+              </td>
+              <td style="border: 1.5px solid #d97706; background: #fffbeb; padding: 5px 8px; font-weight: 700; color: #b45309;">
+                ① কম স্টক (Low Stock): ৩টি
+              </td>
+              <td style="border: 1px solid #fda4af; background: #fff1f2; padding: 5px 8px; font-weight: 700; color: #be123c;">
+                ① স্টক শেষ (Out of Stock): ০টি
+              </td>
+            </tr>
+          </table>
+          <div style="border: 1px solid #cbd5e1; background: #ffffff; padding: 5px 8px; border-radius: 4px;">
+            <strong>② ফিল্টার ট্যাব: [All SKUs] [⚠️ Low Stock] [Out of Stock]</strong> &nbsp;|&nbsp;
+            <span style="color: #0369a1; font-weight: 700;">③ অটো স্টক সমন্বয়: চালান (+) ও অর্ডার ডেলিভারি (−)</span>
+          </div>
+        </div>
+      </div>`;
+
+    case "sfa":
+      return `
+      <div class="avoid-break" style="border: 2px solid #4f46e5; border-radius: 6px; margin-bottom: 10px; background: #f8fafc;">
+        <div style="background: #e0e7ff; border-bottom: 1px solid #a5b4fc; padding: 5px 10px; font-size: 10.5px; font-weight: 700; color: #3730a3;">
+          📍 সচিত্র স্ক্রিন মডেল ৭: রুট প্ল্যান, ভিজিট লগ ও সন্ধ্যার হ্যান্ডওভার পিন (Visual UI Mockup — SFA)
+        </div>
+        <div style="padding: 8px 10px; font-size: 10.5px;">
+          <div style="margin-bottom: 6px;">
+            <span style="display: inline-block; background: #4f46e5; color: #ffffff; font-weight: 700; padding: 3px 9px; border-radius: 4px; margin-right: 5px;">
+              ① [ 📍 + ভিজিট লগ করুন (+ Log Visit) ]
+            </span>
+            <span style="display: inline-block; background: #e0f2fe; border: 1px solid #0284c7; color: #0369a1; font-weight: 700; padding: 2px 7px; border-radius: 4px; margin-right: 5px;">
+              ② [রুট প্ল্যান ও টার্গেট: ৮৪%]
+            </span>
+            <span style="display: inline-block; background: #ecfdf5; border: 1.5px solid #059669; color: #065f46; font-weight: 700; padding: 2px 8px; border-radius: 4px;">
+              ③ [ 🔐 Evening Handover (পিন কোড: 4829) ]
+            </span>
+          </div>
+          <div style="border: 1px solid #cbd5e1; background: #ffffff; padding: 5px 8px; border-radius: 4px;">
+            <strong>আজকের হ্যান্ডওভার সামারি:</strong> নগদ (Cash): <strong>৳৩৫,০০০</strong> &nbsp;|&nbsp; বিকাশ (bKash): <strong>৳১০,০০০</strong> &nbsp;|&nbsp;
+            মোট জমা: <strong style="color: #059669;">৳৪৫,০০০</strong> &nbsp;|&nbsp; ক্যাশিয়ার ভেরিফিকেশন পিন: <strong style="color: #0369a1;">[ 4 8 2 9 ]</strong>
+          </div>
+        </div>
+      </div>`;
+
+    case "troubleshooting":
+      return `
+      <div class="avoid-break" style="border: 2px solid #e11d48; border-radius: 6px; margin-bottom: 10px; background: #f8fafc;">
+        <div style="background: #ffe4e6; border-bottom: 1px solid #fda4af; padding: 5px 10px; font-size: 10.5px; font-weight: 700; color: #be123c;">
+          🛠️ সচিত্র স্ক্রিন মডেল ৮: দ্রুত সমস্যা সমাধান বাটন (Visual UI Mockup — Troubleshooting)
+        </div>
+        <table style="width: 100%; border-collapse: collapse;">
+          <tr>
+            <td style="width: 33.33%; border-right: 1px solid #cbd5e1; padding: 6px 8px; font-size: 10px;">
+              <strong style="color: #0284c7;">① [ 🔄 Live Sync / Refresh ]</strong><br/>
+              নেটওয়ার্ক ফিরলে বা নতুন ডেটা দেখতে একবার চাপুন।
+            </td>
+            <td style="width: 33.33%; border-right: 1px solid #cbd5e1; padding: 6px 8px; font-size: 10px;">
+              <strong style="color: #b45309;">② [ Ctrl ] + [ F5 ]</strong><br/>
+              কম্পিউটার ব্রাউজারে পেজ আটকে গেলে একসাথে চাপুন।
+            </td>
+            <td style="width: 33.33%; padding: 6px 8px; font-size: 10px;">
+              <strong style="color: #059669;">③ [ 🔑 Forgot Password? ]</strong><br/>
+              OTP দিয়ে রিসেট করুন অথবা সুপার অ্যাডমিনকে জানান।
+            </td>
+          </tr>
+        </table>
+      </div>`;
   }
 }
 
@@ -1168,8 +1817,9 @@ function buildStandaloneA4ManualHtml(
         </table>
 
         <div style="font-size: 11.5px; font-weight: 700; color: #0f172a; margin-bottom: 5px;">
-          স্ক্রিন বাটন পরিচিতি (Where to Tap — ① ② ③):
+          স্ক্রিন প্রিভিউ ও বাটন পরিচিতি (Illustrated UI Mockup &amp; Callouts — ① ② ③):
         </div>
+        ${buildMockupHtmlForPdf(ch.mockupKey)}
         <table style="width: 100%; border-collapse: collapse; margin-bottom: 10px;" class="avoid-break">
           <tr>${calloutsHtml}</tr>
         </table>
