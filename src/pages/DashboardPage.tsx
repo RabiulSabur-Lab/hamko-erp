@@ -130,13 +130,13 @@ function WidgetErrorCard({
 // ─── Skeleton loader for KPI cards ───────────────────────────────────────────
 function KpiSkeleton() {
   return (
-    <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 xl:grid-cols-6">
+    <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
       {Array.from({ length: 6 }).map((_, i) => (
-        <Card key={i} className="overflow-hidden rounded-2xl border-border/60 shadow-xs">
-          <CardContent className="p-4 sm:p-5 space-y-3">
+        <Card key={i} className="overflow-hidden rounded-2xl md:rounded-xl border-border/60">
+          <CardContent className="p-4 space-y-3">
             <div className="flex items-start justify-between">
-              <div className="h-10 w-10 rounded-xl bg-muted animate-pulse" />
-              <div className="h-5 w-14 rounded-full bg-muted animate-pulse" />
+              <div className="h-9 w-9 rounded-lg bg-muted animate-pulse" />
+              <div className="h-5 w-12 rounded bg-muted animate-pulse" />
             </div>
             <div className="h-3 w-24 rounded bg-muted animate-pulse mt-3" />
             <div className="h-6 w-20 rounded bg-muted animate-pulse" />
@@ -545,80 +545,86 @@ export function DashboardPage() {
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="space-y-5 sm:space-y-6 pb-6">
-      {/* Modern Fintech Hero Bar + Quick Action Hub */}
-      <Card className="rounded-2xl border-border/70 bg-gradient-to-br from-primary/10 via-card to-sky-500/5 shadow-xs overflow-hidden">
-        <CardContent className="p-4 sm:p-5 space-y-4">
-          {/* Top Row: Title, Live Status Pill & Primary Action */}
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="space-y-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-lg sm:text-xl font-bold tracking-tight text-foreground">
+    <div className="space-y-5 md:space-y-6">
+      {/* 1A. Desktop-Only Classic Enterprise Web ERP Header (>= 768px) */}
+      <div className="hidden md:flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <div className="flex items-center gap-2">
+            <h1 className="text-xl font-bold text-foreground">{t("dashboard") || "Dashboard"}</h1>
+          </div>
+          {lastSynced && (
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {lang === "bn" ? "সর্বশেষ আপডেট: " : "Last synced: "}
+              {lastSynced.toLocaleTimeString(lang === "bn" ? "bn-BD" : "en", {
+                hour: "2-digit",
+                minute: "2-digit",
+                second: "2-digit",
+              })}
+            </p>
+          )}
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={refreshing}
+          onClick={() => void refresh(true)}
+          className="gap-2 text-xs h-8"
+        >
+          <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
+          {refreshing
+            ? lang === "bn"
+              ? "লোড হচ্ছে..."
+              : "Syncing..."
+            : lang === "bn"
+              ? "রিফ্রেশ"
+              : "Refresh"}
+        </Button>
+      </div>
+
+      {/* 1B. Mobile-Only Fintech Hero Banner & 4x2 Quick Action Hub (< 768px) */}
+      <Card className="block md:hidden rounded-2xl border-border/70 bg-gradient-to-br from-primary/10 via-card to-sky-500/5 shadow-xs overflow-hidden">
+        <CardContent className="p-4 space-y-3.5">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="text-base font-bold tracking-tight text-foreground">
                   {t("dashboard") || "Dashboard"}
                 </h1>
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 px-2.5 py-0.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-400">
+                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-400">
                   <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  {lang === "bn" ? "লাইভ ক্লাউড সক্রিয়" : "Live Cloud Active"}
+                  {lang === "bn" ? "লাইভ" : "Live"}
                 </span>
               </div>
-              {lastSynced ? (
-                <p className="text-xs text-muted-foreground">
-                  {lang === "bn" ? "সর্বশেষ ক্লাউড সিঙ্ক: " : "Last synced: "}
+              {lastSynced && (
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  {lang === "bn" ? "আপডেট: " : "Synced: "}
                   {lastSynced.toLocaleTimeString(lang === "bn" ? "bn-BD" : "en", {
                     hour: "2-digit",
                     minute: "2-digit",
-                    second: "2-digit",
                   })}
-                </p>
-              ) : (
-                <p className="text-xs text-muted-foreground">
-                  {lang === "bn"
-                    ? "হামকো ডিস্ট্রিবিউশন ও সেলস কমান্ড সেন্টার"
-                    : "Hamko Distribution & Sales Command Center"}
                 </p>
               )}
             </div>
 
-            <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                onClick={() => navigate("orders/create")}
-                className="gap-1.5 text-xs h-9 rounded-xl shadow-xs px-3.5"
-              >
-                <PlusCircle className="h-3.5 w-3.5" />
-                {lang === "bn" ? "+ নতুন অর্ডার" : "+ New Order"}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={refreshing}
-                onClick={() => void refresh(true)}
-                className="gap-1.5 text-xs h-9 rounded-xl bg-card/80 backdrop-blur-xs"
-              >
-                <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin text-primary" : ""}`} />
-                {refreshing
-                  ? lang === "bn"
-                    ? "সিঙ্ক হচ্ছে..."
-                    : "Syncing..."
-                  : lang === "bn"
-                    ? "রিফ্রেশ"
-                    : "Refresh"}
-              </Button>
-            </div>
+            <Button
+              size="sm"
+              onClick={() => navigate("orders/create")}
+              className="gap-1 text-xs h-8 rounded-xl shadow-xs px-3"
+            >
+              <PlusCircle className="h-3.5 w-3.5" />
+              {lang === "bn" ? "+ অর্ডার" : "+ Order"}
+            </Button>
           </div>
 
-          {/* Fintech Quick Action Hub (4x2 on Mobile, 8x1 on Desktop) */}
-          <div className="pt-2 border-t border-border/50">
-            <div className="flex items-center justify-between mb-2.5">
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+          {/* Mobile 4x2 Fintech Quick Action Grid */}
+          <div className="pt-2.5 border-t border-border/50">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
                 <Sparkles className="h-3 w-3 text-primary" />
-                {lang === "bn" ? "দ্রুত সেবা (Quick Actions)" : "Quick Action Hub"}
-              </span>
-              <span className="text-[11px] text-muted-foreground hidden sm:inline">
-                {lang === "bn" ? "এক ট্যাপে যেকোনো মডিউলে যান" : "One-tap access to core operations"}
+                {lang === "bn" ? "দ্রুত সেবা (Quick Actions)" : "Quick Actions"}
               </span>
             </div>
-            <div className="grid grid-cols-4 sm:grid-cols-4 lg:grid-cols-8 gap-2 sm:gap-2.5">
+            <div className="grid grid-cols-4 gap-2">
               {quickActions.map((act) => {
                 const ActIcon = act.icon;
                 return (
@@ -627,18 +633,15 @@ export function DashboardPage() {
                     type="button"
                     onClick={act.onClick}
                     disabled={act.key === "live-sync" && refreshing}
-                    className="group flex flex-col items-center justify-center rounded-2xl border border-border/60 bg-card/90 hover:bg-card p-2.5 sm:p-3 text-center shadow-2xs transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md active:scale-95 focus:outline-none"
+                    className="group flex flex-col items-center justify-center rounded-2xl border border-border/60 bg-card/90 p-2 text-center shadow-2xs transition-all active:scale-95 focus:outline-none"
                   >
                     <div
-                      className={`flex h-10 w-10 sm:h-11 sm:w-11 items-center justify-center rounded-2xl border ${act.iconBg} transition-transform duration-150 group-hover:scale-105`}
+                      className={`flex h-9 w-9 items-center justify-center rounded-xl border ${act.iconBg}`}
                     >
-                      <ActIcon className={`h-5 w-5 ${act.spin ? "animate-spin" : ""}`} />
+                      <ActIcon className={`h-4 w-4 ${act.spin ? "animate-spin" : ""}`} />
                     </div>
-                    <span className="mt-2 text-[11px] sm:text-xs font-semibold text-foreground leading-tight line-clamp-1">
+                    <span className="mt-1.5 text-[10px] font-semibold text-foreground leading-tight line-clamp-1">
                       {act.label}
-                    </span>
-                    <span className="mt-0.5 text-[10px] text-muted-foreground leading-tight hidden sm:block line-clamp-1">
-                      {act.sub}
                     </span>
                   </button>
                 );
@@ -648,7 +651,7 @@ export function DashboardPage() {
         </CardContent>
       </Card>
 
-      {/* KPI cards — clean fintech grid with soft rounded corners */}
+      {/* KPI cards — Fintech rounded-2xl on mobile (<768px), Classic Enterprise ERP cards on desktop (>=768px) */}
       <ErrorBoundary
         name="Widget:KpiCards"
         fallbackRender={({ resetErrorBoundary }) => (
@@ -665,25 +668,22 @@ export function DashboardPage() {
         {loading ? (
           <KpiSkeleton />
         ) : (
-          <div className="grid grid-cols-2 gap-3 sm:gap-3.5 md:grid-cols-3 xl:grid-cols-6">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
             {kpiCards.map((card: any) => {
               const Icon = card.icon;
               return (
                 <Card
                   key={card.label}
-                  className="group overflow-hidden rounded-2xl border-border/70 bg-card cursor-pointer transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md active:scale-[0.99] flex flex-col justify-between"
+                  className="overflow-hidden rounded-2xl md:rounded-xl cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md flex flex-col justify-between"
                   onClick={() => navigate(card.route)}
                 >
-                  <CardContent className="p-4 sm:p-4.5 flex flex-col justify-between h-full">
+                  <CardContent className="p-3.5 md:p-4 flex flex-col justify-between h-full">
                     <div>
-                      <div className="flex items-center justify-between gap-1.5">
-                        <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${card.bg} transition-transform group-hover:scale-105`}>
-                          <Icon className={`h-5 w-5 ${card.color}`} />
+                      <div className="flex items-start justify-between">
+                        <div className={`flex h-9 w-9 items-center justify-center rounded-xl md:rounded-lg ${card.bg}`}>
+                          <Icon className={`h-4 w-4 ${card.color}`} />
                         </div>
-                        <Badge
-                          variant={card.up ? "success" : "secondary"}
-                          className="rounded-full px-2 py-0.5 text-[10px] font-semibold shrink-0"
-                        >
+                        <Badge variant={card.up ? "success" : "secondary"} className="text-[10px]">
                           {card.up ? (
                             <ArrowUpRight className="h-2.5 w-2.5 mr-0.5" />
                           ) : (
@@ -692,23 +692,21 @@ export function DashboardPage() {
                           {card.trend}
                         </Badge>
                       </div>
-                      <p className="text-xs font-medium text-muted-foreground mt-3.5 line-clamp-1">{card.label}</p>
-                      <p className="text-base sm:text-lg font-extrabold tracking-tight text-foreground mt-0.5 truncate">
-                        {card.value}
-                      </p>
+                      <p className="text-xs text-muted-foreground mt-3">{card.label}</p>
+                      <p className="text-base md:text-lg font-bold mt-0.5 truncate">{card.value}</p>
                       {card.subtitle && (
-                        <p className="text-[11px] text-muted-foreground/85 mt-0.5 font-medium truncate">
+                        <p className="text-[10px] text-muted-foreground/80 mt-0.5 font-medium truncate">
                           {card.subtitle}
                         </p>
                       )}
                     </div>
                     {card.breakdown && (
-                      <div className="flex flex-wrap items-center gap-1.5 mt-2.5 pt-2 border-t border-border/50 text-[10px] font-semibold">
-                        <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                      <div className="flex items-center gap-1.5 mt-2 pt-1.5 border-t border-border/40 text-[10px] font-semibold">
+                        <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-1.5 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
                           <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
                           Active: {card.breakdown.active}
                         </span>
-                        <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
+                        <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-800">
                           <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
                           Inactive: {card.breakdown.inactive}
                         </span>

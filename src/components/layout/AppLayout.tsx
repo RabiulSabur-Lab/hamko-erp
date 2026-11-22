@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, type ReactNode } from "react";
 import {
   Menu, X, Moon, Sun, Globe, Bell, LogOut, ChevronDown,
   LayoutDashboard, Users, Package, ShoppingCart, Truck, Warehouse,
-  Wallet, MapPin, BarChart3, UserCog, Download, BookOpen,
+  Wallet, MapPin, BarChart3, UserCog, Download, BookOpen, Plus,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { withQueryTimeout } from "@/lib/supabaseQuery";
@@ -348,9 +348,104 @@ export function AppLayout({ children }: { children: ReactNode }) {
           </div>
         </header>
 
-        {/* Page content */}
-        <main className="p-4 lg:p-6">{children}</main>
+        {/* Page content — extra bottom padding on mobile (<768px) for fixed bottom nav bar */}
+        <main className="p-4 pb-24 md:pb-6 lg:p-6">{children}</main>
       </div>
+
+      {/* Mobile-Only Fintech Bottom Navigation Bar (< 768px) */}
+      <nav
+        aria-label="Mobile quick navigation"
+        className="fixed bottom-0 inset-x-0 z-30 md:hidden border-t border-border/80 bg-background/95 backdrop-blur-md shadow-[0_-4px_16px_rgba(0,0,0,0.06)] print:hidden"
+      >
+        <div className="grid grid-cols-5 items-center h-16 px-2 max-w-md mx-auto">
+          {/* 1. Home / Dashboard */}
+          <button
+            type="button"
+            onClick={() => {
+              setSidebarOpen(false);
+              navigate("dashboard");
+            }}
+            className={cn(
+              "flex flex-col items-center justify-center gap-0.5 py-1 rounded-xl transition-colors",
+              activeRoute === "dashboard"
+                ? "text-primary font-semibold"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <LayoutDashboard className="h-5 w-5" />
+            <span className="text-[10px] leading-tight">{lang === "bn" ? "হোম" : "Home"}</span>
+          </button>
+
+          {/* 2. Orders */}
+          <button
+            type="button"
+            onClick={() => {
+              setSidebarOpen(false);
+              navigate("orders");
+            }}
+            className={cn(
+              "flex flex-col items-center justify-center gap-0.5 py-1 rounded-xl transition-colors",
+              activeRoute === "orders" && path !== "/orders/create"
+                ? "text-primary font-semibold"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <ShoppingCart className="h-5 w-5" />
+            <span className="text-[10px] leading-tight">{lang === "bn" ? "অর্ডার" : "Orders"}</span>
+          </button>
+
+          {/* 3. Center Floating Fintech Action: + New Order */}
+          <div className="flex flex-col items-center justify-center">
+            <button
+              type="button"
+              onClick={() => {
+                setSidebarOpen(false);
+                navigate("orders/create");
+              }}
+              className="-mt-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-md ring-4 ring-background active:scale-95 transition-transform"
+              title={lang === "bn" ? "+ নতুন অর্ডার" : "+ New Order"}
+            >
+              <Plus className="h-6 w-6" />
+            </button>
+            <span className="text-[10px] font-semibold text-primary leading-tight mt-0.5">
+              {lang === "bn" ? "+ নতুন" : "+ New"}
+            </span>
+          </div>
+
+          {/* 4. Customers (CRM) */}
+          <button
+            type="button"
+            onClick={() => {
+              setSidebarOpen(false);
+              navigate("customers");
+            }}
+            className={cn(
+              "flex flex-col items-center justify-center gap-0.5 py-1 rounded-xl transition-colors",
+              activeRoute === "customers"
+                ? "text-primary font-semibold"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <Users className="h-5 w-5" />
+            <span className="text-[10px] leading-tight">{lang === "bn" ? "কাস্টমার" : "Customers"}</span>
+          </button>
+
+          {/* 5. Menu / More Drawer */}
+          <button
+            type="button"
+            onClick={() => setSidebarOpen((prev) => !prev)}
+            className={cn(
+              "flex flex-col items-center justify-center gap-0.5 py-1 rounded-xl transition-colors",
+              sidebarOpen
+                ? "text-primary font-semibold"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <Menu className="h-5 w-5" />
+            <span className="text-[10px] leading-tight">{lang === "bn" ? "মেনু" : "Menu"}</span>
+          </button>
+        </div>
+      </nav>
     </div>
   );
 }
