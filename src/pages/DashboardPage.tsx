@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import { formatBDT, toBnDigit } from "@/lib/utils";
 import {
   TrendingUp, TrendingDown, DollarSign, AlertTriangle,
-  Users, ArrowUpRight, RefreshCw,
+  Users, ArrowUpRight, RefreshCw, ShoppingCart, Wallet,
+  Truck, Warehouse, MapPin, BookOpen, PlusCircle, Sparkles,
 } from "lucide-react";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -129,13 +130,13 @@ function WidgetErrorCard({
 // ─── Skeleton loader for KPI cards ───────────────────────────────────────────
 function KpiSkeleton() {
   return (
-    <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+    <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 xl:grid-cols-6">
       {Array.from({ length: 6 }).map((_, i) => (
-        <Card key={i} className="overflow-hidden">
-          <CardContent className="p-4 space-y-3">
+        <Card key={i} className="overflow-hidden rounded-2xl border-border/60 shadow-xs">
+          <CardContent className="p-4 sm:p-5 space-y-3">
             <div className="flex items-start justify-between">
-              <div className="h-9 w-9 rounded-lg bg-muted animate-pulse" />
-              <div className="h-5 w-12 rounded bg-muted animate-pulse" />
+              <div className="h-10 w-10 rounded-xl bg-muted animate-pulse" />
+              <div className="h-5 w-14 rounded-full bg-muted animate-pulse" />
             </div>
             <div className="h-3 w-24 rounded bg-muted animate-pulse mt-3" />
             <div className="h-6 w-20 rounded bg-muted animate-pulse" />
@@ -464,37 +465,190 @@ export function DashboardPage() {
     [lang],
   );
 
+  // ── Fintech-Style Quick Action Hub Tiles ────────────────────────────────────
+  const quickActions = useMemo(
+    () => [
+      {
+        key: "new-order",
+        label: lang === "bn" ? "+ নতুন অর্ডার" : "+ New Order",
+        sub: lang === "bn" ? "ইনভয়েস তৈরি" : "Create Invoice",
+        icon: ShoppingCart,
+        iconBg: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/25",
+        onClick: () => navigate("orders/create"),
+      },
+      {
+        key: "cash-collection",
+        label: lang === "bn" ? "$ ক্যাশ কালেকশন" : "$ Cash Collection",
+        sub: lang === "bn" ? "বকেয়া আদায়" : "Receive Payment",
+        icon: Wallet,
+        iconBg: "bg-teal-500/15 text-teal-600 dark:text-teal-400 border-teal-500/25",
+        onClick: () => navigate("accounts"),
+      },
+      {
+        key: "purchase-chalan",
+        label: lang === "bn" ? "+ পারচেজ চালান" : "+ Purchase Chalan",
+        sub: lang === "bn" ? "সাপ্লায়ার লেজার" : "Stock & Payable",
+        icon: Truck,
+        iconBg: "bg-sky-500/15 text-sky-600 dark:text-sky-400 border-sky-500/25",
+        onClick: () => navigate("procurement"),
+      },
+      {
+        key: "add-customer",
+        label: lang === "bn" ? "+ কাস্টমার" : "+ Customers",
+        sub: lang === "bn" ? "ডিলার ও রিটেইলার" : "CRM Directory",
+        icon: Users,
+        iconBg: "bg-violet-500/15 text-violet-600 dark:text-violet-400 border-violet-500/25",
+        onClick: () => navigate("customers"),
+      },
+      {
+        key: "inventory-stock",
+        label: lang === "bn" ? "ইনভেন্টরি স্টক" : "Inventory Stock",
+        sub: lang === "bn" ? "মজুদ ও অ্যালার্ট" : "Warehouse SKUs",
+        icon: Warehouse,
+        iconBg: "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/25",
+        onClick: () => navigate("inventory"),
+      },
+      {
+        key: "field-sfa",
+        label: lang === "bn" ? "ফিল্ড ভিজিট" : "Field Visit (SFA)",
+        sub: lang === "bn" ? "রুট ও হ্যান্ডওভার" : "Route & Handover",
+        icon: MapPin,
+        iconBg: "bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border-indigo-500/25",
+        onClick: () => navigate("sfa"),
+      },
+      {
+        key: "user-manual",
+        label: lang === "bn" ? "ব্যবহারবিধি" : "User Manual",
+        sub: lang === "bn" ? "সচিত্র গাইড PDF" : "A-Z Guide & PDF",
+        icon: BookOpen,
+        iconBg: "bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/25",
+        onClick: () => navigate("manual"),
+      },
+      {
+        key: "live-sync",
+        label: refreshing
+          ? lang === "bn"
+            ? "সিঙ্ক হচ্ছে..."
+            : "Syncing..."
+          : lang === "bn"
+            ? "লাইভ সিঙ্ক"
+            : "Live Sync",
+        sub: lang === "bn" ? "ক্লাউড আপডেট" : "Cloud Refresh",
+        icon: RefreshCw,
+        iconBg: "bg-primary/15 text-primary border-primary/25",
+        spin: refreshing,
+        onClick: () => void refresh(true),
+      },
+    ],
+    [lang, navigate, refresh, refreshing],
+  );
+
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="space-y-6">
-      {/* Header row: title + sync indicator + refresh button */}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-xl font-bold text-foreground">{t("dashboard") || "Dashboard"}</h1>
-          </div>
-          {lastSynced && (
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {lang === "bn" ? "সর্বশেষ আপডেট: " : "Last synced: "}
-              {lastSynced.toLocaleTimeString(lang === "bn" ? "bn-BD" : "en", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
-            </p>
-          )}
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={refreshing}
-          onClick={() => void refresh(true)}
-          className="gap-2 text-xs h-8"
-        >
-          <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
-          {refreshing
-            ? (lang === "bn" ? "লোড হচ্ছে..." : "Syncing...")
-            : (lang === "bn" ? "রিফ্রেশ" : "Refresh")}
-        </Button>
-      </div>
+    <div className="space-y-5 sm:space-y-6 pb-6">
+      {/* Modern Fintech Hero Bar + Quick Action Hub */}
+      <Card className="rounded-2xl border-border/70 bg-gradient-to-br from-primary/10 via-card to-sky-500/5 shadow-xs overflow-hidden">
+        <CardContent className="p-4 sm:p-5 space-y-4">
+          {/* Top Row: Title, Live Status Pill & Primary Action */}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="space-y-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-lg sm:text-xl font-bold tracking-tight text-foreground">
+                  {t("dashboard") || "Dashboard"}
+                </h1>
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 px-2.5 py-0.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-400">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  {lang === "bn" ? "লাইভ ক্লাউড সক্রিয়" : "Live Cloud Active"}
+                </span>
+              </div>
+              {lastSynced ? (
+                <p className="text-xs text-muted-foreground">
+                  {lang === "bn" ? "সর্বশেষ ক্লাউড সিঙ্ক: " : "Last synced: "}
+                  {lastSynced.toLocaleTimeString(lang === "bn" ? "bn-BD" : "en", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    second: "2-digit",
+                  })}
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  {lang === "bn"
+                    ? "হামকো ডিস্ট্রিবিউশন ও সেলস কমান্ড সেন্টার"
+                    : "Hamko Distribution & Sales Command Center"}
+                </p>
+              )}
+            </div>
 
-      {/* KPI cards — skeleton while initial load, data thereafter */}
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                onClick={() => navigate("orders/create")}
+                className="gap-1.5 text-xs h-9 rounded-xl shadow-xs px-3.5"
+              >
+                <PlusCircle className="h-3.5 w-3.5" />
+                {lang === "bn" ? "+ নতুন অর্ডার" : "+ New Order"}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={refreshing}
+                onClick={() => void refresh(true)}
+                className="gap-1.5 text-xs h-9 rounded-xl bg-card/80 backdrop-blur-xs"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin text-primary" : ""}`} />
+                {refreshing
+                  ? lang === "bn"
+                    ? "সিঙ্ক হচ্ছে..."
+                    : "Syncing..."
+                  : lang === "bn"
+                    ? "রিফ্রেশ"
+                    : "Refresh"}
+              </Button>
+            </div>
+          </div>
+
+          {/* Fintech Quick Action Hub (4x2 on Mobile, 8x1 on Desktop) */}
+          <div className="pt-2 border-t border-border/50">
+            <div className="flex items-center justify-between mb-2.5">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                <Sparkles className="h-3 w-3 text-primary" />
+                {lang === "bn" ? "দ্রুত সেবা (Quick Actions)" : "Quick Action Hub"}
+              </span>
+              <span className="text-[11px] text-muted-foreground hidden sm:inline">
+                {lang === "bn" ? "এক ট্যাপে যেকোনো মডিউলে যান" : "One-tap access to core operations"}
+              </span>
+            </div>
+            <div className="grid grid-cols-4 sm:grid-cols-4 lg:grid-cols-8 gap-2 sm:gap-2.5">
+              {quickActions.map((act) => {
+                const ActIcon = act.icon;
+                return (
+                  <button
+                    key={act.key}
+                    type="button"
+                    onClick={act.onClick}
+                    disabled={act.key === "live-sync" && refreshing}
+                    className="group flex flex-col items-center justify-center rounded-2xl border border-border/60 bg-card/90 hover:bg-card p-2.5 sm:p-3 text-center shadow-2xs transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md active:scale-95 focus:outline-none"
+                  >
+                    <div
+                      className={`flex h-10 w-10 sm:h-11 sm:w-11 items-center justify-center rounded-2xl border ${act.iconBg} transition-transform duration-150 group-hover:scale-105`}
+                    >
+                      <ActIcon className={`h-5 w-5 ${act.spin ? "animate-spin" : ""}`} />
+                    </div>
+                    <span className="mt-2 text-[11px] sm:text-xs font-semibold text-foreground leading-tight line-clamp-1">
+                      {act.label}
+                    </span>
+                    <span className="mt-0.5 text-[10px] text-muted-foreground leading-tight hidden sm:block line-clamp-1">
+                      {act.sub}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* KPI cards — clean fintech grid with soft rounded corners */}
       <ErrorBoundary
         name="Widget:KpiCards"
         fallbackRender={({ resetErrorBoundary }) => (
@@ -511,22 +665,25 @@ export function DashboardPage() {
         {loading ? (
           <KpiSkeleton />
         ) : (
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+          <div className="grid grid-cols-2 gap-3 sm:gap-3.5 md:grid-cols-3 xl:grid-cols-6">
             {kpiCards.map((card: any) => {
               const Icon = card.icon;
               return (
                 <Card
                   key={card.label}
-                  className="overflow-hidden cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md flex flex-col justify-between"
+                  className="group overflow-hidden rounded-2xl border-border/70 bg-card cursor-pointer transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md active:scale-[0.99] flex flex-col justify-between"
                   onClick={() => navigate(card.route)}
                 >
-                  <CardContent className="p-4 flex flex-col justify-between h-full">
+                  <CardContent className="p-4 sm:p-4.5 flex flex-col justify-between h-full">
                     <div>
-                      <div className="flex items-start justify-between">
-                        <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${card.bg}`}>
-                          <Icon className={`h-4 w-4 ${card.color}`} />
+                      <div className="flex items-center justify-between gap-1.5">
+                        <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${card.bg} transition-transform group-hover:scale-105`}>
+                          <Icon className={`h-5 w-5 ${card.color}`} />
                         </div>
-                        <Badge variant={card.up ? "success" : "secondary"} className="text-[10px]">
+                        <Badge
+                          variant={card.up ? "success" : "secondary"}
+                          className="rounded-full px-2 py-0.5 text-[10px] font-semibold shrink-0"
+                        >
                           {card.up ? (
                             <ArrowUpRight className="h-2.5 w-2.5 mr-0.5" />
                           ) : (
@@ -535,19 +692,23 @@ export function DashboardPage() {
                           {card.trend}
                         </Badge>
                       </div>
-                      <p className="text-xs text-muted-foreground mt-3">{card.label}</p>
-                      <p className="text-lg font-bold mt-0.5 truncate">{card.value}</p>
+                      <p className="text-xs font-medium text-muted-foreground mt-3.5 line-clamp-1">{card.label}</p>
+                      <p className="text-base sm:text-lg font-extrabold tracking-tight text-foreground mt-0.5 truncate">
+                        {card.value}
+                      </p>
                       {card.subtitle && (
-                        <p className="text-[10px] text-muted-foreground/80 mt-0.5 font-medium truncate">{card.subtitle}</p>
+                        <p className="text-[11px] text-muted-foreground/85 mt-0.5 font-medium truncate">
+                          {card.subtitle}
+                        </p>
                       )}
                     </div>
                     {card.breakdown && (
-                      <div className="flex items-center gap-1.5 mt-2 pt-1.5 border-t border-border/40 text-[10px] font-semibold">
-                        <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-1.5 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
+                      <div className="flex flex-wrap items-center gap-1.5 mt-2.5 pt-2 border-t border-border/50 text-[10px] font-semibold">
+                        <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
                           <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
                           Active: {card.breakdown.active}
                         </span>
-                        <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-800">
+                        <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
                           <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
                           Inactive: {card.breakdown.inactive}
                         </span>
@@ -602,9 +763,9 @@ export function DashboardPage() {
             </div>
           )}
         >
-          <Card className="lg:col-span-2 min-w-0 min-h-[320px] overflow-hidden">
+          <Card className="lg:col-span-2 min-w-0 min-h-[320px] overflow-hidden rounded-2xl border-border/70 shadow-xs">
             <CardHeader className="pb-2">
-              <CardTitle className="text-base">{t("salesTrend")}</CardTitle>
+              <CardTitle className="text-base font-bold">{t("salesTrend")}</CardTitle>
             </CardHeader>
             <CardContent className="min-w-0">
               {loading ? (
@@ -658,9 +819,9 @@ export function DashboardPage() {
             />
           )}
         >
-          <Card className="min-w-0 min-h-[320px] overflow-hidden">
+          <Card className="min-w-0 min-h-[320px] overflow-hidden rounded-2xl border-border/70 shadow-xs">
             <CardHeader className="pb-2">
-              <CardTitle className="text-base">{t("salesByStatus")}</CardTitle>
+              <CardTitle className="text-base font-bold">{t("salesByStatus")}</CardTitle>
             </CardHeader>
             <CardContent className="min-w-0">
               {loading ? (
@@ -703,16 +864,16 @@ export function DashboardPage() {
             />
           )}
         >
-          <Card className="overflow-hidden">
+          <Card className="overflow-hidden rounded-2xl border-border/70 shadow-xs">
             <CardHeader className="pb-2 flex flex-row items-center justify-between">
-              <CardTitle className="text-base font-semibold">{t("topSellingProducts")}</CardTitle>
-              <Badge variant="outline" className="text-[11px] font-medium text-muted-foreground">Top 5</Badge>
+              <CardTitle className="text-base font-bold">{t("topSellingProducts")}</CardTitle>
+              <Badge variant="outline" className="rounded-full px-2.5 text-[11px] font-medium text-muted-foreground">Top 5</Badge>
             </CardHeader>
             <CardContent>
               {loading ? (
                 <div className="space-y-2 py-2">
                   {Array.from({ length: 4 }).map((_, i) => (
-                    <div key={i} className="h-12 w-full rounded-lg bg-muted/40 animate-pulse" />
+                    <div key={i} className="h-12 w-full rounded-xl bg-muted/40 animate-pulse" />
                   ))}
                 </div>
               ) : topProducts.length === 0 ? (
@@ -720,18 +881,18 @@ export function DashboardPage() {
               ) : (
                 <div className="space-y-2">
                   {topProducts.map((p, idx) => (
-                    <div key={p.id || p.name} className="flex items-center justify-between rounded-lg border p-2.5 hover:bg-muted/30 transition-colors">
-                      <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                        <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
+                    <div key={p.id || p.name} className="flex items-center justify-between rounded-xl border border-border/60 p-3 hover:bg-muted/30 transition-colors">
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-xs font-bold text-primary">
                           {idx + 1}
                         </div>
                         <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium truncate text-foreground" title={p.name}>{p.name}</p>
+                          <p className="text-sm font-semibold truncate text-foreground" title={p.name}>{p.name}</p>
                           <p className="text-xs text-muted-foreground truncate">{p.category}</p>
                         </div>
                       </div>
                       <div className="text-right ml-3 shrink-0">
-                        <p className="text-sm font-semibold text-foreground">{formatBDT(p.totalSales)}</p>
+                        <p className="text-sm font-bold text-foreground">{formatBDT(p.totalSales)}</p>
                         <p className="text-xs text-muted-foreground">{p.soldQty} pcs sold</p>
                       </div>
                     </div>
@@ -756,18 +917,18 @@ export function DashboardPage() {
             />
           )}
         >
-          <Card className="overflow-hidden">
+          <Card className="overflow-hidden rounded-2xl border-border/70 shadow-xs">
             <CardHeader className="pb-2 flex flex-row items-center justify-between">
-              <CardTitle className="text-base">{t("recentOrders")}</CardTitle>
-              <Button variant="ghost" size="sm" onClick={() => navigate("orders")}>
-                {t("viewAll")} <ArrowUpRight className="h-3 w-3" />
+              <CardTitle className="text-base font-bold">{t("recentOrders")}</CardTitle>
+              <Button variant="ghost" size="sm" onClick={() => navigate("orders")} className="rounded-xl text-xs gap-1">
+                {t("viewAll")} <ArrowUpRight className="h-3.5 w-3.5" />
               </Button>
             </CardHeader>
             <CardContent>
               {loading ? (
                 <div className="space-y-2 py-2">
                   {Array.from({ length: 4 }).map((_, i) => (
-                    <div key={i} className="h-12 w-full rounded-lg bg-muted/40 animate-pulse" />
+                    <div key={i} className="h-12 w-full rounded-xl bg-muted/40 animate-pulse" />
                   ))}
                 </div>
               ) : recentOrders.length === 0 ? (
@@ -777,16 +938,16 @@ export function DashboardPage() {
                   {recentOrders.map((o, idx) => {
                     const statusLabel = String(o?.status || "Pending");
                     return (
-                      <div key={o?.id || o?.order_number || idx} className="flex items-center justify-between rounded-lg border p-2.5">
+                      <div key={o?.id || o?.order_number || idx} className="flex items-center justify-between rounded-xl border border-border/60 p-3 hover:bg-muted/30 transition-colors">
                         <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium truncate">{o?.order_number || "—"}</p>
+                          <p className="text-sm font-semibold truncate">{o?.order_number || "—"}</p>
                           <p className="text-xs text-muted-foreground truncate">{o?.customer?.name ?? "—"}</p>
                         </div>
-                        <div className="text-right ml-2">
-                          <p className="text-sm font-semibold">{formatBDT(Number(o?.total_amount || 0))}</p>
+                        <div className="text-right ml-2 shrink-0">
+                          <p className="text-sm font-bold">{formatBDT(Number(o?.total_amount || 0))}</p>
                           <Badge
                             variant={statusLabel === "Delivered" ? "success" : statusLabel === "Cancelled" ? "destructive" : "secondary"}
-                            className="text-[10px]"
+                            className="rounded-full px-2 text-[10px]"
                           >
                             {t(statusLabel.toLowerCase()) || statusLabel}
                           </Badge>

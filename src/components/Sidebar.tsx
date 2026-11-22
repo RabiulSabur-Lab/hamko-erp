@@ -110,7 +110,7 @@ export const Sidebar: FC<SidebarProps> = ({ open, onClose, unreadCount = 0 }) =>
         </button>
       </div>
 
-      <nav className="flex flex-col gap-1 p-3 overflow-y-auto h-[calc(100vh-4rem)]">
+      <nav className="flex flex-col gap-1.5 p-3 overflow-y-auto h-[calc(100vh-4rem)]">
         {visibleNavItems.map((item) => {
           const Icon = item.icon;
           const active = String(activeRoute) === String(item.path);
@@ -122,16 +122,25 @@ export const Sidebar: FC<SidebarProps> = ({ open, onClose, unreadCount = 0 }) =>
                 onClose();
               }}
               className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                "group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-150",
                 active
-                  ? "bg-primary text-primary-foreground"
-                  : "text-sidebar-foreground hover:bg-sidebar-accent",
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "text-sidebar-foreground/85 hover:bg-sidebar-accent hover:text-sidebar-foreground",
               )}
             >
-              <Icon className="h-4 w-4 shrink-0" />
+              <span
+                className={cn(
+                  "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors",
+                  active
+                    ? "bg-primary-foreground/15 text-primary-foreground"
+                    : "bg-sidebar-accent/60 text-sidebar-foreground/80 group-hover:bg-sidebar-accent group-hover:text-sidebar-foreground",
+                )}
+              >
+                <Icon className="h-4 w-4 shrink-0" />
+              </span>
               <span className="truncate flex-1 text-left">{t(item.key)}</span>
               {item.key === "notifications" && unreadCount > 0 && (
-                <Badge variant="destructive" className="ml-auto text-[10px] px-1.5 py-0 h-4">
+                <Badge variant="destructive" className="ml-auto rounded-full text-[10px] px-1.5 py-0 h-4.5">
                   {unreadCount}
                 </Badge>
               )}
