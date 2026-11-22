@@ -1170,11 +1170,8 @@ function EnterpriseErpMockupFrame({
               </span>
             </div>
 
-            {/* Header Right Actions: Manual, Language, Theme, Notifications, User Profile */}
+            {/* Header Right Actions: Language, Theme, Notifications, User Profile */}
             <div className="flex flex-wrap items-center gap-1.5 shrink-0">
-              <span className="inline-flex items-center gap-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2.5 py-1 text-[10.5px] font-bold text-slate-700 dark:text-slate-200">
-                📖 ব্যবহারবিধি
-              </span>
               <span
                 className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[10.5px] font-bold ${
                   headerHighlightCallout
@@ -2091,7 +2088,6 @@ function wrapPdfEnterpriseErpShell(
                   ${activeItem ? `${activeItem.iconText} ${escapeHtml(activeItem.labelBn)} (${escapeHtml(activeItem.labelEn)})` : "Dashboard"}
                 </td>
                 <td style="border: none; padding: 0; text-align: right;">
-                  <span style="background: #f1f5f9; border: 1px solid #cbd5e1; padding: 1px 5px; border-radius: 3px; font-weight: 700; color: #334155;">📖 ব্যবহারবিধি</span>
                   <span style="background: #fef3c7; border: 1px solid #d97706; padding: 1px 5px; border-radius: 3px; font-weight: 700; color: #b45309; margin-left: 3px;">③ 🌐 EN / বাং</span>
                   <span style="background: #f1f5f9; border: 1px solid #cbd5e1; padding: 1px 5px; border-radius: 3px; font-weight: 700; color: #0f172a; margin-left: 3px;">🔔 2</span>
                   <span style="background: #e0f2fe; border: 1px solid #0284c7; padding: 1px 6px; border-radius: 3px; font-weight: 700; color: #0369a1; margin-left: 3px;">[TA] তানভীর (SO) ▾</span>

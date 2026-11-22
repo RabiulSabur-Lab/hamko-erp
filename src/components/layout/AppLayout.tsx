@@ -266,18 +266,6 @@ export function AppLayout({ children }: { children: ReactNode }) {
             </p>
           </div>
 
-          {/* User Manual Quick Button */}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => navigate("manual")}
-            className="gap-1.5 hidden sm:inline-flex text-white md:text-foreground hover:bg-white/15 md:hover:bg-accent"
-            title={lang === "bn" ? "সচিত্র ব্যবহারবিধি (User Manual)" : "Illustrated User Manual (A-Z)"}
-          >
-            <BookOpen className="h-4 w-4 text-blue-200 md:text-primary" />
-            <span className="text-xs font-semibold">{lang === "bn" ? "ব্যবহারবিধি" : "Manual"}</span>
-          </Button>
-
           {/* Language toggle */}
           <Button
             variant="ghost"
@@ -339,17 +327,6 @@ export function AppLayout({ children }: { children: ReactNode }) {
                     <p className="text-xs text-muted-foreground truncate">{profile?.email ?? user?.email ?? ""}</p>
                     <Badge variant="secondary" className="mt-1 text-[10px]">{profile?.role_name ?? "Staff"}</Badge>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setUserMenuOpen(false);
-                      navigate("manual");
-                    }}
-                    className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-foreground hover:bg-accent transition-colors"
-                  >
-                    <BookOpen className="h-4 w-4 text-primary" />
-                    <span>{lang === "bn" ? "সচিত্র ব্যবহারবিধি (A-Z)" : "User Manual (A-Z)"}</span>
-                  </button>
                   <button
                     type="button"
                     onClick={() => {
