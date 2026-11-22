@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 
 type ManualLangMode = "bilingual" | "bn" | "en";
+type ManualOrientationMode = "hybrid" | "portrait" | "landscape";
 
 interface HowToStep {
   stepNum: string;
@@ -2359,6 +2360,7 @@ function buildStandaloneA4ManualHtml(
   chapters: ManualChapter[],
   langMode: ManualLangMode,
   includeToolbar = true,
+  orientationMode: ManualOrientationMode = "hybrid",
 ): string {
   const showBn = langMode === "bilingual" || langMode === "bn";
   const showEn = langMode === "bilingual" || langMode === "en";
@@ -2449,10 +2451,12 @@ function buildStandaloneA4ManualHtml(
         .join("");
 
       return `
-      <div class="chapter-block" style="border: 1.5px solid #94a3b8; border-radius: 8px; margin-bottom: 16px; background: #ffffff; padding: 12px 14px;">
+      <!-- PART A: PORTRAIT NARRATIVE & STEP-BY-STEP GUIDELINES -->
+      <div class="portrait-sheet-block chapter-block" style="border: 1.5px solid #94a3b8; border-radius: 8px; background: #ffffff; padding: 12px 14px;">
         <div class="avoid-break" style="border-bottom: 1.5px solid #cbd5e1; padding-bottom: 8px; margin-bottom: 10px; background: #f8fafc; padding: 8px 10px; border-radius: 6px;">
-          <div style="font-size: 10.5px; font-weight: 700; color: #0369a1; text-transform: uppercase;">
-            ${escapeHtml(ch.chapterNo)} &nbsp;|&nbsp; 📍 ${escapeHtml(langMode === "en" ? ch.menuNameEn : ch.menuNameBn)}
+          <div style="display: flex; justify-content: space-between; align-items: center; font-size: 10.5px; font-weight: 700; color: #0369a1; text-transform: uppercase;">
+            <span>${escapeHtml(ch.chapterNo)} &nbsp;|&nbsp; 📍 ${escapeHtml(langMode === "en" ? ch.menuNameEn : ch.menuNameBn)}</span>
+            <span style="background: #e0f2fe; border: 1px solid #7dd3fc; color: #0369a1; padding: 1px 7px; border-radius: 4px; font-size: 9.5px;">📄 Portrait Narrative &amp; Steps</span>
           </div>
           ${showBn ? `<div style="font-size: 15px; font-weight: 800; color: #0f172a; margin-top: 2px;">${escapeHtml(ch.titleBn)}</div>` : ""}
           ${showEn ? `<div style="font-size: 12.5px; font-weight: 700; color: #0284c7; margin-top: 1px;">${escapeHtml(ch.titleEn)}</div>` : ""}
@@ -2476,53 +2480,10 @@ function buildStandaloneA4ManualHtml(
           </tr>
         </table>
 
-        <div style="font-size: 11.5px; font-weight: 700; color: #0f172a; margin-bottom: 5px;">
-          স্ক্রিন প্রিভিউ ও বাটন পরিচিতি (Illustrated UI Mockup &amp; Callouts — ① ② ③):
-        </div>
-        ${buildMockupHtmlForPdf(ch.mockupKey)}
-        <table style="width: 100%; border-collapse: collapse; margin-bottom: 10px;" class="avoid-break">
-          <tr>${calloutsHtml}</tr>
-        </table>
-
         <div style="font-size: 12px; font-weight: 800; color: #0f172a; margin-bottom: 6px;">
-          কীভাবে করবেন? — ধাপে ধাপে নির্দেশনা (Step-by-Step Guide):
+          কীভাবে করবেন? — ধাপে ধাপে নির্দেশনা (Step-by-Step Textual Guidelines):
         </div>
         ${stepsHtml}
-
-        <div class="avoid-break" style="margin-top: 10px; margin-bottom: 10px;">
-          <div style="font-size: 11.5px; font-weight: 800; color: #0f172a; margin-bottom: 5px;">
-            📋 ফিল্ড ও বাটন রেফারেন্স টেবিল (Line-by-Line UI Field &amp; Button Mapping):
-          </div>
-          <table style="width: 100%; border-collapse: collapse; font-size: 10.5px;">
-            <thead>
-              <tr style="background: #e2e8f0; color: #0f172a;">
-                <th style="border: 1px solid #94a3b8; padding: 5px 7px; text-align: left; width: 26%;">বাটন / ইনপুট ফিল্ড (UI Element)</th>
-                <th style="border: 1px solid #94a3b8; padding: 5px 7px; text-align: left; width: 20%;">ফিল্ডের ধরন (Control Type)</th>
-                <th style="border: 1px solid #94a3b8; padding: 5px 7px; text-align: left; width: 54%;">সিস্টেমের কাজ ও নিয়ম (Exact System Behavior)</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${ch.fieldMappings
-                .map(
-                  (fm) => `
-              <tr>
-                <td style="border: 1px solid #cbd5e1; padding: 5px 7px; font-weight: 700; color: #0f172a; background: #f8fafc; vertical-align: top;">
-                  ${escapeHtml(fm.elementLabel)}
-                </td>
-                <td style="border: 1px solid #cbd5e1; padding: 5px 7px; color: #0369a1; font-weight: 600; background: #ffffff; vertical-align: top;">
-                  ${showBn ? `<div>${escapeHtml(fm.controlTypeBn)}</div>` : ""}
-                  ${showEn ? `<div style="font-size: 9.5px; color: #475569;">${escapeHtml(fm.controlTypeEn)}</div>` : ""}
-                </td>
-                <td style="border: 1px solid #cbd5e1; padding: 5px 7px; color: #1e293b; background: #ffffff; vertical-align: top; line-height: 1.4;">
-                  ${showBn ? `<div>${escapeHtml(fm.systemBehaviorBn)}</div>` : ""}
-                  ${showEn ? `<div style="font-size: 9.5px; color: #475569; margin-top: 2px;">${escapeHtml(fm.systemBehaviorEn)}</div>` : ""}
-                </td>
-              </tr>`,
-                )
-                .join("")}
-            </tbody>
-          </table>
-        </div>
 
         <table style="width: 100%; border-collapse: collapse; margin-top: 8px;" class="avoid-break">
           <tr>
@@ -2538,6 +2499,58 @@ function buildStandaloneA4ManualHtml(
             </td>
           </tr>
         </table>
+      </div>
+
+      <!-- PART B: WIDE LANDSCAPE ENTERPRISE UI SCREEN BREAKDOWN & FIELD REFERENCE MATRIX -->
+      <div class="landscape-sheet-block" style="border: 2px solid #0284c7; border-radius: 8px; background: #ffffff; padding: 12px 15px;">
+        <div class="avoid-break" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1.5px solid #bae6fd; padding-bottom: 6px; margin-bottom: 9px;">
+          <div style="font-size: 12px; font-weight: 800; color: #0f172a;">
+            🖥️ ${escapeHtml(ch.chapterNo)} — সচিত্র ইআরপি স্ক্রিন মডেল ও ফিল্ড রেফারেন্স (Wide Landscape UI Breakdown &amp; Callouts ① ② ③)
+          </div>
+          <span style="background: #0284c7; color: #ffffff; font-weight: 700; font-size: 9.5px; padding: 2px 8px; border-radius: 4px;">
+            📐 Wide Landscape Canvas (No Text Clipping)
+          </span>
+        </div>
+
+        ${buildMockupHtmlForPdf(ch.mockupKey)}
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 10px;" class="avoid-break">
+          <tr>${calloutsHtml}</tr>
+        </table>
+
+        <div class="avoid-break" style="margin-top: 8px;">
+          <div style="font-size: 11.5px; font-weight: 800; color: #0f172a; margin-bottom: 5px;">
+            📋 ফিল্ড ও বাটন রেফারেন্স টেবিল (Line-by-Line UI Field &amp; Button Mapping Matrix):
+          </div>
+          <table style="width: 100%; border-collapse: collapse; font-size: 10.5px;">
+            <thead>
+              <tr style="background: #e2e8f0; color: #0f172a;">
+                <th style="border: 1px solid #94a3b8; padding: 5px 8px; text-align: left; width: 25%;">বাটন / ইনপুট ফিল্ড (UI Element)</th>
+                <th style="border: 1px solid #94a3b8; padding: 5px 8px; text-align: left; width: 19%;">ফিল্ডের ধরন (Control Type)</th>
+                <th style="border: 1px solid #94a3b8; padding: 5px 8px; text-align: left; width: 56%;">সিস্টেমের কাজ ও নিয়ম (Exact System Behavior)</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${ch.fieldMappings
+                .map(
+                  (fm) => `
+              <tr>
+                <td style="border: 1px solid #cbd5e1; padding: 5px 8px; font-weight: 700; color: #0f172a; background: #f8fafc; vertical-align: top;">
+                  ${escapeHtml(fm.elementLabel)}
+                </td>
+                <td style="border: 1px solid #cbd5e1; padding: 5px 8px; color: #0369a1; font-weight: 600; background: #ffffff; vertical-align: top;">
+                  ${showBn ? `<div>${escapeHtml(fm.controlTypeBn)}</div>` : ""}
+                  ${showEn ? `<div style="font-size: 9.5px; color: #475569;">${escapeHtml(fm.controlTypeEn)}</div>` : ""}
+                </td>
+                <td style="border: 1px solid #cbd5e1; padding: 5px 8px; color: #1e293b; background: #ffffff; vertical-align: top; line-height: 1.4;">
+                  ${showBn ? `<div>${escapeHtml(fm.systemBehaviorBn)}</div>` : ""}
+                  ${showEn ? `<div style="font-size: 9.5px; color: #475569; margin-top: 2px;">${escapeHtml(fm.systemBehaviorEn)}</div>` : ""}
+                </td>
+              </tr>`,
+                )
+                .join("")}
+            </tbody>
+          </table>
+        </div>
       </div>`;
     })
     .join("");
@@ -2573,6 +2586,14 @@ function buildStandaloneA4ManualHtml(
     )
     .join("");
 
+  const defaultPageRule =
+    orientationMode === "landscape"
+      ? "size: A4 landscape; margin: 10mm 12mm;"
+      : "size: A4 portrait; margin: 11mm 13mm;";
+
+  const portraitMaxWidth = orientationMode === "landscape" ? "273mm" : "188mm";
+  const landscapeMaxWidth = orientationMode === "portrait" ? "188mm" : "273mm";
+
   return `<!DOCTYPE html>
 <html lang="bn">
 <head>
@@ -2584,8 +2605,15 @@ function buildStandaloneA4ManualHtml(
   <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <style>
     @page {
+      ${defaultPageRule}
+    }
+    @page portrait-sheet {
       size: A4 portrait;
-      margin: 12mm 14mm 12mm 14mm;
+      margin: 11mm 13mm;
+    }
+    @page landscape-sheet {
+      size: A4 landscape;
+      margin: 10mm 12mm;
     }
     * {
       box-sizing: border-box;
@@ -2603,10 +2631,22 @@ function buildStandaloneA4ManualHtml(
     }
     .page-wrapper {
       width: 100%;
-      max-width: 190mm;
+      max-width: 275mm;
       margin: 0 auto;
-      padding: 12px 0;
+      padding: 12px 10px;
       background-color: #ffffff;
+    }
+    .portrait-sheet-block {
+      ${orientationMode === "hybrid" ? "page: portrait-sheet;" : ""}
+      width: 100%;
+      max-width: ${portraitMaxWidth};
+      margin: 0 auto 16px auto;
+    }
+    .landscape-sheet-block {
+      ${orientationMode === "hybrid" ? "page: landscape-sheet;" : ""}
+      width: 100%;
+      max-width: ${landscapeMaxWidth};
+      margin: 0 auto 20px auto;
     }
     .print-toolbar {
       position: sticky;
@@ -2682,7 +2722,7 @@ function buildStandaloneA4ManualHtml(
     includeToolbar
       ? `<div class="print-toolbar">
           <div>
-            <strong>HAMKO Sales ERP — A4 Print &amp; PDF Preview</strong>
+            <strong>HAMKO Sales ERP — Dynamic Portrait &amp; Landscape A4 Print Preview</strong>
             <span style="font-size: 11px; color: #94a3b8; margin-left: 10px;">Select &quot;Save as PDF&quot; or &quot;Microsoft Print to PDF&quot;</span>
           </div>
           <div>
@@ -2693,20 +2733,21 @@ function buildStandaloneA4ManualHtml(
       : ""
   }
   <div id="manual-a4-root" class="page-wrapper">
-    <!-- Document Header -->
-    <div class="avoid-break" style="border: 2px solid #0284c7; border-radius: 8px; padding: 14px 16px; margin-bottom: 16px; background: #f0f9ff;">
-      <div style="font-size: 11px; font-weight: 700; color: #0369a1; text-transform: uppercase; letter-spacing: 0.5px;">
-        HAMKO GROUP COOKWARE UNIT • হামকো গ্রুপ কুকওয়্যার ইউনিট
+    <!-- Document Header (Portrait Sheet) -->
+    <div class="portrait-sheet-block avoid-break" style="border: 2px solid #0284c7; border-radius: 8px; padding: 14px 16px; background: #f0f9ff;">
+      <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; font-weight: 700; color: #0369a1; text-transform: uppercase; letter-spacing: 0.5px;">
+        <span>HAMKO GROUP COOKWARE UNIT • হামকো গ্রুপ কুকওয়্যার ইউনিট</span>
+        <span style="background: #0284c7; color: #ffffff; padding: 1px 8px; border-radius: 4px; font-size: 9.5px;">📄 Portrait Title &amp; Overview</span>
       </div>
       ${showBn ? `<h1 style="margin: 4px 0 2px 0; font-size: 20px; font-weight: 800; color: #0f172a;">হামকো সেলস ইআরপি (Hamko Sales ERP) — সহজ ও সচিত্র ব্যবহারবিধি</h1>` : ""}
       ${showEn ? `<h2 style="margin: 2px 0 4px 0; font-size: 14.5px; font-weight: 700; color: #0284c7;">Complete Field Sales Officer Onboarding &amp; Operations Manual (A-to-Z Guide)</h2>` : ""}
       <div style="font-size: 11px; color: #334155; margin-top: 4px;">
-        ${showBn ? "নতুন সেলস অফিসারদের জন্য প্রথম দিন থেকে নিজে নিজে অ্যাপ পরিচালনার পূর্ণাঙ্গ গাইড (লগইন, কাস্টমার যোগ, স্টক চেক, অর্ডার, কালেকশন ও ক্যাশ হ্যান্ডওভার)।" : "Step-by-step daily field guide covering Login, CRM Outlets, Products & Pricing, Order Booking, Cash Collections, Inventory, and SFA Handover."}
+        ${showBn ? "নতুন সেলস অফিসারদের জন্য প্রথম দিন থেকে নিজে নিজে অ্যাপ পরিচালনার পূর্ণাঙ্গ গাইড (পোট্রেট ওভারভিউ এবং ওয়াইড ল্যান্ডস্কেপ স্ক্রিন ও টেবিল ব্রেকডাউন)।" : "Step-by-step daily field guide featuring Portrait textual guidelines paired with Wide Landscape UI screen breakdowns and pricing tables."}
       </div>
     </div>
 
-    <!-- 5-Step Daily Routine Table -->
-    <div class="avoid-break" style="margin-bottom: 16px;">
+    <!-- 5-Step Daily Routine Table (Portrait Sheet) -->
+    <div class="portrait-sheet-block avoid-break">
       <div style="font-size: 13px; font-weight: 800; color: #065f46; margin-bottom: 6px;">
         এক নজরে একজন সেলস অফিসারের সারাদিনের ৫টি মূল কাজ (5-Step Daily Routine: 9:00 AM – 7:00 PM)
       </div>
@@ -2724,11 +2765,11 @@ function buildStandaloneA4ManualHtml(
       </table>
     </div>
 
-    <!-- 8 Detailed Chapters -->
+    <!-- 8 Detailed Chapters (Dynamic Portrait Narrative + Wide Landscape UI Breakdown) -->
     ${chaptersHtml}
 
-    <!-- Daily Closing Checklist -->
-    <div class="avoid-break" style="border: 1.5px solid #059669; border-radius: 8px; padding: 12px 14px; background: #f0fdf4; margin-top: 14px;">
+    <!-- Daily Closing Checklist (Portrait Sheet) -->
+    <div class="portrait-sheet-block avoid-break" style="border: 1.5px solid #059669; border-radius: 8px; padding: 12px 14px; background: #f0fdf4; margin-top: 14px;">
       <div style="font-size: 13.5px; font-weight: 800; color: #065f46; margin-bottom: 6px;">
         সেলস অফিসারের দিনশেষের চেকলিস্ট (Daily Closing Checklist Before Leaving Office)
       </div>
@@ -2741,6 +2782,7 @@ function buildStandaloneA4ManualHtml(
 
 export function UserManualPage() {
   const [langMode, setLangMode] = useState<ManualLangMode>("bilingual");
+  const [orientationMode, setOrientationMode] = useState<ManualOrientationMode>("hybrid");
   const [searchQuery, setSearchQuery] = useState("");
   const [isPreparingPrint, setIsPreparingPrint] = useState(false);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
@@ -2781,7 +2823,7 @@ export function UserManualPage() {
     if (isPreparingPrint) return;
 
     setIsPreparingPrint(true);
-    const htmlContent = buildStandaloneA4ManualHtml(filteredChapters, langMode, true);
+    const htmlContent = buildStandaloneA4ManualHtml(filteredChapters, langMode, true, orientationMode);
 
     try {
       // Primary: Open isolated standalone print window (zero external CSS conflicts)
@@ -2824,7 +2866,7 @@ export function UserManualPage() {
       iframe.id = "hamko-isolated-print-iframe";
       iframe.title = "Hamko_Sales_ERP_User_Manual_A4";
       iframe.style.cssText =
-        "position:fixed;right:0;bottom:0;width:210mm;height:297mm;border:0;opacity:0;pointer-events:none;z-index:-9999;";
+        "position:fixed;right:0;bottom:0;width:297mm;height:210mm;border:0;opacity:0;pointer-events:none;z-index:-9999;";
       document.body.appendChild(iframe);
 
       const frameDoc = iframe.contentDocument || iframe.contentWindow?.document;
@@ -2833,7 +2875,7 @@ export function UserManualPage() {
       }
 
       frameDoc.open();
-      frameDoc.write(buildStandaloneA4ManualHtml(filteredChapters, langMode, false));
+      frameDoc.write(buildStandaloneA4ManualHtml(filteredChapters, langMode, false, orientationMode));
       frameDoc.close();
 
       const runFramePrint = () => {
@@ -2867,7 +2909,7 @@ export function UserManualPage() {
       setIsPreparingPrint(false);
       toast.error("Could not open print preview. Try 'Direct Save .PDF' instead.");
     }
-  }, [filteredChapters, isPreparingPrint, langMode]);
+  }, [filteredChapters, isPreparingPrint, langMode, orientationMode]);
 
   /**
    * 2. Direct One-Click `.PDF` File Download via `html2pdf.js` inside an isolated pure-Hex iframe:
@@ -2882,9 +2924,11 @@ export function UserManualPage() {
     const toastId = `manual-pdf-${Date.now()}`;
     toast.loading("Generating A4 PDF file (পিডিএফ ফাইল তৈরি হচ্ছে)...", { id: toastId });
 
+    const useWideCanvas = orientationMode === "landscape" || orientationMode === "hybrid";
+    const renderWidthPx = useWideCanvas ? 1080 : 794;
+
     const iframe = document.createElement("iframe");
-    iframe.style.cssText =
-      "position:fixed;left:-10000px;top:0;width:794px;height:1123px;border:0;background:#ffffff;z-index:-9999;";
+    iframe.style.cssText = `position:fixed;left:-10000px;top:0;width:${renderWidthPx}px;height:1123px;border:0;background:#ffffff;z-index:-9999;`;
     document.body.appendChild(iframe);
 
     try {
@@ -2894,7 +2938,7 @@ export function UserManualPage() {
       }
 
       frameDoc.open();
-      frameDoc.write(buildStandaloneA4ManualHtml(filteredChapters, langMode, false));
+      frameDoc.write(buildStandaloneA4ManualHtml(filteredChapters, langMode, false, orientationMode));
       frameDoc.close();
 
       if ((frameDoc as any).fonts?.ready) {
@@ -2917,11 +2961,15 @@ export function UserManualPage() {
             scale: 2,
             useCORS: true,
             backgroundColor: "#ffffff",
-            windowWidth: 794,
+            windowWidth: renderWidthPx,
             scrollX: 0,
             scrollY: 0,
           },
-          jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+          jsPDF: {
+            unit: "mm",
+            format: "a4",
+            orientation: orientationMode === "landscape" ? "landscape" : "portrait",
+          },
           pagebreak: { mode: ["avoid-all", "css", "legacy"] },
         } as any)
         .from(targetEl)
@@ -2940,7 +2988,7 @@ export function UserManualPage() {
         iframe.parentNode.removeChild(iframe);
       }
     }
-  }, [filteredChapters, handlePrintPdf, isDownloadingPdf, langMode]);
+  }, [filteredChapters, handlePrintPdf, isDownloadingPdf, langMode, orientationMode]);
 
   return (
     <div id="print-user-manual" className="manual-root space-y-6 pb-12">
@@ -2983,8 +3031,9 @@ export function UserManualPage() {
               </p>
             </div>
 
-            {/* Language Switcher & A4 PDF Print Button */}
+            {/* Language Switcher, Dynamic Orientation Switcher & A4 PDF Print Buttons */}
             <div className="flex flex-wrap items-center gap-2 no-print shrink-0">
+              {/* Language Switcher */}
               <div className="inline-flex rounded-xl border border-border bg-card p-1 shadow-xs">
                 <button
                   type="button"
@@ -3018,6 +3067,44 @@ export function UserManualPage() {
                   }`}
                 >
                   English Only
+                </button>
+              </div>
+
+              {/* Dynamic Orientation Switcher (Portrait + Landscape Hybrid / Portrait / Landscape) */}
+              <div className="inline-flex rounded-xl border border-sky-500/30 bg-card p-1 shadow-xs">
+                <button
+                  type="button"
+                  onClick={() => setOrientationMode("hybrid")}
+                  title="Overview & Steps in Portrait + UI Mockups & Tables in Wide Landscape"
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                    orientationMode === "hybrid"
+                      ? "bg-sky-600 text-white"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  📐 পোট্রেট + ল্যান্ডস্কেপ (Dynamic)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setOrientationMode("portrait")}
+                  className={`px-2 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                    orientationMode === "portrait"
+                      ? "bg-sky-600 text-white"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  📄 পোট্রেট (Portrait)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setOrientationMode("landscape")}
+                  className={`px-2 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                    orientationMode === "landscape"
+                      ? "bg-sky-600 text-white"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  🖥️ ল্যান্ডস্কেপ (Landscape)
                 </button>
               </div>
 
@@ -3212,194 +3299,285 @@ export function UserManualPage() {
                 </div>
               </CardHeader>
 
-              <CardContent className="p-4 sm:p-5 space-y-4">
-                {/* Why It Matters + Real-World Scenario */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div className="rounded-xl bg-muted/30 border border-border/60 p-3.5 space-y-1.5">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-primary flex items-center gap-1.5">
-                      <BookOpen className="h-3.5 w-3.5" />
-                      {langMode === "en" ? "What This Module Does" : "কেন এই কাজটি গুরুত্বপূর্ণ?"}
+              <CardContent className="p-4 sm:p-6 space-y-6">
+                {/* =========================================================
+                    SECTION PART A: PORTRAIT CORPORATE NARRATIVE & STEP-BY-STEP
+                    (পোট্রেট ওভারভিউ, বাস্তব উদাহরণ ও ধাপে ধাপে নির্দেশনা)
+                   ========================================================= */}
+                <div
+                  className={`rounded-2xl border border-border/80 bg-card/90 p-4 sm:p-5 space-y-4 shadow-2xs transition-all ${
+                    orientationMode === "landscape" ? "w-full" : "max-w-4xl mx-auto"
+                  }`}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-2.5">
+                    <span className="text-xs font-extrabold text-foreground flex items-center gap-1.5">
+                      <BookOpen className="h-4 w-4 text-primary" />
+                      {langMode === "en"
+                        ? "Part A — Module Overview & Step-by-Step Operational Guidelines"
+                        : "পার্ট ক — ওভারভিউ, বাস্তব উদাহরণ ও ধাপে ধাপে কাজের নিয়ম"}
                     </span>
-                    {showBn && <p className="text-xs sm:text-sm text-foreground/90 leading-relaxed">{ch.whyItMattersBn}</p>}
-                    {showEn && <p className="text-xs text-muted-foreground leading-relaxed">{ch.whyItMattersEn}</p>}
-                  </div>
-
-                  <div className="rounded-xl bg-primary/5 border border-primary/25 p-3.5 space-y-1.5">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-primary flex items-center gap-1.5">
-                      <Sparkles className="h-3.5 w-3.5" />
-                      {langMode === "en" ? "Real-World Field Scenario" : "বাস্তব উদাহরণ (মাঠ পর্যায়ের পরিস্থিতি)"}
-                    </span>
-                    {showBn && <p className="text-xs sm:text-sm text-foreground/90 leading-relaxed font-medium">{ch.realScenarioBn}</p>}
-                    {showEn && <p className="text-xs text-muted-foreground leading-relaxed">{ch.realScenarioEn}</p>}
-                  </div>
-                </div>
-
-                {/* Annotated Screen Preview */}
-                <div className="manual-mockup-wrapper space-y-1.5 print-avoid-break">
-                  <p className="text-xs font-bold text-foreground/85 flex items-center gap-1.5">
-                    <Receipt className="h-3.5 w-3.5 text-primary" />
-                    {langMode === "en"
-                      ? "Screen Preview — Where to Tap on Your Screen (① ② ③):"
-                      : "স্ক্রিন প্রিভিউ — অ্যাপের কোথায় কোন বাটনে চাপ দেবেন (① ② ③):"}
-                  </p>
-                  <ChapterScreenMockup mockupKey={ch.mockupKey} />
-                </div>
-
-                {/* Screen Callout Pills (① ② ③) */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  {ch.screenCallouts.map((sc) => (
-                    <div
-                      key={sc.badge + sc.nameEn}
-                      className="rounded-xl border border-border/80 bg-card p-3 space-y-1 shadow-2xs print-avoid-break"
+                    <Badge
+                      variant="outline"
+                      className="text-[10.5px] font-bold border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-300"
                     >
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${ch.accentBg} ${ch.accentText} font-bold text-xs`}
-                        >
-                          {sc.badge}
-                        </span>
-                        <div>
-                          {showBn && <p className="text-xs font-bold text-foreground">{sc.nameBn}</p>}
-                          {showEn && <p className={`text-[11px] font-semibold ${ch.accentText}`}>{sc.nameEn}</p>}
-                        </div>
-                      </div>
-                      {showBn && <p className="text-xs text-foreground/85 leading-relaxed">{sc.actionBn}</p>}
-                      {showEn && <p className="text-[11px] text-muted-foreground leading-relaxed">{sc.actionEn}</p>}
+                      📄 পোট্রেট লেআউট • Portrait Narrative Layout
+                    </Badge>
+                  </div>
+
+                  {/* Why It Matters + Real-World Scenario */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="rounded-xl bg-muted/30 border border-border/60 p-3.5 space-y-1.5">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-primary flex items-center gap-1.5">
+                        <BookOpen className="h-3.5 w-3.5" />
+                        {langMode === "en" ? "What This Module Does" : "কেন এই কাজটি গুরুত্বপূর্ণ?"}
+                      </span>
+                      {showBn && (
+                        <p className="text-xs sm:text-sm text-foreground/90 leading-relaxed">
+                          {ch.whyItMattersBn}
+                        </p>
+                      )}
+                      {showEn && (
+                        <p className="text-xs text-muted-foreground leading-relaxed">
+                          {ch.whyItMattersEn}
+                        </p>
+                      )}
                     </div>
-                  ))}
+
+                    <div className="rounded-xl bg-primary/5 border border-primary/25 p-3.5 space-y-1.5">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-primary flex items-center gap-1.5">
+                        <Sparkles className="h-3.5 w-3.5" />
+                        {langMode === "en"
+                          ? "Real-World Field Scenario"
+                          : "বাস্তব উদাহরণ (মাঠ পর্যায়ের পরিস্থিতি)"}
+                      </span>
+                      {showBn && (
+                        <p className="text-xs sm:text-sm text-foreground/90 leading-relaxed font-medium">
+                          {ch.realScenarioBn}
+                        </p>
+                      )}
+                      {showEn && (
+                        <p className="text-xs text-muted-foreground leading-relaxed">
+                          {ch.realScenarioEn}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* কীভাবে করবেন? (How to Do It - Step-by-Step) */}
+                  <div className="space-y-2.5">
+                    <p className="text-xs sm:text-sm font-extrabold text-foreground flex items-center gap-1.5">
+                      <ArrowRight className="h-4 w-4 text-primary" />
+                      {langMode === "en"
+                        ? "How to Do It — Step-by-Step Instructions:"
+                        : "কীভাবে করবেন? (ধাপে ধাপে কাজের নিয়ম):"}
+                    </p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {ch.howToSteps.map((st) => (
+                        <div
+                          key={st.stepNum + st.titleEn}
+                          className="rounded-xl border border-border/75 bg-muted/20 p-3.5 space-y-1.5 print-avoid-break"
+                        >
+                          <div className="flex items-start gap-2.5">
+                            <span
+                              className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-lg ${ch.accentBg} ${ch.accentText} font-extrabold text-xs mt-0.5`}
+                            >
+                              {st.stepNum}
+                            </span>
+                            <div className="space-y-1">
+                              {showBn && (
+                                <p className="text-xs sm:text-sm font-bold text-foreground">
+                                  {st.titleBn}
+                                </p>
+                              )}
+                              {showEn && (
+                                <p className="text-xs font-semibold text-primary">{st.titleEn}</p>
+                              )}
+                              {showBn && (
+                                <p className="text-xs text-foreground/90 leading-relaxed">
+                                  {st.descBn}
+                                </p>
+                              )}
+                              {showEn && (
+                                <p className="text-xs text-muted-foreground leading-relaxed">
+                                  {st.descEn}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Field Pro-Tip & Mistake Prevention Warning */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3.5 flex items-start gap-2.5">
+                      <Lightbulb className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                      <div className="space-y-1 text-xs">
+                        {showBn && (
+                          <p className="text-foreground/90 leading-relaxed">
+                            <strong className="text-emerald-700 dark:text-emerald-400">
+                              💡 মাঠ পর্যায়ের কার্যকরী টিপস:{" "}
+                            </strong>
+                            {ch.proTipBn}
+                          </p>
+                        )}
+                        {showEn && (
+                          <p className="text-muted-foreground leading-relaxed">
+                            <strong className="text-emerald-700 dark:text-emerald-400">
+                              💡 Field Pro-Tip:{" "}
+                            </strong>
+                            {ch.proTipEn}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3.5 flex items-start gap-2.5">
+                      <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                      <div className="space-y-1 text-xs">
+                        {showBn && (
+                          <p className="text-foreground/90 leading-relaxed">
+                            <strong className="text-amber-700 dark:text-amber-400">
+                              ⚠️ সাধারণ ভুল থেকে সতর্কতা:{" "}
+                            </strong>
+                            {ch.mistakeWarningBn}
+                          </p>
+                        )}
+                        {showEn && (
+                          <p className="text-muted-foreground leading-relaxed">
+                            <strong className="text-amber-700 dark:text-amber-400">
+                              ⚠️ Avoid This Mistake:{" "}
+                            </strong>
+                            {ch.mistakeWarningEn}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
-                {/* কীভাবে করবেন? (How to Do It - Step-by-Step) */}
-                <div className="space-y-2.5">
-                  <p className="text-xs sm:text-sm font-extrabold text-foreground flex items-center gap-1.5">
-                    <ArrowRight className="h-4 w-4 text-primary" />
-                    {langMode === "en"
-                      ? "How to Do It — Step-by-Step Instructions:"
-                      : "কীভাবে করবেন? (ধাপে ধাপে কাজের নিয়ম):"}
-                  </p>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {ch.howToSteps.map((st) => (
+                {/* =========================================================
+                    SECTION PART B: WIDE LANDSCAPE ENTERPRISE UI BREAKDOWN & MATRIX
+                    (ল্যান্ডস্কেপ ওয়াইড স্ক্রিন ব্রেকডাউন, কলআউট ① ② ③ ও ফিল্ড রেফারেন্স টেবিল)
+                   ========================================================= */}
+                <div
+                  className={`rounded-2xl border-2 ${ch.accentBorder} bg-muted/10 p-4 sm:p-5 space-y-4 shadow-xs transition-all ${
+                    orientationMode === "portrait" ? "max-w-4xl mx-auto" : "w-full"
+                  }`}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-2.5">
+                    <span className="text-xs sm:text-sm font-extrabold text-foreground flex items-center gap-1.5">
+                      <Receipt className="h-4 w-4 text-primary" />
+                      {langMode === "en"
+                        ? "Part B — Wide Landscape Live ERP Screen Breakdown, Callouts (① ② ③) & Field Matrix"
+                        : "পার্ট খ — সচিত্র ইআরপি স্ক্রিন ব্রেকডাউন (① ② ③) ও ফিল্ড রেফারেন্স টেবিল"}
+                    </span>
+                    <Badge className="bg-sky-600 text-white text-[10.5px] font-bold">
+                      🖥️ ল্যান্ডস্কেপ ওয়াইড ক্যানভাস • Wide Landscape Canvas (Zero Clipping)
+                    </Badge>
+                  </div>
+
+                  {/* Annotated Screen Preview */}
+                  <div className="manual-mockup-wrapper space-y-1.5 print-avoid-break">
+                    <ChapterScreenMockup mockupKey={ch.mockupKey} />
+                  </div>
+
+                  {/* Screen Callout Pills (① ② ③) */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    {ch.screenCallouts.map((sc) => (
                       <div
-                        key={st.stepNum + st.titleEn}
-                        className="rounded-xl border border-border/75 bg-muted/20 p-3.5 space-y-1.5 print-avoid-break"
+                        key={sc.badge + sc.nameEn}
+                        className="rounded-xl border border-border/80 bg-card p-3 space-y-1 shadow-2xs print-avoid-break"
                       >
-                        <div className="flex items-start gap-2.5">
+                        <div className="flex items-center gap-2">
                           <span
-                            className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-lg ${ch.accentBg} ${ch.accentText} font-extrabold text-xs mt-0.5`}
+                            className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${ch.accentBg} ${ch.accentText} font-bold text-xs`}
                           >
-                            {st.stepNum}
+                            {sc.badge}
                           </span>
-                          <div className="space-y-1">
-                            {showBn && (
-                              <p className="text-xs sm:text-sm font-bold text-foreground">{st.titleBn}</p>
-                            )}
+                          <div>
+                            {showBn && <p className="text-xs font-bold text-foreground">{sc.nameBn}</p>}
                             {showEn && (
-                              <p className="text-xs font-semibold text-primary">{st.titleEn}</p>
-                            )}
-                            {showBn && (
-                              <p className="text-xs text-foreground/90 leading-relaxed">{st.descBn}</p>
-                            )}
-                            {showEn && (
-                              <p className="text-xs text-muted-foreground leading-relaxed">{st.descEn}</p>
+                              <p className={`text-[11px] font-semibold ${ch.accentText}`}>{sc.nameEn}</p>
                             )}
                           </div>
                         </div>
+                        {showBn && (
+                          <p className="text-xs text-foreground/85 leading-relaxed">{sc.actionBn}</p>
+                        )}
+                        {showEn && (
+                          <p className="text-[11px] text-muted-foreground leading-relaxed">
+                            {sc.actionEn}
+                          </p>
+                        )}
                       </div>
                     ))}
                   </div>
-                </div>
 
-                {/* ফিল্ড ও বাটন রেফারেন্স টেবিল (Line-by-Line UI Field & Button Mapping) */}
-                <div className="space-y-2 print-avoid-break">
-                  <p className="text-xs sm:text-sm font-extrabold text-foreground flex items-center gap-1.5">
-                    <ClipboardCheck className="h-4 w-4 text-primary" />
-                    {langMode === "en"
-                      ? "Line-by-Line UI Field & Button Reference Mapping:"
-                      : "ফিল্ড ও বাটন রেফারেন্স টেবিল (Line-by-Line UI Field & Button Mapping):"}
-                  </p>
-                  <div className="overflow-x-auto rounded-xl border border-border/80 bg-card shadow-2xs">
-                    <table className="w-full text-left border-collapse text-xs">
-                      <thead>
-                        <tr className="border-b border-border bg-muted/60 text-foreground">
-                          <th className="p-2.5 font-extrabold w-[26%]">
-                            {langMode === "en" ? "UI Button / Input Field" : "বাটন / ইনপুট ফিল্ড (UI Element)"}
-                          </th>
-                          <th className="p-2.5 font-extrabold w-[20%]">
-                            {langMode === "en" ? "Control Type" : "ফিল্ডের ধরন (Type)"}
-                          </th>
-                          <th className="p-2.5 font-extrabold w-[54%]">
-                            {langMode === "en" ? "Exact System Behavior" : "সিস্টেমের কাজ ও নিয়ম (System Behavior)"}
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border/60">
-                        {ch.fieldMappings.map((fm) => (
-                          <tr key={fm.elementLabel} className="hover:bg-muted/20 transition-colors">
-                            <td className="p-2.5 align-top font-mono font-bold text-foreground bg-muted/15">
-                              {fm.elementLabel}
-                            </td>
-                            <td className="p-2.5 align-top">
-                              {showBn && (
-                                <span className={`inline-block rounded-md ${ch.accentBg} ${ch.accentText} px-2 py-0.5 text-[11px] font-bold`}>
-                                  {fm.controlTypeBn}
-                                </span>
-                              )}
-                              {showEn && (
-                                <span className="block text-[10.5px] font-semibold text-muted-foreground mt-0.5">
-                                  {fm.controlTypeEn}
-                                </span>
-                              )}
-                            </td>
-                            <td className="p-2.5 align-top space-y-1">
-                              {showBn && (
-                                <p className="text-xs text-foreground/90 leading-relaxed">{fm.systemBehaviorBn}</p>
-                              )}
-                              {showEn && (
-                                <p className="text-[11px] text-muted-foreground leading-relaxed">{fm.systemBehaviorEn}</p>
-                              )}
-                            </td>
+                  {/* ফিল্ড ও বাটন রেফারেন্স টেবিল (Line-by-Line UI Field & Button Mapping) */}
+                  <div className="space-y-2 print-avoid-break">
+                    <p className="text-xs sm:text-sm font-extrabold text-foreground flex items-center gap-1.5">
+                      <ClipboardCheck className="h-4 w-4 text-primary" />
+                      {langMode === "en"
+                        ? "Line-by-Line UI Field & Button Reference Mapping Matrix:"
+                        : "ফিল্ড ও বাটন রেফারেন্স টেবিল (Line-by-Line UI Field & Button Mapping):"}
+                    </p>
+                    <div className="overflow-x-auto rounded-xl border border-border/80 bg-card shadow-2xs">
+                      <table className="w-full text-left border-collapse text-xs">
+                        <thead>
+                          <tr className="border-b border-border bg-muted/60 text-foreground">
+                            <th className="p-2.5 font-extrabold w-[26%]">
+                              {langMode === "en"
+                                ? "UI Button / Input Field"
+                                : "বাটন / ইনপুট ফিল্ড (UI Element)"}
+                            </th>
+                            <th className="p-2.5 font-extrabold w-[20%]">
+                              {langMode === "en" ? "Control Type" : "ফিল্ডের ধরন (Type)"}
+                            </th>
+                            <th className="p-2.5 font-extrabold w-[54%]">
+                              {langMode === "en"
+                                ? "Exact System Behavior"
+                                : "সিস্টেমের কাজ ও নিয়ম (System Behavior)"}
+                            </th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-                {/* Field Pro-Tip & Mistake Prevention Warning */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3.5 flex items-start gap-2.5">
-                    <Lightbulb className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-                    <div className="space-y-1 text-xs">
-                      {showBn && (
-                        <p className="text-foreground/90 leading-relaxed">
-                          <strong className="text-emerald-700 dark:text-emerald-400">💡 মাঠ পর্যায়ের কার্যকরী টিপস: </strong>
-                          {ch.proTipBn}
-                        </p>
-                      )}
-                      {showEn && (
-                        <p className="text-muted-foreground leading-relaxed">
-                          <strong className="text-emerald-700 dark:text-emerald-400">💡 Field Pro-Tip: </strong>
-                          {ch.proTipEn}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3.5 flex items-start gap-2.5">
-                    <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-                    <div className="space-y-1 text-xs">
-                      {showBn && (
-                        <p className="text-foreground/90 leading-relaxed">
-                          <strong className="text-amber-700 dark:text-amber-400">⚠️ সাধারণ ভুল থেকে সতর্কতা: </strong>
-                          {ch.mistakeWarningBn}
-                        </p>
-                      )}
-                      {showEn && (
-                        <p className="text-muted-foreground leading-relaxed">
-                          <strong className="text-amber-700 dark:text-amber-400">⚠️ Avoid This Mistake: </strong>
-                          {ch.mistakeWarningEn}
-                        </p>
-                      )}
+                        </thead>
+                        <tbody className="divide-y divide-border/60">
+                          {ch.fieldMappings.map((fm) => (
+                            <tr key={fm.elementLabel} className="hover:bg-muted/20 transition-colors">
+                              <td className="p-2.5 align-top font-mono font-bold text-foreground bg-muted/15">
+                                {fm.elementLabel}
+                              </td>
+                              <td className="p-2.5 align-top">
+                                {showBn && (
+                                  <span
+                                    className={`inline-block rounded-md ${ch.accentBg} ${ch.accentText} px-2 py-0.5 text-[11px] font-bold`}
+                                  >
+                                    {fm.controlTypeBn}
+                                  </span>
+                                )}
+                                {showEn && (
+                                  <span className="block text-[10.5px] font-semibold text-muted-foreground mt-0.5">
+                                    {fm.controlTypeEn}
+                                  </span>
+                                )}
+                              </td>
+                              <td className="p-2.5 align-top space-y-1">
+                                {showBn && (
+                                  <p className="text-xs text-foreground/90 leading-relaxed">
+                                    {fm.systemBehaviorBn}
+                                  </p>
+                                )}
+                                {showEn && (
+                                  <p className="text-[11px] text-muted-foreground leading-relaxed">
+                                    {fm.systemBehaviorEn}
+                                  </p>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
                   </div>
                 </div>
