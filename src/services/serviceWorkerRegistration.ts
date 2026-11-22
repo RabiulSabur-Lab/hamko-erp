@@ -21,18 +21,22 @@ export function registerServiceWorker(): void {
 
   window.addEventListener("load", async () => {
     try {
-      // Purge any legacy v1 caches on load so stale desktop/mobile bundles never persist
+      // Purge any legacy caches on load so stale desktop/mobile bundles never persist
       if (typeof caches !== "undefined") {
         caches.keys().then((keys) => {
           keys.forEach((key) => {
-            if (key === "hamko-erp-cache-v1" || key === "hamko-erp-cache-v2") {
+            if (
+              key === "hamko-erp-cache-v1" ||
+              key === "hamko-erp-cache-v2" ||
+              key === "hamko-erp-cache-v3-20261122"
+            ) {
               caches.delete(key);
             }
           });
         }).catch(() => null);
       }
 
-      const registration = await navigator.serviceWorker.register("/sw.js?v=3", {
+      const registration = await navigator.serviceWorker.register("/sw.js?v=4", {
         scope: "/",
         updateViaCache: "none",
       });

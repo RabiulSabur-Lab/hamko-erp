@@ -7,7 +7,7 @@ import { formatBDT, toBnDigit } from "@/lib/utils";
 import {
   TrendingUp, TrendingDown, DollarSign, AlertTriangle,
   Users, ArrowUpRight, RefreshCw, ShoppingCart, Wallet,
-  Truck, Warehouse, MapPin, BookOpen, PlusCircle, Sparkles,
+  Truck, Warehouse, MapPin, BookOpen, Plus,
   Package, Calendar, Clock, CheckCircle2,
 } from "lucide-react";
 import {
@@ -579,7 +579,7 @@ export function DashboardPage() {
                 </span>
               </div>
               <h2 className="text-base font-extrabold tracking-tight text-white mt-1.5">
-                {lang === "bn" ? "সেলস ও অপারেশনস ড্যাশবোর্ড" : "Sales & Operations Hub"}
+                {lang === "bn" ? "সেলস ও অপারেশনস সারসংক্ষেপ" : "Sales & Operations Overview"}
               </h2>
               {lastSynced && (
                 <p className="text-[10.5px] text-blue-200 mt-0.5">
@@ -651,7 +651,7 @@ export function DashboardPage() {
                   : "text-blue-100 hover:text-white"
               }`}
             >
-              {lang === "bn" ? "ড্যাশবোর্ড (Modules)" : "Dashboard"}
+              {lang === "bn" ? "মডিউলসমূহ" : "Modules"}
             </button>
             <button
               type="button"
@@ -662,7 +662,7 @@ export function DashboardPage() {
                   : "text-blue-100 hover:text-white"
               }`}
             >
-              {lang === "bn" ? "টাইমলাইন (Timeline)" : "Timeline"}
+              {lang === "bn" ? "টাইমলাইন" : "Timeline"}
             </button>
           </div>
         </div>
@@ -810,25 +810,22 @@ export function DashboardPage() {
       {/* =====================================================================
           DESKTOP ENTERPRISE WEB ERP INTERFACE (>= 768px)
          ===================================================================== */}
-      {/* 1. Desktop Enterprise Web ERP Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-border pb-4">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <h1 className="text-xl font-bold text-foreground">{t("dashboard") || "Dashboard"}</h1>
-            <Badge variant="outline" className="text-[11px] font-medium border-emerald-500/40 text-emerald-700 dark:text-emerald-400 bg-emerald-500/10">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 mr-1.5" />
-              {lang === "bn" ? "লাইভ ইআরপি" : "Enterprise Live"}
-            </Badge>
-          </div>
+      {/* 1. Desktop Enterprise Status & Consolidated Action Bar (Page title is rendered once in AppLayout header) */}
+      <div className="flex flex-wrap items-center justify-between gap-3 pb-1">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <Badge variant="outline" className="text-[11px] font-medium border-emerald-500/40 text-emerald-700 dark:text-emerald-400 bg-emerald-500/10">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 mr-1.5" />
+            {lang === "bn" ? "লাইভ ইআরপি" : "Enterprise Live"}
+          </Badge>
           {lastSynced && (
-            <p className="text-xs text-muted-foreground mt-1">
+            <span className="text-xs text-muted-foreground">
               {lang === "bn" ? "সর্বশেষ আপডেট: " : "Last synced: "}
               {lastSynced.toLocaleTimeString(lang === "bn" ? "bn-BD" : "en", {
                 hour: "2-digit",
                 minute: "2-digit",
                 second: "2-digit",
               })}
-            </p>
+            </span>
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -837,8 +834,8 @@ export function DashboardPage() {
             onClick={() => navigate("orders/create")}
             className="gap-1.5 text-xs h-8 rounded-lg"
           >
-            <PlusCircle className="h-3.5 w-3.5" />
-            {lang === "bn" ? "+ নতুন অর্ডার" : "+ New Order"}
+            <Plus className="h-3.5 w-3.5" />
+            {lang === "bn" ? "নতুন অর্ডার" : "New Order"}
           </Button>
           <Button
             variant="outline"
