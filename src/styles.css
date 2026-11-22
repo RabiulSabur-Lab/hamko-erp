@@ -514,9 +514,21 @@ html {
   body.printing-invoice #root,
   body.printing-collection #root,
   body.printing-ledger #root,
-  body:has(#print-invoice) #root,
-  body:has(#print-collection-receipt) #root,
-  body:has(#print-ledger) #root {
+  body:not(.printing-user-manual):has(#print-invoice) #root,
+  body:not(.printing-user-manual):has(#print-collection-receipt) #root,
+  body:not(.printing-user-manual):has(#print-ledger) #root {
+    display: none !important;
+  }
+
+  body.printing-user-manual #root {
+    display: block !important;
+    visibility: visible !important;
+  }
+
+  body.printing-user-manual #print-invoice,
+  body.printing-user-manual #print-collection-receipt,
+  body.printing-user-manual #print-ledger,
+  body.printing-user-manual #print-supplier-ledger {
     display: none !important;
   }
 

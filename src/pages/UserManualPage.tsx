@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -1034,6 +1034,7 @@ function ChapterScreenMockup({ mockupKey }: { mockupKey: ManualChapter["mockupKe
 export function UserManualPage() {
   const [langMode, setLangMode] = useState<ManualLangMode>("bilingual");
   const [searchQuery, setSearchQuery] = useState("");
+  const [isPreparingPrint, setIsPreparingPrint] = useState(false);
 
   const showBn = langMode === "bilingual" || langMode === "bn";
   const showEn = langMode === "bilingual" || langMode === "en";
@@ -1060,41 +1061,158 @@ export function UserManualPage() {
     );
   }, [searchQuery]);
 
-  const handlePrintPdf = () => {
-    window.print();
-  };
+  // Clean up print classes and restore document title after printing finishes
+  useEffect(() => {
+    const handleAfterPrint = () => {
+      document.body.classList.remove("printing-user-manual");
+      setIsPreparingPrint(false);
+    };
+    window.addEventListener("afterprint", handleAfterPrint);
+    return () => {
+      window.removeEventListener("afterprint", handleAfterPrint);
+      document.body.classList.remove("printing-user-manual");
+    };
+  }, []);
+
+  const handlePrintPdf = useCallback(() => {
+    if (typeof window === "undefined" || typeof document === "undefined") return;
+    if (isPreparingPrint) return;
+
+    setIsPreparingPrint(true);
+    const previousTitle = document.title;
+
+    try {
+      // 1. Blur any active button/input to prevent focus rings in print spooler
+      if (document.activeElement && typeof (document.activeElement as HTMLElement).blur === "function") {
+        (document.activeElement as HTMLElement).blur();
+      }
+
+      // 2. Remove any conflicting modal print classes and activate user-manual print isolation
+      document.body.classList.remove("printing-invoice", "printing-collection", "printing-ledger");
+      document.body.classList.add("printing-user-manual");
+
+      // 3. Use a clean, Windows-safe alphanumeric filename title so Microsoft Print to PDF never fails on special chars
+      document.title = "Hamko_Sales_ERP_User_Manual_A4";
+
+      // 4. Scroll to top so browser print pagination starts at page 1
+      window.scrollTo(0, 0);
+
+      // 5. Wait for DOM & CSS print layout to settle before invoking native print dialog
+      requestAnimationFrame(() => {
+        setTimeout(() => {
+          try {
+            window.print();
+          } catch (printErr) {
+            console.error("[UserManual] Print dialog error:", printErr);
+          } finally {
+            setTimeout(() => {
+              document.title = previousTitle || "Hamko ERP";
+              document.body.classList.remove("printing-user-manual");
+              setIsPreparingPrint(false);
+            }, 500);
+          }
+        }, 150);
+      });
+    } catch (err) {
+      console.error("[UserManual] Print preparation error:", err);
+      document.title = previousTitle || "Hamko ERP";
+      document.body.classList.remove("printing-user-manual");
+      setIsPreparingPrint(false);
+    }
+  }, [isPreparingPrint]);
 
   return (
-    <div className="manual-root space-y-6 pb-12">
-      {/* A4 Print & PDF Stylesheet */}
+    <div id="print-user-manual" className="manual-root space-y-6 pb-12">
+      {/* A4 Print & Microsoft Print to PDF Resilient Stylesheet */}
       <style>{`
         @media print {
           @page {
             size: A4 portrait;
-            margin: 12mm;
+            margin: 12mm 14mm 12mm 14mm !important;
           }
-          body, html {
+
+          html, body {
             background: #ffffff !important;
-            color: #0f172a !important;
+            color: #000000 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            width: 100% !important;
+            height: auto !important;
+            max-height: none !important;
+            overflow: visible !important;
+            position: static !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
           }
-          aside, header, .no-print {
+
+          /* Hide all application chrome, sidebars, sticky headers, bottom nav, and action buttons */
+          aside,
+          header,
+          nav,
+          footer,
+          button,
+          .no-print {
             display: none !important;
           }
-          .lg\\:pl-64 {
-            padding-left: 0 !important;
+
+          /* Reset AppLayout wrapper offsets and scroll containers so multi-page A4 pagination never clips */
+          #root,
+          .min-h-screen,
+          .lg\\:pl-64,
+          main,
+          #print-user-manual,
+          .manual-root {
+            display: block !important;
+            position: static !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            height: auto !important;
+            min-height: 0 !important;
+            max-height: none !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            overflow: visible !important;
+            background: #ffffff !important;
+            box-shadow: none !important;
           }
-          main {
+
+          /* Remove GPU-heavy gradients, shadows, blurs, and overflow:hidden that crash Microsoft Print to PDF */
+          #print-user-manual *,
+          .manual-root * {
+            box-shadow: none !important;
+            text-shadow: none !important;
+            backdrop-filter: none !important;
+            -webkit-backdrop-filter: none !important;
+            background-image: none !important;
+            overflow: visible !important;
+          }
+
+          /* Allow large chapter cards to break naturally across A4 pages while keeping headers attached */
+          .manual-chapter-card {
+            display: block !important;
+            break-inside: auto !important;
+            page-break-inside: auto !important;
+            border: 1px solid #cbd5e1 !important;
+            border-radius: 8px !important;
+            background: #ffffff !important;
+            margin-bottom: 16px !important;
             padding: 0 !important;
           }
+
+          /* Convert dark slate mockup previews into crisp light-mode boxes for clean black-on-white A4 printing */
+          .manual-mockup-wrapper,
+          .manual-mockup-wrapper div,
+          .manual-mockup-wrapper span,
+          .manual-mockup-wrapper p {
+            background-color: #f8fafc !important;
+            color: #0f172a !important;
+            border-color: #cbd5e1 !important;
+          }
+
+          /* Only prevent page breaks inside small, compact atomic blocks (< 200px tall) */
           .print-avoid-break {
             break-inside: avoid !important;
             page-break-inside: avoid !important;
-          }
-          .print-page-break {
-            break-before: page !important;
-            page-break-before: always !important;
           }
         }
       `}</style>
@@ -1176,12 +1294,18 @@ export function UserManualPage() {
               </div>
 
               <Button
+                type="button"
                 onClick={handlePrintPdf}
+                disabled={isPreparingPrint}
                 size="sm"
                 className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm h-9 px-3.5 rounded-xl"
               >
                 <Download className="h-4 w-4" />
-                <span>Download PDF (A4) / প্রিন্ট বা পিডিএফ</span>
+                <span>
+                  {isPreparingPrint
+                    ? "Preparing A4 PDF..."
+                    : "Download PDF (A4) / প্রিন্ট বা পিডিএফ"}
+                </span>
               </Button>
             </div>
           </div>
@@ -1305,7 +1429,7 @@ export function UserManualPage() {
             <Card
               key={ch.id}
               id={ch.id}
-              className={`rounded-2xl border ${ch.accentBorder} shadow-xs overflow-hidden print-avoid-break`}
+              className={`manual-chapter-card rounded-2xl border ${ch.accentBorder} shadow-xs overflow-hidden`}
             >
               {/* Chapter Header */}
               <CardHeader className={`pb-3 ${ch.accentBg} border-b border-border/50`}>
@@ -1367,7 +1491,7 @@ export function UserManualPage() {
                 </div>
 
                 {/* Annotated Screen Preview */}
-                <div className="space-y-1.5">
+                <div className="manual-mockup-wrapper space-y-1.5 print-avoid-break">
                   <p className="text-xs font-bold text-foreground/85 flex items-center gap-1.5">
                     <Receipt className="h-3.5 w-3.5 text-primary" />
                     {langMode === "en"
@@ -1382,7 +1506,7 @@ export function UserManualPage() {
                   {ch.screenCallouts.map((sc) => (
                     <div
                       key={sc.badge + sc.nameEn}
-                      className="rounded-xl border border-border/80 bg-card p-3 space-y-1 shadow-2xs"
+                      className="rounded-xl border border-border/80 bg-card p-3 space-y-1 shadow-2xs print-avoid-break"
                     >
                       <div className="flex items-center gap-2">
                         <span
@@ -1413,7 +1537,7 @@ export function UserManualPage() {
                     {ch.howToSteps.map((st) => (
                       <div
                         key={st.stepNum + st.titleEn}
-                        className="rounded-xl border border-border/75 bg-muted/20 p-3.5 space-y-1.5"
+                        className="rounded-xl border border-border/75 bg-muted/20 p-3.5 space-y-1.5 print-avoid-break"
                       >
                         <div className="flex items-start gap-2.5">
                           <span
@@ -1489,9 +1613,9 @@ export function UserManualPage() {
           SALES OFFICER DAILY CLOSING CHECKLIST & QUICK FAQ CARD
           (দিনশেষের চেকলিস্ট ও সচরাচর জিজ্ঞাসিত প্রশ্নোত্তর)
          ===================================================================== */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 print-avoid-break">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Daily Checklist */}
-        <Card className="rounded-2xl border-emerald-500/30 shadow-xs overflow-hidden print-avoid-break">
+        <Card className="manual-chapter-card rounded-2xl border-emerald-500/30 shadow-xs overflow-hidden">
           <CardHeader className="pb-2.5 bg-emerald-500/10 border-b border-border/40">
             <CardTitle className="text-sm sm:text-base font-bold flex items-center gap-2 text-emerald-700 dark:text-emerald-400">
               <ClipboardCheck className="h-4 w-4" />
@@ -1538,7 +1662,7 @@ export function UserManualPage() {
         </Card>
 
         {/* Quick FAQ & Help Contacts */}
-        <Card className="rounded-2xl border-sky-500/30 shadow-xs overflow-hidden print-avoid-break">
+        <Card className="manual-chapter-card rounded-2xl border-sky-500/30 shadow-xs overflow-hidden">
           <CardHeader className="pb-2.5 bg-sky-500/10 border-b border-border/40">
             <CardTitle className="text-sm sm:text-base font-bold flex items-center gap-2 text-sky-700 dark:text-sky-400">
               <PhoneCall className="h-4 w-4" />
