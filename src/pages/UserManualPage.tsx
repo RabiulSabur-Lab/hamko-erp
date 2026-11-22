@@ -48,6 +48,14 @@ interface ScreenCallout {
   actionEn: string;
 }
 
+interface FieldMappingItem {
+  elementLabel: string;
+  controlTypeBn: string;
+  controlTypeEn: string;
+  systemBehaviorBn: string;
+  systemBehaviorEn: string;
+}
+
 interface ManualChapter {
   id: string;
   chapterNo: string;
@@ -67,6 +75,7 @@ interface ManualChapter {
   realScenarioEn: string;
   howToSteps: HowToStep[];
   screenCallouts: ScreenCallout[];
+  fieldMappings: FieldMappingItem[];
   proTipBn: string;
   proTipEn: string;
   mistakeWarningBn: string;
@@ -165,6 +174,36 @@ const CHAPTERS: ManualChapter[] = [
         actionEn: "Switches all menus, buttons, and labels between Bengali and English.",
       },
     ],
+    fieldMappings: [
+      {
+        elementLabel: "Email & Password → [Sign In]",
+        controlTypeBn: "লগইন ইনপুট ও বাটন",
+        controlTypeEn: "Text Input & Submit Button",
+        systemBehaviorBn: "অফিস থেকে প্রদত্ত ইমেইল ও ন্যূনতম ৬ অক্ষরের পাসওয়ার্ড যাচাই করে আপনার Sales Officer সেশন চালু করে।",
+        systemBehaviorEn: "Authenticates your credentials and loads your role-scoped ERP workspace.",
+      },
+      {
+        elementLabel: "[🔄 রিফ্রেশ / Refresh] & [লাইভ সিঙ্ক / Live Sync]",
+        controlTypeBn: "হেডার ও কুইক অ্যাকশন বাটন",
+        controlTypeEn: "Header & Quick Action Button",
+        systemBehaviorBn: "সুপাবেস ক্লাউড ডেটাবেস থেকে সর্বশেষ অর্ডার, কালেকশন, বকেয়া ও গোডাউন স্টক তাৎক্ষণিক সিঙ্ক করে।",
+        systemBehaviorEn: "Triggers a fresh cloud pull across all operational tables to update KPIs and stock.",
+      },
+      {
+        elementLabel: "[🌐 EN / বাং] & [☀️/🌙 Theme]",
+        controlTypeBn: "হেডার টগল বাটন",
+        controlTypeEn: "Top Header Toggle Buttons",
+        systemBehaviorBn: "এক ক্লিকে সম্পূর্ণ অ্যাপের ভাষা (বাংলা/English) এবং লাইট/ডার্ক থিম পরিবর্তন করে।",
+        systemBehaviorEn: "Switches UI language between Bangla and English and toggles Light/Dark mode.",
+      },
+      {
+        elementLabel: "8-Tile Quick Action Hub & 6 KPI Cards",
+        controlTypeBn: "ড্যাশবোর্ড গ্রিড কার্ড",
+        controlTypeEn: "Interactive Dashboard Grid",
+        systemBehaviorBn: "এক ট্যাপে অর্ডার, কালেকশন, চালান, কাস্টমার, ইনভেন্টরি, SFA ও ম্যানুয়ালে নিয়ে যায় এবং ৬টি লাইভ কেপিআই দেখায়।",
+        systemBehaviorEn: "Provides one-tap navigation to core modules and displays real-time revenue, collections, due, and low stock.",
+      },
+    ],
     proTipBn:
       "মার্কেটে বের হওয়ার আগে প্রতিদিন সকালে একবার ড্যাশবোর্ডের 'রিফ্রেশ (Refresh)' বাটনে ট্যাপ করুন—এতে গোডাউনের সর্বশেষ স্টক ও নতুন দাম আপনার মোবাইলে আপডেট হয়ে যাবে।",
     proTipEn:
@@ -257,6 +296,36 @@ const CHAPTERS: ManualChapter[] = [
         actionEn: "Generates a polite Bengali payment reminder message for WhatsApp or SMS.",
       },
     ],
+    fieldMappings: [
+      {
+        elementLabel: "[+ নতুন কাস্টমার / + Add Customer]",
+        controlTypeBn: "প্রাইমারি অ্যাকশন বাটন",
+        controlTypeEn: "Primary Modal Trigger Button",
+        systemBehaviorBn: "নতুন ডিলার, রিটেইলার বা পাইকারি দোকান নিবন্ধনের ফরম ওপেন করে।",
+        systemBehaviorEn: "Opens the customer registration modal dialog.",
+      },
+      {
+        elementLabel: "Customer / Outlet Name * & Contact Person",
+        controlTypeBn: "টেক্সট ইনপুট ফিল্ড",
+        controlTypeEn: "Required Text Inputs",
+        systemBehaviorBn: "দোকানের নাম (যেমন: বিসমিল্লাহ ক্রোকারিজ) এবং মালিক বা ম্যানেজারের নাম সংরক্ষণ করে।",
+        systemBehaviorEn: "Stores the official shop name and primary contact person for invoices and receipts.",
+      },
+      {
+        elementLabel: "Phone * & Customer Type (Dealer / Retailer / Wholesale)",
+        controlTypeBn: "ফোন ইনপুট ও ড্রপডাউন",
+        controlTypeEn: "Tel Input & Select Dropdown",
+        systemBehaviorBn: "১১ ডিজিট মোবাইল নম্বর এবং কাস্টমারের ধরন নির্ধারণ করে।",
+        systemBehaviorEn: "Saves phone number for direct calling/SMS and classifies the outlet tier.",
+      },
+      {
+        elementLabel: "Territory / Area & Opening Balance → [✓ Save]",
+        controlTypeBn: "এরিয়া ড্রপডাউন ও বকেয়া ইনপুট",
+        controlTypeEn: "Area Select & Numeric Input",
+        systemBehaviorBn: "দোকানটিকে নির্দিষ্ট বিক্রয় রুটে যুক্ত করে এবং প্রারম্ভিক বকেয়ার সাথে নতুন অর্ডার/কালেকশন মিলিয়ে Current Due হিসাব করে।",
+        systemBehaviorEn: "Maps the outlet to a territory and initializes its running party due ledger.",
+      },
+    ],
     proTipBn:
       "দোকানের নামের সাথে বাজার বা রোডের নাম সংক্ষেপে লিখে রাখলে (যেমন: 'বিসমিল্লাহ ক্রোকারিজ - চকবাজার') একই নামের একাধিক দোকান থাকলেও অর্ডার কাটার সময় কখনো ভুল হবে না।",
     proTipEn:
@@ -338,6 +407,29 @@ const CHAPTERS: ManualChapter[] = [
         nameEn: "Live Stock Availability Badge",
         actionBn: "গোডাউনে বর্তমানে কত পিস পণ্য বিক্রির জন্য প্রস্তুত আছে তা দেখায়।",
         actionEn: "Shows exact available quantity in the warehouse right now.",
+      },
+    ],
+    fieldMappings: [
+      {
+        elementLabel: "Search Box (পণ্যের নাম, SKU বা ক্যাটাগরি দিয়ে খুঁজুন...)",
+        controlTypeBn: "লাইভ সার্চ ইনপুট",
+        controlTypeEn: "Instant Search Input",
+        systemBehaviorBn: "পণ্যের নাম (Cooker, Fry Pan), SKU কোড (HPC-550) বা ক্যাটাগরি লিখলে তাৎক্ষণিক তালিকা ফিল্টার করে।",
+        systemBehaviorEn: "Filters the cookware catalog in real time by name, SKU code, or category.",
+      },
+      {
+        elementLabel: "DP (Dealer Price) / D10 / B12 / MRP Columns",
+        controlTypeBn: "৪-স্তরের মূল্য তালিকা",
+        controlTypeEn: "4-Tier Pricing Matrix",
+        systemBehaviorBn: "সাধারণ ডিলার রেট (DP), ভলিউম ডিসকাউন্ট টিয়ার (D10, B12) এবং সর্বোচ্চ খুচরা মূল্য (MRP) প্রদর্শন করে।",
+        systemBehaviorEn: "Displays standard Dealer Price (DP), volume tiers (D10, B12), and retail MRP.",
+      },
+      {
+        elementLabel: "Stock Qty Badge (In Stock / Low Stock / Out of Stock)",
+        controlTypeBn: "রঙিন স্টক স্ট্যাটাস ব্যাজ",
+        controlTypeEn: "Color-Coded Stock Status Pill",
+        systemBehaviorBn: "পর্যাপ্ত স্টক থাকলে সবুজ, রিঅর্ডার লেভেলের নিচে নামলে হলুদ (Low Stock) এবং ০ হলে লাল (Out of Stock) দেখায়।",
+        systemBehaviorEn: "Indicates green when stock is healthy, amber when <= reorder level, and red when 0.",
       },
     ],
     proTipBn:
@@ -441,6 +533,36 @@ const CHAPTERS: ManualChapter[] = [
         actionEn: "Prints branded invoices/chalans or processes returned items to reduce due.",
       },
     ],
+    fieldMappings: [
+      {
+        elementLabel: "[+ New Order] & [🎙️ Smart Order AI]",
+        controlTypeBn: "অর্ডার তৈরি ও ভয়েস এআই বাটন",
+        controlTypeEn: "Order Form & AI Parser Triggers",
+        systemBehaviorBn: "ম্যানুয়াল অর্ডার ফরম খোলে অথবা বাংলা/ইংরেজি ভয়েস ও টেক্সট থেকে স্বয়ংক্রিয়ভাবে পণ্য, পরিমাণ ও টিয়ার বসিয়ে দেয়।",
+        systemBehaviorEn: "Launches the order form or parses natural Bangla/English text into structured order lines.",
+      },
+      {
+        elementLabel: "Select Customer * & Sales Officer",
+        controlTypeBn: "কাস্টমার ও অফিসার ড্রপডাউন",
+        controlTypeEn: "Customer & Rep Selectors",
+        systemBehaviorBn: "দোকান নির্বাচন করার সাথে সাথে তার বর্তমান বকেয়া (Current Due) দেখায় এবং অর্ডারটি আপনার নামে ট্যাগ করে।",
+        systemBehaviorEn: "Links the invoice to the customer's due ledger and assigns your Sales Officer ID.",
+      },
+      {
+        elementLabel: "Product * + Price Tier (DP / D10 / B12) + Quantity",
+        controlTypeBn: "অর্ডার আইটেম রো",
+        controlTypeEn: "Line-Item Table Controls",
+        systemBehaviorBn: "নির্বাচিত টিয়ার অনুযায়ী একক দাম বসিয়ে পরিমাণ দিয়ে গুণ করে সাবটোটাল বের করে।",
+        systemBehaviorEn: "Applies the chosen tier rate and calculates line subtotal automatically.",
+      },
+      {
+        elementLabel: "Discount + Paid Amount → [Create Order] & [🖨️ Print]",
+        controlTypeBn: "বিল সামারি ও ইনভয়েস প্রিন্ট",
+        controlTypeEn: "Financial Summary & Print Action",
+        systemBehaviorBn: "মোট বিল থেকে ডিসকাউন্ট ও নগদ জমা বাদ দিয়ে নিট বকেয়া (Due Amount) সেভ করে এবং A4/চালান প্রিন্ট করে।",
+        systemBehaviorEn: "Computes net receivable due, syncs to cloud, and prints the official invoice.",
+      },
+    ],
     proTipBn:
       "স্মার্ট এআই অর্ডার টিপস: 'Smart Order AI' বাটনে ক্লিক করে 'মায়ের দোয়া স্টোরকে ১০টা ৫.৫ লিটার কুকার D10 রেটে দাও' বললে বা লিখলে অ্যাপ নিজেই পণ্য ও দাম বসিয়ে দেবে!",
     proTipEn:
@@ -533,6 +655,36 @@ const CHAPTERS: ManualChapter[] = [
         actionEn: "Shows party-wise due ledgers and daily inflow vs. outflow cash book.",
       },
     ],
+    fieldMappings: [
+      {
+        elementLabel: "[+ নগদ কালেকশন / + Cash Collection]",
+        controlTypeBn: "কালেকশন এন্ট্রি বাটন",
+        controlTypeEn: "Collection Modal Trigger",
+        systemBehaviorBn: "কাস্টমারের কাছ থেকে আদায়কৃত টাকা এন্ট্রি করার ফরম ওপেন করে এবং ইউনিক রিসিট নম্বর (COL-XXXX) তৈরি করে।",
+        systemBehaviorEn: "Opens the payment collection modal and generates a sequential receipt number.",
+      },
+      {
+        elementLabel: "Select Customer * & Order Invoice (Optional)",
+        controlTypeBn: "কাস্টমার ও ইনভয়েস ড্রপডাউন",
+        controlTypeEn: "Customer & Order Selectors",
+        systemBehaviorBn: "কাস্টমার সিলেক্ট করলে তার মোট বকেয়া দেখায় এবং টাকা সেভ করলে ওই বকেয়া থেকে সাথে সাথে বিয়োগ হয়।",
+        systemBehaviorEn: "Targets the customer's due ledger and immediately deducts the collected amount.",
+      },
+      {
+        elementLabel: "Amount * + Payment Method (Cash / Mobile Banking / Bank / Cheque)",
+        controlTypeBn: "টাকার অংক ও পেমেন্ট মাধ্যম",
+        controlTypeEn: "Amount Input & Method Select",
+        systemBehaviorBn: "নগদ, বিকাশ/নগদ (Mobile Banking), ব্যাংক ট্রান্সফার অথবা চেক অনুযায়ী আদায় শ্রেণিবদ্ধ করে।",
+        systemBehaviorEn: "Records the exact amount and payment channel for Daily Cash Book & Evening Handover.",
+      },
+      {
+        elementLabel: "Notes (TrxID / Cheque No) & [Customer Due] Tab",
+        controlTypeBn: "রেফারেন্স নোট ও বকেয়া ট্যাব",
+        controlTypeEn: "Reference Input & Ledger Tab",
+        systemBehaviorBn: "বিকাশ TrxID বা চেক নম্বর সংরক্ষণ করে এবং পার্টি-ওয়াইজ বকেয়া খাতায় ৮৫%+ রিকভারি ট্র্যাক করে।",
+        systemBehaviorEn: "Stores payment verification references and updates the party-wise due aging table.",
+      },
+    ],
     proTipBn:
       "বিকাশ বা ব্যাংকে টাকা নিলে Notes-এর ঘরে অবশ্যই বিকাশ নম্বর/TrxID বা ব্যাংকের জমার স্লিপ নম্বর লিখে রাখবেন—এতে সন্ধ্যায় অ্যাকাউন্টস বিভাগে হিসাব মেলাতে মাত্র কয়েক সেকেন্ড লাগবে।",
     proTipEn:
@@ -614,6 +766,29 @@ const CHAPTERS: ManualChapter[] = [
         nameEn: "Stock Movement History",
         actionBn: "কখন কোন চালানে মাল ঢুকেছে বা কোন অর্ডারে মাল বের হয়েছে তার তালিকা।",
         actionEn: "Shows every incoming factory chalan and outgoing order delivery.",
+      },
+    ],
+    fieldMappings: [
+      {
+        elementLabel: "Available SKUs / Low Stock / Out of Stock Cards",
+        controlTypeBn: "ইনভেন্টরি কেপিআই কার্ড",
+        controlTypeEn: "Inventory Summary KPI Cards",
+        systemBehaviorBn: "গোডাউনে মোট কয়টি সচল পণ্য আছে, কয়টি রিঅর্ডার লেভেলের নিচে (Low Stock) এবং কয়টি শেষ (Out of Stock) তা দেখায়।",
+        systemBehaviorEn: "Summarizes active catalog SKUs, low-stock warnings, and depleted items.",
+      },
+      {
+        elementLabel: "Filter Tabs: [All] • [Low Stock] • [Out of Stock]",
+        controlTypeBn: "স্টক হেলথ ফিল্টার ট্যাব",
+        controlTypeEn: "Stock Health Filter Pills",
+        systemBehaviorBn: "এক ক্লিকে শুধুমাত্র কম স্টক বা স্টক শেষ হওয়া পণ্যগুলো আলাদা করে দেখায়।",
+        systemBehaviorEn: "Isolates low-stock or zero-stock cookware items for restocking priority.",
+      },
+      {
+        elementLabel: "Auto Stock In (Chalan) & Auto Stock Out (Delivered Order)",
+        controlTypeBn: "স্বয়ংক্রিয় স্টক ইঞ্জিন",
+        controlTypeEn: "Automated Stock Sync Engine",
+        systemBehaviorBn: "প্রকিউরমেন্ট চালান এন্ট্রিতে স্টক যোগ (+) এবং অর্ডার ডেলিভারিতে স্টক বিয়োগ (−) স্বয়ংক্রিয়ভাবে সম্পন্ন করে।",
+        systemBehaviorEn: "Automatically increments stock on Purchase Chalans and decrements on Delivered Orders.",
       },
     ],
     proTipBn:
@@ -708,6 +883,29 @@ const CHAPTERS: ManualChapter[] = [
         actionEn: "Generates your daily collection summary and 4-digit PIN for office deposit.",
       },
     ],
+    fieldMappings: [
+      {
+        elementLabel: "[+ ভিজিট লগ করুন / + Log Visit]",
+        controlTypeBn: "ভিজিট চেক-ইন বাটন",
+        controlTypeEn: "Shop Visit Modal Trigger",
+        systemBehaviorBn: "দোকানের নাম, ভিজিটের সময়, উদ্দেশ্য (Purpose) এবং ফলাফল (Outcome) রেকর্ড করে।",
+        systemBehaviorEn: "Logs your physical shop check-in, visit purpose, and market outcome.",
+      },
+      {
+        elementLabel: "[Route Plan] & [Sales Target] Tabs",
+        controlTypeBn: "রুট ও টার্গেট ট্যাব",
+        controlTypeEn: "Route & Target View Tabs",
+        systemBehaviorBn: "শনিবার থেকে বৃহস্পতিবার পর্যন্ত নির্ধারিত দোকানের রুট এবং মাসিক বিক্রয় টার্গেট অর্জনের শতাংশ (%) দেখায়।",
+        systemBehaviorEn: "Displays day-of-week outlet schedules and live target achievement progress bars.",
+      },
+      {
+        elementLabel: "[🔐 Evening Handover] → 4-Digit Verification PIN",
+        controlTypeBn: "ডে-এন্ড ক্যাশ হ্যান্ডওভার মডাল",
+        controlTypeEn: "Evening Cash Handover Generator",
+        systemBehaviorBn: "সারাদিনের Cash, bKash ও Cheque আদায় একত্রিত করে ক্যাশিয়ারের কাছে জমা দেওয়ার জন্য ৪-ডিজিট পিন তৈরি করে।",
+        systemBehaviorEn: "Aggregates daily Cash, bKash, and Cheque collections with a 4-digit verification PIN.",
+      },
+    ],
     proTipBn:
       "কোনো দোকানে গিয়ে অর্ডার বা পেমেন্ট না পেলেও অবশ্যই 'Log Visit'-এ গিয়ে নোট লিখে রাখবেন (যেমন: 'মালিক দোকানে ছিলেন না, বৃহস্পতিবার যেতে বলেছেন')—এতে আপনার মার্কেট ভিজিটের ১০০% রেকর্ড থাকবে।",
     proTipEn:
@@ -800,6 +998,29 @@ const CHAPTERS: ManualChapter[] = [
         actionEn: "Resets passwords, assigns territories, and verifies daily cash handovers.",
       },
     ],
+    fieldMappings: [
+      {
+        elementLabel: "[🔄 Live Sync] / [Refresh (রিফ্রেশ)]",
+        controlTypeBn: "তাৎক্ষণিক ক্লাউড সিঙ্ক বাটন",
+        controlTypeEn: "Manual Cloud Sync Trigger",
+        systemBehaviorBn: "দুর্বল নেটওয়ার্ক থেকে ভালো নেটওয়ার্কে আসলে ১ ক্লিকে ১৯টি টেবিলের সব ডেটা ক্লাউডে পুশ ও পুল করে।",
+        systemBehaviorEn: "Pushes pending local records and pulls fresh cloud state across all 19 tables.",
+      },
+      {
+        elementLabel: "Keyboard [Ctrl + F5] / Mobile Pull-to-Refresh",
+        controlTypeBn: "ব্রাউজার হার্ড রিফ্রেশ",
+        controlTypeEn: "Browser Cache Hard Reload",
+        systemBehaviorBn: "পুরনো ব্রাউজার ক্যাশ পরিষ্কার করে অ্যাপের সর্বশেষ আপডেট ও স্কিমা লোড করে।",
+        systemBehaviorEn: "Clears stale browser assets and reloads the latest production build.",
+      },
+      {
+        elementLabel: "[Forgot Password?] (Email Link / 6-Digit SMS OTP)",
+        controlTypeBn: "পাসওয়ার্ড রিকভারি মডাল",
+        controlTypeEn: "Password Recovery Dialog",
+        systemBehaviorBn: "পাসওয়ার্ড ভুলে গেলে ইমেইল লিংক বা মোবাইলে ৬-ডিজিট OTP কোডের মাধ্যমে নতুন পাসওয়ার্ড সেট করে।",
+        systemBehaviorEn: "Allows self-service password reset via registered email or mobile SMS OTP.",
+      },
+    ],
     proTipBn:
       "এই পুরো গাইডটি আপনার মোবাইলে পিডিএফ হিসেবে সেভ করে রাখতে বা প্রিন্ট করে ব্যাগে রাখতে উপরের সবুজ 'Download PDF (A4)' বাটনে ক্লিক করুন!",
     proTipEn:
@@ -881,25 +1102,74 @@ function ChapterScreenMockup({ mockupKey }: { mockupKey: ManualChapter["mockupKe
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between text-[10px]">
                   <span className="font-bold text-muted-foreground uppercase">
-                    দ্রুত সেবা (Quick Action Hub) ◄── এক ট্যাপে কাজ শুরু করুন
+                    ① দ্রুত সেবা (8-Tile Quick Action Hub) ◄── এক ট্যাপে যেকোনো কাজ শুরু করুন
                   </span>
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-[10px]">
-                  <div className="rounded-lg border-2 border-emerald-500/40 bg-emerald-500/10 p-2 text-center">
+                  <div className="rounded-lg border-2 border-emerald-500/40 bg-emerald-500/10 p-1.5 text-center">
                     <p className="font-extrabold text-emerald-700 dark:text-emerald-300">① [+ নতুন অর্ডার]</p>
-                    <p className="text-muted-foreground mt-0.5">ইনভয়েস তৈরি</p>
+                    <p className="text-muted-foreground text-[9.5px]">ইনভয়েস বুকিং</p>
                   </div>
-                  <div className="rounded-lg border border-teal-500/30 bg-teal-500/10 p-2 text-center">
-                    <p className="font-bold text-teal-700 dark:text-teal-300">① [$ কালেকশন]</p>
-                    <p className="text-muted-foreground mt-0.5">বকেয়া আদায়</p>
+                  <div className="rounded-lg border border-teal-500/30 bg-teal-500/10 p-1.5 text-center">
+                    <p className="font-bold text-teal-700 dark:text-teal-300">① [$ ক্যাশ কালেকশন]</p>
+                    <p className="text-muted-foreground text-[9.5px]">বকেয়া টাকা আদায়</p>
                   </div>
-                  <div className="rounded-lg border border-violet-500/30 bg-violet-500/10 p-2 text-center">
+                  <div className="rounded-lg border border-orange-500/30 bg-orange-500/10 p-1.5 text-center">
+                    <p className="font-bold text-orange-700 dark:text-orange-300">① [+ পারচেজ চালান]</p>
+                    <p className="text-muted-foreground text-[9.5px]">ফ্যাক্টরি স্টক ইন</p>
+                  </div>
+                  <div className="rounded-lg border border-violet-500/30 bg-violet-500/10 p-1.5 text-center">
                     <p className="font-bold text-violet-700 dark:text-violet-300">① [+ কাস্টমার]</p>
-                    <p className="text-muted-foreground mt-0.5">নতুন দোকান</p>
+                    <p className="text-muted-foreground text-[9.5px]">নতুন দোকান যোগ</p>
                   </div>
-                  <div className="rounded-lg border border-indigo-500/30 bg-indigo-500/10 p-2 text-center">
+                  <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-1.5 text-center">
+                    <p className="font-bold text-amber-700 dark:text-amber-300">① [ইনভেন্টরি স্টক]</p>
+                    <p className="text-muted-foreground text-[9.5px]">গোডাউন মজুদ</p>
+                  </div>
+                  <div className="rounded-lg border border-indigo-500/30 bg-indigo-500/10 p-1.5 text-center">
                     <p className="font-bold text-indigo-700 dark:text-indigo-300">① [ফিল্ড ভিজিট]</p>
-                    <p className="text-muted-foreground mt-0.5">রুট ও হ্যান্ডওভার</p>
+                    <p className="text-muted-foreground text-[9.5px]">রুট ও পিন হ্যান্ডওভার</p>
+                  </div>
+                  <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-1.5 text-center">
+                    <p className="font-bold text-rose-700 dark:text-rose-300">① [ব্যবহারবিধি]</p>
+                    <p className="text-muted-foreground text-[9.5px]">সচিত্র গাইড ও PDF</p>
+                  </div>
+                  <div className="rounded-lg border border-sky-500/30 bg-sky-500/10 p-1.5 text-center">
+                    <p className="font-bold text-sky-700 dark:text-sky-300">② [লাইভ সিঙ্ক]</p>
+                    <p className="text-muted-foreground text-[9.5px]">ক্লাউড আপডেট</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* 6 Dashboard KPI Summary Cards */}
+              <div className="pt-1 border-t border-border/60 space-y-1">
+                <span className="text-[10px] font-bold text-muted-foreground uppercase block">
+                  📊 ড্যাশবোর্ডের ৬টি লাইভ সামারি কার্ড (6 KPI Cards):
+                </span>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 text-[10px]">
+                  <div className="rounded border border-border bg-muted/30 px-2 py-1 flex justify-between">
+                    <span className="text-muted-foreground">Today&apos;s Sales:</span>
+                    <span className="font-extrabold text-foreground">৳৪৮,৫০০</span>
+                  </div>
+                  <div className="rounded border border-border bg-muted/30 px-2 py-1 flex justify-between">
+                    <span className="text-muted-foreground">Monthly Sales:</span>
+                    <span className="font-extrabold text-primary">৳১২,৮০,০০০</span>
+                  </div>
+                  <div className="rounded border border-border bg-muted/30 px-2 py-1 flex justify-between">
+                    <span className="text-muted-foreground">Month Collection:</span>
+                    <span className="font-extrabold text-emerald-600">৳৯,৪৫,০০০</span>
+                  </div>
+                  <div className="rounded border border-border bg-muted/30 px-2 py-1 flex justify-between">
+                    <span className="text-muted-foreground">Outstanding Due:</span>
+                    <span className="font-extrabold text-amber-600">৳৩,৩৫,০০০</span>
+                  </div>
+                  <div className="rounded border border-border bg-muted/30 px-2 py-1 flex justify-between">
+                    <span className="text-muted-foreground">Total Customers:</span>
+                    <span className="font-extrabold text-foreground">১৪২টি দোকান</span>
+                  </div>
+                  <div className="rounded border border-border bg-muted/30 px-2 py-1 flex justify-between">
+                    <span className="text-muted-foreground">Low Stock Items:</span>
+                    <span className="font-extrabold text-rose-600">৩টি পণ্য</span>
                   </div>
                 </div>
               </div>
@@ -1465,22 +1735,39 @@ function buildMockupHtmlForPdf(mockupKey: ManualChapter["mockupKey"]): string {
                   ③ [🌐 EN / বাং]
                 </span>
               </div>
-              <table style="width: 100%; border-collapse: collapse;">
+              <table style="width: 100%; border-collapse: collapse; margin-bottom: 5px;">
                 <tr>
-                  <td style="border: 1.5px solid #059669; background: #ecfdf5; padding: 5px; text-align: center; font-size: 10px; font-weight: 700; color: #065f46;">
+                  <td style="border: 1.5px solid #059669; background: #ecfdf5; padding: 4px; text-align: center; font-size: 9.5px; font-weight: 700; color: #065f46;">
                     ① [+ নতুন অর্ডার]
                   </td>
-                  <td style="border: 1px solid #0d9488; background: #f0fdfa; padding: 5px; text-align: center; font-size: 10px; font-weight: 700; color: #0f766e;">
-                    ① [$ কালেকশন]
+                  <td style="border: 1px solid #0d9488; background: #f0fdfa; padding: 4px; text-align: center; font-size: 9.5px; font-weight: 700; color: #0f766e;">
+                    ① [$ ক্যাশ কালেকশন]
                   </td>
-                  <td style="border: 1px solid #7c3aed; background: #f5f3ff; padding: 5px; text-align: center; font-size: 10px; font-weight: 700; color: #6d28d9;">
+                  <td style="border: 1px solid #ea580c; background: #fff7ed; padding: 4px; text-align: center; font-size: 9.5px; font-weight: 700; color: #c2410c;">
+                    ① [+ পারচেজ চালান]
+                  </td>
+                  <td style="border: 1px solid #7c3aed; background: #f5f3ff; padding: 4px; text-align: center; font-size: 9.5px; font-weight: 700; color: #6d28d9;">
                     ① [+ কাস্টমার]
                   </td>
-                  <td style="border: 1px solid #4f46e5; background: #eef2ff; padding: 5px; text-align: center; font-size: 10px; font-weight: 700; color: #4338ca;">
+                </tr>
+                <tr>
+                  <td style="border: 1px solid #d97706; background: #fffbeb; padding: 4px; text-align: center; font-size: 9.5px; font-weight: 700; color: #b45309;">
+                    ① [ইনভেন্টরি স্টক]
+                  </td>
+                  <td style="border: 1px solid #4f46e5; background: #eef2ff; padding: 4px; text-align: center; font-size: 9.5px; font-weight: 700; color: #4338ca;">
                     ① [ফিল্ড ভিজিট]
+                  </td>
+                  <td style="border: 1px solid #e11d48; background: #fff1f2; padding: 4px; text-align: center; font-size: 9.5px; font-weight: 700; color: #be123c;">
+                    ① [ব্যবহারবিধি]
+                  </td>
+                  <td style="border: 1px solid #0284c7; background: #f0f9ff; padding: 4px; text-align: center; font-size: 9.5px; font-weight: 700; color: #0369a1;">
+                    ② [লাইভ সিঙ্ক]
                   </td>
                 </tr>
               </table>
+              <div style="font-size: 9.5px; color: #334155; background: #ffffff; border: 1px solid #cbd5e1; padding: 4px 6px; border-radius: 4px;">
+                <strong>৬টি KPI কার্ড:</strong> Today&apos;s Sales • Monthly Sales • Current Month Collection • Outstanding Due • Total Customers • Low Stock Products
+              </div>
             </td>
           </tr>
         </table>
@@ -1828,6 +2115,41 @@ function buildStandaloneA4ManualHtml(
           কীভাবে করবেন? — ধাপে ধাপে নির্দেশনা (Step-by-Step Guide):
         </div>
         ${stepsHtml}
+
+        <div class="avoid-break" style="margin-top: 10px; margin-bottom: 10px;">
+          <div style="font-size: 11.5px; font-weight: 800; color: #0f172a; margin-bottom: 5px;">
+            📋 ফিল্ড ও বাটন রেফারেন্স টেবিল (Line-by-Line UI Field &amp; Button Mapping):
+          </div>
+          <table style="width: 100%; border-collapse: collapse; font-size: 10.5px;">
+            <thead>
+              <tr style="background: #e2e8f0; color: #0f172a;">
+                <th style="border: 1px solid #94a3b8; padding: 5px 7px; text-align: left; width: 26%;">বাটন / ইনপুট ফিল্ড (UI Element)</th>
+                <th style="border: 1px solid #94a3b8; padding: 5px 7px; text-align: left; width: 20%;">ফিল্ডের ধরন (Control Type)</th>
+                <th style="border: 1px solid #94a3b8; padding: 5px 7px; text-align: left; width: 54%;">সিস্টেমের কাজ ও নিয়ম (Exact System Behavior)</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${ch.fieldMappings
+                .map(
+                  (fm) => `
+              <tr>
+                <td style="border: 1px solid #cbd5e1; padding: 5px 7px; font-weight: 700; color: #0f172a; background: #f8fafc; vertical-align: top;">
+                  ${escapeHtml(fm.elementLabel)}
+                </td>
+                <td style="border: 1px solid #cbd5e1; padding: 5px 7px; color: #0369a1; font-weight: 600; background: #ffffff; vertical-align: top;">
+                  ${showBn ? `<div>${escapeHtml(fm.controlTypeBn)}</div>` : ""}
+                  ${showEn ? `<div style="font-size: 9.5px; color: #475569;">${escapeHtml(fm.controlTypeEn)}</div>` : ""}
+                </td>
+                <td style="border: 1px solid #cbd5e1; padding: 5px 7px; color: #1e293b; background: #ffffff; vertical-align: top; line-height: 1.4;">
+                  ${showBn ? `<div>${escapeHtml(fm.systemBehaviorBn)}</div>` : ""}
+                  ${showEn ? `<div style="font-size: 9.5px; color: #475569; margin-top: 2px;">${escapeHtml(fm.systemBehaviorEn)}</div>` : ""}
+                </td>
+              </tr>`,
+                )
+                .join("")}
+            </tbody>
+          </table>
+        </div>
 
         <table style="width: 100%; border-collapse: collapse; margin-top: 8px;" class="avoid-break">
           <tr>
@@ -2611,6 +2933,62 @@ export function UserManualPage() {
                         </div>
                       </div>
                     ))}
+                  </div>
+                </div>
+
+                {/* ফিল্ড ও বাটন রেফারেন্স টেবিল (Line-by-Line UI Field & Button Mapping) */}
+                <div className="space-y-2 print-avoid-break">
+                  <p className="text-xs sm:text-sm font-extrabold text-foreground flex items-center gap-1.5">
+                    <ClipboardCheck className="h-4 w-4 text-primary" />
+                    {langMode === "en"
+                      ? "Line-by-Line UI Field & Button Reference Mapping:"
+                      : "ফিল্ড ও বাটন রেফারেন্স টেবিল (Line-by-Line UI Field & Button Mapping):"}
+                  </p>
+                  <div className="overflow-x-auto rounded-xl border border-border/80 bg-card shadow-2xs">
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead>
+                        <tr className="border-b border-border bg-muted/60 text-foreground">
+                          <th className="p-2.5 font-extrabold w-[26%]">
+                            {langMode === "en" ? "UI Button / Input Field" : "বাটন / ইনপুট ফিল্ড (UI Element)"}
+                          </th>
+                          <th className="p-2.5 font-extrabold w-[20%]">
+                            {langMode === "en" ? "Control Type" : "ফিল্ডের ধরন (Type)"}
+                          </th>
+                          <th className="p-2.5 font-extrabold w-[54%]">
+                            {langMode === "en" ? "Exact System Behavior" : "সিস্টেমের কাজ ও নিয়ম (System Behavior)"}
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/60">
+                        {ch.fieldMappings.map((fm) => (
+                          <tr key={fm.elementLabel} className="hover:bg-muted/20 transition-colors">
+                            <td className="p-2.5 align-top font-mono font-bold text-foreground bg-muted/15">
+                              {fm.elementLabel}
+                            </td>
+                            <td className="p-2.5 align-top">
+                              {showBn && (
+                                <span className={`inline-block rounded-md ${ch.accentBg} ${ch.accentText} px-2 py-0.5 text-[11px] font-bold`}>
+                                  {fm.controlTypeBn}
+                                </span>
+                              )}
+                              {showEn && (
+                                <span className="block text-[10.5px] font-semibold text-muted-foreground mt-0.5">
+                                  {fm.controlTypeEn}
+                                </span>
+                              )}
+                            </td>
+                            <td className="p-2.5 align-top space-y-1">
+                              {showBn && (
+                                <p className="text-xs text-foreground/90 leading-relaxed">{fm.systemBehaviorBn}</p>
+                              )}
+                              {showEn && (
+                                <p className="text-[11px] text-muted-foreground leading-relaxed">{fm.systemBehaviorEn}</p>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
 
