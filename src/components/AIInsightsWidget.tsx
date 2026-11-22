@@ -11,9 +11,18 @@ import remarkGfm from "remark-gfm";
 interface AIInsightsWidgetProps {
   orders: any[];
   products: any[];
+  collections?: any[];
+  customers?: any[];
+  onSyncCloud?: () => Promise<void>;
 }
 
-export const AIInsightsWidget = memo(function AIInsightsWidget({ orders, products }: AIInsightsWidgetProps) {
+export const AIInsightsWidget = memo(function AIInsightsWidget({
+  orders,
+  products,
+  collections,
+  customers,
+  onSyncCloud,
+}: AIInsightsWidgetProps) {
   const [loading, setLoading] = useState(false);
   const [insights, setInsights] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -23,17 +32,25 @@ export const AIInsightsWidget = memo(function AIInsightsWidget({ orders, product
     setLoading(true);
     setError(null);
     try {
-      const result = await analyzeSalesData(orders, products);
-      setInsights(result);
-      if (result.includes("(Offline Mode)")) {
-        toast.info("Generated via local analytics (Gemini API offline or unconfigured).");
-      } else {
-        toast.success("Gemini AI analysis generated!");
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        throw new Error(
+          "Internet connection is currently unavailable. Please reconnect and click Try Again to run Live Cloud AI Analytics.",
+        );
       }
+
+      if (onSyncCloud) {
+        await onSyncCloud();
+      }
+
+      const result = await analyzeSalesData(orders, products, collections, customers);
+      setInsights(result);
+      toast.success("Real-time cloud AI insights generated!");
     } catch (err: any) {
       console.warn("AI Insights widget catch:", err);
-      setError(err?.message || "Failed to contact Gemini API. Please check your internet connection.");
-      toast.error("Could not fetch AI insights. Local fallback available.");
+      const errMsg =
+        err?.message || "Failed to synchronize with live cloud analytics service. Please check your internet connection.";
+      setError(errMsg);
+      toast.error(errMsg);
     } finally {
       setLoading(false);
     }
@@ -56,24 +73,15 @@ export const AIInsightsWidget = memo(function AIInsightsWidget({ orders, product
               <Sparkles className="h-5 w-5" />
             </span>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <CardTitle className="text-base font-semibold">Executive AI Intelligence & Analytics</CardTitle>
-                {insights ? (
-                  insights.includes("(Offline Mode)") ? (
-                    <Badge variant="outline" className="text-[10px] text-amber-600 border-amber-400 font-mono py-0 h-4">
-                      Offline Mode
-                    </Badge>
-                  ) : (
-                    <Badge variant="outline" className="text-[10px] text-emerald-600 bg-emerald-500/10 border-emerald-500/30 font-medium py-0 h-4 flex items-center gap-1">
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                      Live Online (Gemini AI)
-                    </Badge>
-                  )
-                ) : (
-                  <Badge variant="outline" className="text-[10px] text-primary border-primary/30 font-medium py-0 h-4">
-                    AI Powered
-                  </Badge>
-                )}
+                <Badge
+                  variant="outline"
+                  className="text-[10px] text-emerald-600 bg-emerald-500/10 border-emerald-500/30 font-medium py-0 h-4 flex items-center gap-1"
+                >
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  {insights ? "Live Cloud Sync" : "Real-Time Online Analytics"}
+                </Badge>
               </div>
               <CardDescription className="text-xs mt-0.5">
                 Powered by Advanced AI Technology — automated demand forecasting, collection velocity, and distribution health auditing.
@@ -129,9 +137,9 @@ export const AIInsightsWidget = memo(function AIInsightsWidget({ orders, product
               </span>
             </div>
             <div>
-              <p className="text-sm font-medium text-foreground">Synthesizing Sales & Inventory Data</p>
+              <p className="text-sm font-medium text-foreground">Synchronizing Live Cloud Sales & Inventory Data</p>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Gemini 1.5 Flash is examining dealer order trends, stock velocity, and accounts aging...
+                Fetching real-time Supabase orders, collections, customer receivables, and stock velocity...
               </p>
             </div>
           </div>

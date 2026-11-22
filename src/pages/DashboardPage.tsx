@@ -575,7 +575,13 @@ export function DashboardPage() {
           />
         )}
       >
-        <AIInsightsWidget orders={orders} products={products} />
+        <AIInsightsWidget
+          orders={orders}
+          products={products}
+          collections={collections}
+          customers={customers}
+          onSyncCloud={() => refresh(false)}
+        />
       </ErrorBoundary>
 
       {/* Charts row */}

@@ -1,7 +1,7 @@
 import { type FC } from "react";
 import {
   LayoutDashboard, Users, Package, ShoppingCart, Truck, Warehouse,
-  Wallet, MapPin, BarChart3, UserCog, Bell, X,
+  Wallet, MapPin, BarChart3, UserCog, Bell, BookOpen, X,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useI18n } from "@/lib/i18n";
@@ -27,6 +27,7 @@ export const navItems: NavItem[] = [
   { key: "reports", icon: BarChart3, path: "reports" },
   { key: "users", icon: UserCog, path: "users" },
   { key: "notifications", icon: Bell, path: "notifications" },
+  { key: "manual", icon: BookOpen, path: "manual" },
 ];
 
 export interface SidebarProps {

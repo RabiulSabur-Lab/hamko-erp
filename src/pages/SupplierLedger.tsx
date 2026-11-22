@@ -243,7 +243,7 @@ export function SupplierLedger() {
         if (chan && supabase?.removeChannel) {
           supabase.removeChannel(chan);
         }
-      } catch (e) {}
+      } catch (e) { }
     };
   }, [fetchRemoteData, selectedSupplierId]);
 

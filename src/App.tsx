@@ -18,6 +18,7 @@ import { SfaPage } from "./pages/SfaPage";
 import { ReportsPage } from "./pages/ReportsPage";
 import { NotificationsPage } from "./pages/NotificationsPage";
 import { UserManagement } from "./pages/UserManagement";
+import { UserManualPage } from "./pages/UserManualPage";
 import { ResetPassword } from "./pages/ResetPassword";
 import { Loader2 } from "lucide-react";
 import { App as CapacitorApp } from "@capacitor/app";
@@ -208,7 +209,7 @@ export function App() {
   useEffect(() => {
     if (loading) return;
     if (!session) {
-      const publicRoutes = ["login", "signin", "auth", "signup", "reset-password", "landing", "about", "welcome"];
+      const publicRoutes = ["login", "signin", "auth", "signup", "reset-password", "landing", "about", "welcome", "manual", "user-manual", "guide", "help"];
       if (!publicRoutes.includes(route) && !isRoot) {
         navigate("/login");
       }
@@ -314,6 +315,11 @@ export function App() {
           </ProtectedRoute>
         );
       case "notifications": return <NotificationsPage />;
+      case "manual":
+      case "user-manual":
+      case "guide":
+      case "help":
+        return <UserManualPage />;
       case "reset-password": return <ResetPassword />;
       default: return <DashboardPage />;
     }
@@ -348,6 +354,15 @@ export function App() {
         return (
           <ErrorBoundary name="AuthPage:SignIn">
             <AuthPage />
+          </ErrorBoundary>
+        );
+      }
+      if (route === "manual" || route === "user-manual" || route === "guide" || route === "help") {
+        return (
+          <ErrorBoundary name="PublicManual">
+            <div className="max-w-6xl mx-auto p-4 sm:p-6">
+              <UserManualPage />
+            </div>
           </ErrorBoundary>
         );
       }
