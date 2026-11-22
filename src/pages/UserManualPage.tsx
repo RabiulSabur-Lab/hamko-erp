@@ -1072,68 +1072,68 @@ function EnterpriseErpMockupFrame({
   children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-2xl border-2 border-slate-300 dark:border-slate-700 bg-card text-foreground overflow-hidden shadow-md">
+    <div className="w-full max-w-none min-w-0 rounded-2xl border-2 border-slate-300 dark:border-slate-700 bg-card text-foreground overflow-hidden shadow-md">
       {/* Browser Window Top Chrome */}
-      <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-900 text-slate-100 px-3.5 py-1.5 text-[11px] border-b border-slate-800">
-        <div className="flex items-center gap-1.5">
-          <span className="h-2.5 w-2.5 rounded-full bg-rose-500" />
-          <span className="h-2.5 w-2.5 rounded-full bg-amber-400" />
-          <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
-          <span className="ml-2 font-bold tracking-tight text-white">{screenTitleBn}</span>
+      <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-900 text-slate-100 px-4 py-2 text-xs border-b border-slate-800">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="h-2.5 w-2.5 rounded-full bg-rose-500 shrink-0" />
+          <span className="h-2.5 w-2.5 rounded-full bg-amber-400 shrink-0" />
+          <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 shrink-0" />
+          <span className="ml-2 font-bold tracking-tight text-white truncate">{screenTitleBn}</span>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="rounded bg-slate-800 border border-slate-700 px-2 py-0.5 font-mono text-[10px] text-sky-300">
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="rounded bg-slate-800 border border-slate-700 px-2.5 py-0.5 font-mono text-[11px] text-sky-300">
             https://hamko-erp.app/{routePath}
           </span>
-          <span className="hidden sm:inline-flex items-center gap-1 text-[10px] text-emerald-400 font-semibold">
+          <span className="hidden sm:inline-flex items-center gap-1 text-[11px] text-emerald-400 font-semibold">
             ● Live Enterprise UI
           </span>
         </div>
       </div>
 
-      {/* Main Enterprise ERP Layout: Permanent Left Sidebar + Right Top Header & Workspace */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 bg-slate-50/70 dark:bg-slate-950/40">
+      {/* Main Enterprise ERP Layout: Left Sidebar (xl:w-48) + Full-Width Fluid Right Workspace */}
+      <div className="flex flex-col xl:flex-row w-full min-w-0 bg-slate-50/70 dark:bg-slate-950/40">
         {/* Left Sidebar (Matches src/components/Sidebar.tsx) */}
-        <div className="lg:col-span-3 xl:col-span-2 border-b lg:border-b-0 lg:border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col justify-between">
+        <div className="w-full xl:w-48 shrink-0 border-b xl:border-b-0 xl:border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col justify-between">
           <div>
-            {/* Brand Logo Header (h-16 equivalent) */}
-            <div className="flex items-center justify-between px-3 py-2.5 border-b border-slate-200 dark:border-slate-800">
+            {/* Brand Logo Header */}
+            <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-slate-200 dark:border-slate-800">
               <div className="flex items-center gap-2">
-                <div className="h-7 w-7 rounded-lg bg-sky-600 text-white font-black text-xs flex items-center justify-center shadow-2xs">
+                <div className="h-7 w-7 rounded-lg bg-sky-600 text-white font-black text-xs flex items-center justify-center shadow-2xs shrink-0">
                   H
                 </div>
                 <div className="leading-tight">
-                  <p className="text-[11px] font-black tracking-tight text-slate-900 dark:text-white">
+                  <p className="text-xs font-black tracking-tight text-slate-900 dark:text-white">
                     HAMKO
                   </p>
-                  <p className="text-[9px] font-bold text-sky-600 dark:text-sky-400 uppercase tracking-wider">
+                  <p className="text-[9.5px] font-bold text-sky-600 dark:text-sky-400 uppercase tracking-wider">
                     Cookware ERP
                   </p>
                 </div>
               </div>
-              <span className="rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 px-1.5 py-0.5 text-[9px] font-bold">
+              <span className="rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 px-1.5 py-0.5 text-[9.5px] font-bold">
                 v2.5
               </span>
             </div>
 
             {/* Sidebar Navigation Menu */}
-            <div className="p-2 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-1 gap-1 text-[10.5px]">
+            <div className="p-2 grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-1 gap-1.5 text-[11px]">
               {ERP_SIDEBAR_ITEMS.map((item) => {
                 const isActive = item.id === activeNav;
                 return (
                   <div
                     key={item.id}
-                    className={`flex items-center gap-2 rounded-lg px-2.5 py-1.5 font-semibold transition-colors ${
+                    className={`flex items-center gap-2 rounded-lg px-2.5 py-1.5 font-semibold transition-colors min-w-0 ${
                       isActive
                         ? "bg-sky-600 text-white shadow-2xs font-bold ring-2 ring-sky-400/50"
                         : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
                     }`}
                   >
                     <span className="text-xs shrink-0">{item.iconText}</span>
-                    <div className="truncate leading-tight">
+                    <div className="truncate leading-tight min-w-0">
                       <span className="block truncate">{item.labelBn}</span>
                       <span
-                        className={`block text-[8.5px] truncate ${
+                        className={`block text-[9px] truncate ${
                           isActive ? "text-sky-100" : "text-slate-400 dark:text-slate-500"
                         }`}
                       >
@@ -1147,9 +1147,9 @@ function EnterpriseErpMockupFrame({
           </div>
 
           {/* Sidebar Footer Status */}
-          <div className="hidden lg:block p-2.5 m-2 rounded-lg bg-slate-100 dark:bg-slate-800/70 border border-slate-200/80 dark:border-slate-700/60 text-[9.5px]">
+          <div className="hidden xl:block p-2.5 m-2 rounded-lg bg-slate-100 dark:bg-slate-800/70 border border-slate-200/80 dark:border-slate-700/60 text-[10px]">
             <div className="flex items-center gap-1.5 font-bold text-emerald-700 dark:text-emerald-400">
-              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
               Cloud Sync Active
             </div>
             <p className="text-slate-500 dark:text-slate-400 mt-0.5">Hamko Group Cookware Unit</p>
@@ -1157,26 +1157,26 @@ function EnterpriseErpMockupFrame({
         </div>
 
         {/* Right Column: Top Header Bar (AppLayout.tsx) + Page Workspace */}
-        <div className="lg:col-span-9 xl:col-span-10 flex flex-col">
+        <div className="flex-1 min-w-0 flex flex-col">
           {/* Top Header Bar (Matches src/components/layout/AppLayout.tsx) */}
-          <div className="flex flex-wrap items-center justify-between gap-2 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-3.5 py-2 text-[11px]">
-            <div className="flex items-center gap-2">
-              <span className="font-extrabold text-slate-900 dark:text-white text-xs sm:text-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-4 py-2.5 text-xs">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="font-extrabold text-slate-900 dark:text-white text-xs sm:text-sm truncate">
                 {ERP_SIDEBAR_ITEMS.find((i) => i.id === activeNav)?.labelBn} (
                 {ERP_SIDEBAR_ITEMS.find((i) => i.id === activeNav)?.labelEn})
               </span>
-              <span className="hidden sm:inline-flex items-center gap-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 text-[9.5px] font-bold">
+              <span className="hidden sm:inline-flex items-center gap-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 text-[10px] font-bold shrink-0">
                 ● Online
               </span>
             </div>
 
             {/* Header Right Actions: Manual, Language, Theme, Notifications, User Profile */}
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span className="inline-flex items-center gap-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2 py-1 text-[10px] font-bold text-slate-700 dark:text-slate-200">
+            <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+              <span className="inline-flex items-center gap-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2.5 py-1 text-[10.5px] font-bold text-slate-700 dark:text-slate-200">
                 📖 ব্যবহারবিধি
               </span>
               <span
-                className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-bold ${
+                className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[10.5px] font-bold ${
                   headerHighlightCallout
                     ? "border-2 border-amber-500 bg-amber-500/15 text-amber-800 dark:text-amber-300 shadow-2xs"
                     : "border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200"
@@ -1184,23 +1184,23 @@ function EnterpriseErpMockupFrame({
               >
                 {headerHighlightCallout ? "③ [🌐 EN / বাং]" : "🌐 EN / বাং"}
               </span>
-              <span className="inline-flex items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-1.5 py-1 text-[10px]">
+              <span className="inline-flex items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2 py-1 text-[10.5px]">
                 🌙
               </span>
-              <span className="relative inline-flex items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-1.5 py-1 text-[10px]">
+              <span className="relative inline-flex items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2 py-1 text-[10.5px]">
                 🔔
-                <span className="ml-0.5 rounded-full bg-rose-500 text-white px-1 text-[8.5px] font-bold">
+                <span className="ml-0.5 rounded-full bg-rose-500 text-white px-1 text-[9px] font-bold">
                   2
                 </span>
               </span>
               {/* Profile Badge */}
-              <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/90 pl-1.5 pr-2 py-0.5">
-                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-sky-600 text-white text-[9.5px] font-extrabold">
+              <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/90 pl-1.5 pr-2.5 py-0.5">
+                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-sky-600 text-white text-[10px] font-extrabold shrink-0">
                   TA
                 </span>
                 <div className="leading-none hidden sm:block">
-                  <p className="text-[10px] font-bold text-slate-800 dark:text-slate-100">তানভীর আহমেদ</p>
-                  <p className="text-[8.5px] text-slate-500 dark:text-slate-400">Sales Officer</p>
+                  <p className="text-[10.5px] font-bold text-slate-800 dark:text-slate-100">তানভীর আহমেদ</p>
+                  <p className="text-[9px] text-slate-500 dark:text-slate-400">Sales Officer</p>
                 </div>
                 <span className="text-[9px] text-slate-400">▾</span>
               </div>
@@ -1208,7 +1208,7 @@ function EnterpriseErpMockupFrame({
           </div>
 
           {/* Main ERP Workspace Content */}
-          <div className="p-3 sm:p-4 space-y-3 text-xs">{children}</div>
+          <div className="p-3.5 sm:p-5 space-y-3.5 text-xs w-full min-w-0">{children}</div>
         </div>
       </div>
     </div>
@@ -1338,46 +1338,46 @@ function ChapterScreenMockup({ mockupKey }: { mockupKey: ManualChapter["mockupKe
             </div>
           </div>
 
-          {/* 8-Tile Quick Action Hub */}
-          <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3 space-y-2 shadow-2xs">
-            <div className="flex flex-wrap items-center justify-between gap-1 text-[10.5px]">
+          {/* 8-Tile Quick Action Hub — 4 columns x 2 rows so labels never wrap vertically */}
+          <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3.5 space-y-2.5 shadow-2xs">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
               <span className="font-extrabold text-slate-800 dark:text-slate-200">
                 ① দ্রুত সেবা (8-Tile Quick Action Hub) ◄── এক ট্যাপে সরাসরি কাজের পেজে যান:
               </span>
-              <span className="text-[10px] text-slate-500">বাম পাশের নীল সাইডবার মেনু থেকেও সব পেজে যাওয়া যায়</span>
+              <span className="text-[11px] text-slate-500">বাম পাশের নীল সাইডবার মেনু থেকেও সব পেজে যাওয়া যায়</span>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-1.5 text-[10px]">
-              <div className="rounded-lg border-2 border-emerald-500/50 bg-emerald-500/10 p-1.5 text-center">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
+              <div className="rounded-xl border-2 border-emerald-500/50 bg-emerald-500/10 p-2.5 text-center">
                 <p className="font-extrabold text-emerald-800 dark:text-emerald-300">① [+ নতুন অর্ডার]</p>
-                <p className="text-slate-500 text-[9px]">ইনভয়েস বুকিং</p>
+                <p className="text-slate-500 text-[10.5px] mt-0.5">ইনভয়েস বুকিং</p>
               </div>
-              <div className="rounded-lg border border-teal-500/40 bg-teal-500/10 p-1.5 text-center">
-                <p className="font-bold text-teal-800 dark:text-teal-300">① [$ কালেকশন]</p>
-                <p className="text-slate-500 text-[9px]">বকেয়া আদায়</p>
+              <div className="rounded-xl border border-teal-500/40 bg-teal-500/10 p-2.5 text-center">
+                <p className="font-bold text-teal-800 dark:text-teal-300">① [$ ক্যাশ কালেকশন]</p>
+                <p className="text-slate-500 text-[10.5px] mt-0.5">বকেয়া টাকা আদায়</p>
               </div>
-              <div className="rounded-lg border border-orange-500/40 bg-orange-500/10 p-1.5 text-center">
+              <div className="rounded-xl border border-orange-500/40 bg-orange-500/10 p-2.5 text-center">
                 <p className="font-bold text-orange-800 dark:text-orange-300">① [+ পারচেজ চালান]</p>
-                <p className="text-slate-500 text-[9px]">স্টক ইন</p>
+                <p className="text-slate-500 text-[10.5px] mt-0.5">ফ্যাক্টরি স্টক ইন</p>
               </div>
-              <div className="rounded-lg border border-violet-500/40 bg-violet-500/10 p-1.5 text-center">
+              <div className="rounded-xl border border-violet-500/40 bg-violet-500/10 p-2.5 text-center">
                 <p className="font-bold text-violet-800 dark:text-violet-300">① [+ কাস্টমার]</p>
-                <p className="text-slate-500 text-[9px]">নতুন দোকান</p>
+                <p className="text-slate-500 text-[10.5px] mt-0.5">নতুন দোকান যোগ</p>
               </div>
-              <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-1.5 text-center">
+              <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-2.5 text-center">
                 <p className="font-bold text-amber-800 dark:text-amber-300">① [ইনভেন্টরি স্টক]</p>
-                <p className="text-slate-500 text-[9px]">গোডাউন মজুদ</p>
+                <p className="text-slate-500 text-[10.5px] mt-0.5">গোডাউন মজুদ</p>
               </div>
-              <div className="rounded-lg border border-indigo-500/40 bg-indigo-500/10 p-1.5 text-center">
+              <div className="rounded-xl border border-indigo-500/40 bg-indigo-500/10 p-2.5 text-center">
                 <p className="font-bold text-indigo-800 dark:text-indigo-300">① [ফিল্ড ভিজিট]</p>
-                <p className="text-slate-500 text-[9px]">রুট ও পিন</p>
+                <p className="text-slate-500 text-[10.5px] mt-0.5">রুট ও পিন হ্যান্ডওভার</p>
               </div>
-              <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 p-1.5 text-center">
+              <div className="rounded-xl border border-rose-500/40 bg-rose-500/10 p-2.5 text-center">
                 <p className="font-bold text-rose-800 dark:text-rose-300">① [ব্যবহারবিধি]</p>
-                <p className="text-slate-500 text-[9px]">গাইড ও PDF</p>
+                <p className="text-slate-500 text-[10.5px] mt-0.5">সচিত্র গাইড ও PDF</p>
               </div>
-              <div className="rounded-lg border-2 border-sky-500/50 bg-sky-500/10 p-1.5 text-center">
+              <div className="rounded-xl border-2 border-sky-500/50 bg-sky-500/10 p-2.5 text-center">
                 <p className="font-extrabold text-sky-800 dark:text-sky-300">② [লাইভ সিঙ্ক]</p>
-                <p className="text-slate-500 text-[9px]">ক্লাউড আপডেট</p>
+                <p className="text-slate-500 text-[10.5px] mt-0.5">ক্লাউড আপডেট</p>
               </div>
             </div>
           </div>
@@ -1422,8 +1422,8 @@ function ChapterScreenMockup({ mockupKey }: { mockupKey: ManualChapter["mockupKe
                 <span>📋 নিবন্ধিত কাস্টমার ও বকেয়া তালিকা (Customer Directory Table)</span>
                 <span className="text-slate-500">১৪২টি দোকান</span>
               </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse text-[10.5px]">
+              <div className="overflow-x-auto w-full">
+                <table className="w-full min-w-[520px] text-left border-collapse text-[11px]">
                   <thead>
                     <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 text-slate-500">
                       <th className="p-2 font-bold">দোকান ও মালিক (Outlet)</th>
@@ -1553,8 +1553,8 @@ function ChapterScreenMockup({ mockupKey }: { mockupKey: ManualChapter["mockupKe
                 ② কাস্টমারের ধরন অনুযায়ী DP / D10 / B12 রেট যাচাই করুন
               </span>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-[10.5px]">
+            <div className="overflow-x-auto w-full">
+              <table className="w-full min-w-[640px] text-left border-collapse text-[11px]">
                 <thead>
                   <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 text-slate-600 dark:text-slate-300">
                     <th className="p-2.5 font-extrabold">পণ্যের নাম ও SKU কোড</th>
@@ -2991,54 +2991,54 @@ export function UserManualPage() {
   }, [filteredChapters, handlePrintPdf, isDownloadingPdf, langMode, orientationMode]);
 
   return (
-    <div id="print-user-manual" className="manual-root space-y-6 pb-12">
+    <div id="print-user-manual" className="manual-root w-full max-w-none min-w-0 space-y-6 pb-12">
 
       {/* =====================================================================
           HERO BANNER & LANGUAGE / A4 PDF CONTROLS
          ===================================================================== */}
-      <Card className="rounded-2xl border-primary/30 bg-gradient-to-r from-primary/10 via-card to-emerald-500/10 shadow-sm overflow-hidden print-avoid-break">
-        <CardContent className="p-5 sm:p-6">
-          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-            <div className="space-y-1.5">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge className="bg-primary text-primary-foreground text-xs px-2.5 py-0.5">
-                  <BookOpen className="h-3.5 w-3.5 mr-1.5" />
-                  সেলস অফিসার অনবোর্ডিং হ্যান্ডবুক • Sales Officer Field Guide
-                </Badge>
-                <Badge
-                  variant="outline"
-                  className="text-xs border-emerald-500/40 text-emerald-700 dark:text-emerald-400 bg-emerald-500/10"
-                >
-                  হামকো গ্রুপ কুকওয়্যার ইউনিট • Hamko Group Cookware Unit
-                </Badge>
-              </div>
-
-              {showBn && (
-                <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight text-foreground mt-1">
-                  হামকো সেলস ইআরপি (Hamko Sales ERP) — সহজ ও সচিত্র ব্যবহারবিধি
-                </h1>
-              )}
-              {showEn && (
-                <h2 className="text-base sm:text-lg font-bold text-primary">
-                  Complete Day-One Onboarding &amp; Field Operations Manual (Step-by-Step)
-                </h2>
-              )}
-              <p className="text-xs sm:text-sm text-muted-foreground max-w-3xl leading-relaxed">
-                {showBn &&
-                  "হামকো কুকওয়্যার ইউনিটে নতুন যোগদানকারী যেকোনো সেলস অফিসার যেন কারো সাহায্য ছাড়াই প্রথম দিন থেকে নিজে নিজে কাস্টমার যোগ, স্টক চেক, নতুন অর্ডার তৈরি, ক্যাশ কালেকশন এবং সন্ধ্যার ক্যাশ হ্যান্ডওভার করতে পারেন—সেজন্যই এই সহজ গাইডটি তৈরি করা হয়েছে। "}
-                {showEn &&
-                  "Designed so any new Sales Officer can independently manage outlets, check live stock, book cookware orders, collect payments, and complete evening cash handovers from day one."}
-              </p>
+      <Card className="w-full max-w-none min-w-0 rounded-2xl border-primary/30 bg-gradient-to-r from-primary/10 via-card to-emerald-500/10 shadow-sm overflow-hidden print-avoid-break">
+        <CardContent className="p-5 sm:p-6 md:p-8 space-y-4">
+          <div className="space-y-2 w-full min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge className="bg-primary text-primary-foreground text-xs px-2.5 py-0.5">
+                <BookOpen className="h-3.5 w-3.5 mr-1.5" />
+                সেলস অফিসার অনবোর্ডিং হ্যান্ডবুক • Sales Officer Field Guide
+              </Badge>
+              <Badge
+                variant="outline"
+                className="text-xs border-emerald-500/40 text-emerald-700 dark:text-emerald-400 bg-emerald-500/10"
+              >
+                হামকো গ্রুপ কুকওয়্যার ইউনিট • Hamko Group Cookware Unit
+              </Badge>
             </div>
 
-            {/* Language Switcher, Dynamic Orientation Switcher & A4 PDF Print Buttons */}
-            <div className="flex flex-wrap items-center gap-2 no-print shrink-0">
+            {showBn && (
+              <h1 className="text-xl sm:text-2xl md:text-3xl font-extrabold tracking-tight text-foreground mt-1 leading-snug">
+                হামকো সেলস ইআরপি (Hamko Sales ERP) — সহজ ও সচিত্র ব্যবহারবিধি
+              </h1>
+            )}
+            {showEn && (
+              <h2 className="text-base sm:text-lg font-bold text-primary leading-snug">
+                Complete Day-One Onboarding &amp; Field Operations Manual (Step-by-Step)
+              </h2>
+            )}
+            <p className="text-xs sm:text-sm text-muted-foreground w-full leading-relaxed">
+              {showBn &&
+                "হামকো কুকওয়্যার ইউনিটে নতুন যোগদানকারী যেকোনো সেলস অফিসার যেন কারো সাহায্য ছাড়াই প্রথম দিন থেকে নিজে নিজে কাস্টমার যোগ, স্টক চেক, নতুন অর্ডার তৈরি, ক্যাশ কালেকশন এবং সন্ধ্যার ক্যাশ হ্যান্ডওভার করতে পারেন—সেজন্যই এই সহজ গাইডটি তৈরি করা হয়েছে। "}
+              {showEn &&
+                "Designed so any new Sales Officer can independently manage outlets, check live stock, book cookware orders, collect payments, and complete evening cash handovers from day one."}
+            </p>
+          </div>
+
+          {/* Language Switcher, Dynamic Orientation Switcher & A4 PDF Print Buttons in full-width bar */}
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-border/60 no-print w-full">
+            <div className="flex flex-wrap items-center gap-2">
               {/* Language Switcher */}
-              <div className="inline-flex rounded-xl border border-border bg-card p-1 shadow-xs">
+              <div className="inline-flex flex-wrap rounded-xl border border-border bg-card p-1 shadow-xs">
                 <button
                   type="button"
                   onClick={() => setLangMode("bilingual")}
-                  className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
                     langMode === "bilingual"
                       ? "bg-primary text-primary-foreground"
                       : "text-muted-foreground hover:text-foreground"
@@ -3049,7 +3049,7 @@ export function UserManualPage() {
                 <button
                   type="button"
                   onClick={() => setLangMode("bn")}
-                  className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
                     langMode === "bn"
                       ? "bg-primary text-primary-foreground"
                       : "text-muted-foreground hover:text-foreground"
@@ -3060,7 +3060,7 @@ export function UserManualPage() {
                 <button
                   type="button"
                   onClick={() => setLangMode("en")}
-                  className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
                     langMode === "en"
                       ? "bg-primary text-primary-foreground"
                       : "text-muted-foreground hover:text-foreground"
@@ -3071,7 +3071,7 @@ export function UserManualPage() {
               </div>
 
               {/* Dynamic Orientation Switcher (Portrait + Landscape Hybrid / Portrait / Landscape) */}
-              <div className="inline-flex rounded-xl border border-sky-500/30 bg-card p-1 shadow-xs">
+              <div className="inline-flex flex-wrap rounded-xl border border-sky-500/30 bg-card p-1 shadow-xs">
                 <button
                   type="button"
                   onClick={() => setOrientationMode("hybrid")}
@@ -3087,7 +3087,7 @@ export function UserManualPage() {
                 <button
                   type="button"
                   onClick={() => setOrientationMode("portrait")}
-                  className={`px-2 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
                     orientationMode === "portrait"
                       ? "bg-sky-600 text-white"
                       : "text-muted-foreground hover:text-foreground"
@@ -3098,7 +3098,7 @@ export function UserManualPage() {
                 <button
                   type="button"
                   onClick={() => setOrientationMode("landscape")}
-                  className={`px-2 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
                     orientationMode === "landscape"
                       ? "bg-sky-600 text-white"
                       : "text-muted-foreground hover:text-foreground"
@@ -3107,13 +3107,15 @@ export function UserManualPage() {
                   🖥️ ল্যান্ডস্কেপ (Landscape)
                 </button>
               </div>
+            </div>
 
+            <div className="flex flex-wrap items-center gap-2">
               <Button
                 type="button"
                 onClick={handleDirectDownloadPdf}
                 disabled={isDownloadingPdf || isPreparingPrint}
                 size="sm"
-                className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm h-9 px-3.5 rounded-xl"
+                className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm h-9 px-4 rounded-xl"
               >
                 <Download className="h-4 w-4" />
                 <span>
@@ -3129,7 +3131,7 @@ export function UserManualPage() {
                 onClick={handlePrintPdf}
                 disabled={isPreparingPrint || isDownloadingPdf}
                 size="sm"
-                className="gap-1.5 h-9 px-3 rounded-xl"
+                className="gap-1.5 h-9 px-3.5 rounded-xl"
               >
                 <Printer className="h-4 w-4 text-primary" />
                 <span>
@@ -3142,17 +3144,17 @@ export function UserManualPage() {
           </div>
 
           {/* Search & Quick Chapter Navigation Pills */}
-          <div className="mt-4 pt-4 border-t border-border/60 flex flex-col sm:flex-row sm:items-center gap-3 no-print">
-            <div className="relative w-full sm:w-72">
+          <div className="pt-3 border-t border-border/60 flex flex-col md:flex-row md:items-center gap-3 no-print w-full">
+            <div className="relative w-full md:w-80 shrink-0">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="খুঁজুন (যেমন: অর্ডার, কালেকশন, স্টক, হ্যান্ডওভার)..."
-                className="pl-9 h-8 text-xs rounded-xl"
+                className="pl-9 h-9 text-xs rounded-xl"
               />
             </div>
-            <div className="flex flex-wrap items-center gap-1.5 flex-1">
+            <div className="flex flex-wrap items-center gap-1.5 flex-1 min-w-0">
               {CHAPTERS.map((ch, idx) => (
                 <a
                   key={ch.id}
@@ -3161,7 +3163,7 @@ export function UserManualPage() {
                     e.preventDefault();
                     document.getElementById(ch.id)?.scrollIntoView({ behavior: "smooth" });
                   }}
-                  className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-muted/70 hover:bg-primary/15 hover:text-primary transition-colors border border-border/60"
+                  className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-muted/70 hover:bg-primary/15 hover:text-primary transition-colors border border-border/60"
                 >
                   অধ্যায় {idx + 1}
                 </a>
@@ -3175,17 +3177,19 @@ export function UserManualPage() {
           AT-A-GLANCE DAILY WORKFLOW ROADMAP FOR SALES OFFICERS
           (এক নজরে সেলস অফিসারের সারাদিনের কাজের ধাপ)
          ===================================================================== */}
-      <Card className="rounded-2xl border-emerald-500/30 bg-gradient-to-br from-emerald-500/5 via-card to-sky-500/5 shadow-xs overflow-hidden print-avoid-break">
-        <CardHeader className="pb-2 border-b border-border/40">
-          <CardTitle className="text-sm sm:text-base font-bold flex items-center gap-2 text-emerald-700 dark:text-emerald-400">
-            <Clock className="h-4 w-4" />
-            {langMode === "en"
-              ? "At a Glance: A Sales Officer's 5-Step Daily Routine (Morning to Evening)"
-              : "এক নজরে একজন সেলস অফিসারের সারাদিনের ৫টি মূল কাজ (সকাল থেকে সন্ধ্যা)"}
+      <Card className="w-full max-w-none min-w-0 rounded-2xl border-emerald-500/30 bg-gradient-to-br from-emerald-500/5 via-card to-sky-500/5 shadow-xs overflow-hidden print-avoid-break">
+        <CardHeader className="p-4 sm:p-6 pb-3 border-b border-border/40">
+          <CardTitle className="text-sm sm:text-base md:text-lg font-bold flex items-center gap-2 text-emerald-700 dark:text-emerald-400">
+            <Clock className="h-5 w-5 shrink-0" />
+            <span>
+              {langMode === "en"
+                ? "At a Glance: A Sales Officer's 5-Step Daily Routine (Morning to Evening)"
+                : "এক নজরে একজন সেলস অফিসারের সারাদিনের ৫টি মূল কাজ (সকাল থেকে সন্ধ্যা)"}
+            </span>
           </CardTitle>
         </CardHeader>
-        <CardContent className="p-4">
-          <div className="grid grid-cols-1 sm:grid-cols-5 gap-2.5">
+        <CardContent className="p-4 sm:p-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3.5 w-full">
             {[
               {
                 step: "ধাপ ১ (সকাল ৯:০০)",
@@ -3235,15 +3239,15 @@ export function UserManualPage() {
             ].map((item) => (
               <div
                 key={item.step}
-                className={`rounded-xl border p-3 space-y-1 ${item.color}`}
+                className={`rounded-xl border p-3.5 space-y-1.5 min-w-0 ${item.color}`}
               >
-                <p className="text-[10px] font-bold uppercase tracking-wider opacity-85">
+                <p className="text-[11px] font-bold uppercase tracking-wider opacity-85">
                   {langMode === "en" ? item.stepEn : item.step}
                 </p>
-                {showBn && <p className="text-xs sm:text-sm font-extrabold text-foreground">{item.titleBn}</p>}
-                {showEn && <p className="text-xs font-bold text-primary">{item.titleEn}</p>}
-                {showBn && <p className="text-[11px] text-foreground/85 leading-relaxed">{item.descBn}</p>}
-                {showEn && <p className="text-[11px] text-muted-foreground leading-relaxed">{item.descEn}</p>}
+                {showBn && <p className="text-sm font-extrabold text-foreground leading-snug">{item.titleBn}</p>}
+                {showEn && <p className="text-xs font-bold text-primary leading-snug">{item.titleEn}</p>}
+                {showBn && <p className="text-xs text-foreground/90 leading-relaxed">{item.descBn}</p>}
+                {showEn && <p className="text-xs text-muted-foreground leading-relaxed">{item.descEn}</p>}
               </div>
             ))}
           </div>
@@ -3253,83 +3257,80 @@ export function UserManualPage() {
       {/* =====================================================================
           8 STEP-BY-STEP PRACTICAL CHAPTERS (৮টি সহজ ও বাস্তবমুখী অধ্যায়)
          ===================================================================== */}
-      <div className="space-y-6">
+      <div className="space-y-6 w-full max-w-none min-w-0">
         {filteredChapters.map((ch) => {
           const Icon = ch.icon;
           return (
             <Card
               key={ch.id}
               id={ch.id}
-              className={`manual-chapter-card rounded-2xl border ${ch.accentBorder} shadow-xs overflow-hidden`}
+              className={`manual-chapter-card w-full max-w-none min-w-0 rounded-2xl border ${ch.accentBorder} shadow-xs overflow-hidden`}
             >
-              {/* Chapter Header */}
-              <CardHeader className={`pb-3 ${ch.accentBg} border-b border-border/50`}>
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                  <div className="flex items-start sm:items-center gap-3">
-                    <div
-                      className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-card border ${ch.accentBorder} ${ch.accentText} font-bold shadow-xs`}
-                    >
-                      <Icon className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Badge variant="outline" className={`font-bold text-xs ${ch.accentText} ${ch.accentBorder}`}>
-                          {ch.chapterNo}
-                        </Badge>
-                        <Badge variant="secondary" className="text-[11px] font-medium">
-                          📍 কোথায় পাবেন: {langMode === "en" ? ch.menuNameEn : ch.menuNameBn}
-                        </Badge>
-                      </div>
-                      {showBn && (
-                        <CardTitle className="text-base sm:text-lg font-extrabold text-foreground mt-1">
-                          {ch.titleBn}
-                        </CardTitle>
-                      )}
-                      {showEn && (
-                        <p className={`text-sm sm:text-base font-bold ${ch.accentText} mt-0.5`}>
-                          {ch.titleEn}
-                        </p>
-                      )}
-                    </div>
+              {/* Chapter Header — Full Width Stacked Hierarchy so Titles Never Squeeze */}
+              <CardHeader className={`p-4 sm:p-6 ${ch.accentBg} border-b border-border/50`}>
+                <div className="flex items-start gap-3.5 w-full min-w-0">
+                  <div
+                    className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-card border ${ch.accentBorder} ${ch.accentText} font-bold shadow-xs mt-0.5`}
+                  >
+                    <Icon className="h-6 w-6" />
                   </div>
-                  <div className="text-left sm:text-right">
-                    {showBn && <p className="text-xs font-medium text-foreground/80">{ch.subtitleBn}</p>}
-                    {showEn && <p className="text-xs text-muted-foreground">{ch.subtitleEn}</p>}
+                  <div className="flex-1 min-w-0 space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant="outline" className={`font-bold text-xs ${ch.accentText} ${ch.accentBorder}`}>
+                        {ch.chapterNo}
+                      </Badge>
+                      <Badge variant="secondary" className="text-xs font-medium">
+                        📍 কোথায় পাবেন: {langMode === "en" ? ch.menuNameEn : ch.menuNameBn}
+                      </Badge>
+                    </div>
+                    {showBn && (
+                      <CardTitle className="text-lg sm:text-xl font-extrabold text-foreground leading-snug">
+                        {ch.titleBn}
+                      </CardTitle>
+                    )}
+                    {showEn && (
+                      <p className={`text-sm sm:text-base font-bold ${ch.accentText} leading-snug`}>
+                        {ch.titleEn}
+                      </p>
+                    )}
+                    <div className="pt-0.5 text-xs sm:text-sm text-muted-foreground leading-relaxed">
+                      {showBn && <span className="font-medium text-foreground/80">{ch.subtitleBn}</span>}
+                      {showBn && showEn && <span className="mx-1.5">•</span>}
+                      {showEn && <span>{ch.subtitleEn}</span>}
+                    </div>
                   </div>
                 </div>
               </CardHeader>
 
-              <CardContent className="p-4 sm:p-6 space-y-6">
+              <CardContent className="p-4 sm:p-6 md:p-8 space-y-6 w-full max-w-none min-w-0">
                 {/* =========================================================
                     SECTION PART A: PORTRAIT CORPORATE NARRATIVE & STEP-BY-STEP
-                    (পোট্রেট ওভারভিউ, বাস্তব উদাহরণ ও ধাপে ধাপে নির্দেশনা)
+                    (ওভারভিউ, বাস্তব উদাহরণ ও ধাপে ধাপে নির্দেশনা — Full Fluid Width)
                    ========================================================= */}
-                <div
-                  className={`rounded-2xl border border-border/80 bg-card/90 p-4 sm:p-5 space-y-4 shadow-2xs transition-all ${
-                    orientationMode === "landscape" ? "w-full" : "max-w-4xl mx-auto"
-                  }`}
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-2.5">
-                    <span className="text-xs font-extrabold text-foreground flex items-center gap-1.5">
-                      <BookOpen className="h-4 w-4 text-primary" />
-                      {langMode === "en"
-                        ? "Part A — Module Overview & Step-by-Step Operational Guidelines"
-                        : "পার্ট ক — ওভারভিউ, বাস্তব উদাহরণ ও ধাপে ধাপে কাজের নিয়ম"}
+                <div className="w-full max-w-none min-w-0 rounded-2xl border border-border/80 bg-card/90 p-4 sm:p-6 space-y-5 shadow-2xs">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-3">
+                    <span className="text-xs sm:text-sm font-extrabold text-foreground flex items-center gap-2">
+                      <BookOpen className="h-4 w-4 text-primary shrink-0" />
+                      <span>
+                        {langMode === "en"
+                          ? "Part A — Module Overview & Step-by-Step Operational Guidelines"
+                          : "পার্ট ক — ওভারভিউ, বাস্তব উদাহরণ ও ধাপে ধাপে কাজের নিয়ম"}
+                      </span>
                     </span>
                     <Badge
                       variant="outline"
-                      className="text-[10.5px] font-bold border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-300"
+                      className="text-xs font-bold border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-300"
                     >
-                      📄 পোট্রেট লেআউট • Portrait Narrative Layout
+                      📄 পোট্রেট প্রিন্ট সেকশন • Portrait Narrative Section
                     </Badge>
                   </div>
 
                   {/* Why It Matters + Real-World Scenario */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div className="rounded-xl bg-muted/30 border border-border/60 p-3.5 space-y-1.5">
-                      <span className="text-[11px] font-bold uppercase tracking-wider text-primary flex items-center gap-1.5">
-                        <BookOpen className="h-3.5 w-3.5" />
-                        {langMode === "en" ? "What This Module Does" : "কেন এই কাজটি গুরুত্বপূর্ণ?"}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 w-full min-w-0">
+                    <div className="rounded-xl bg-muted/30 border border-border/60 p-4 space-y-2 min-w-0">
+                      <span className="text-xs font-bold uppercase tracking-wider text-primary flex items-center gap-1.5">
+                        <BookOpen className="h-3.5 w-3.5 shrink-0" />
+                        <span>{langMode === "en" ? "What This Module Does" : "কেন এই কাজটি গুরুত্বপূর্ণ?"}</span>
                       </span>
                       {showBn && (
                         <p className="text-xs sm:text-sm text-foreground/90 leading-relaxed">
@@ -3337,18 +3338,20 @@ export function UserManualPage() {
                         </p>
                       )}
                       {showEn && (
-                        <p className="text-xs text-muted-foreground leading-relaxed">
+                        <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
                           {ch.whyItMattersEn}
                         </p>
                       )}
                     </div>
 
-                    <div className="rounded-xl bg-primary/5 border border-primary/25 p-3.5 space-y-1.5">
-                      <span className="text-[11px] font-bold uppercase tracking-wider text-primary flex items-center gap-1.5">
-                        <Sparkles className="h-3.5 w-3.5" />
-                        {langMode === "en"
-                          ? "Real-World Field Scenario"
-                          : "বাস্তব উদাহরণ (মাঠ পর্যায়ের পরিস্থিতি)"}
+                    <div className="rounded-xl bg-primary/5 border border-primary/25 p-4 space-y-2 min-w-0">
+                      <span className="text-xs font-bold uppercase tracking-wider text-primary flex items-center gap-1.5">
+                        <Sparkles className="h-3.5 w-3.5 shrink-0" />
+                        <span>
+                          {langMode === "en"
+                            ? "Real-World Field Scenario"
+                            : "বাস্তব উদাহরণ (মাঠ পর্যায়ের পরিস্থিতি)"}
+                        </span>
                       </span>
                       {showBn && (
                         <p className="text-xs sm:text-sm text-foreground/90 leading-relaxed font-medium">
@@ -3356,7 +3359,7 @@ export function UserManualPage() {
                         </p>
                       )}
                       {showEn && (
-                        <p className="text-xs text-muted-foreground leading-relaxed">
+                        <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
                           {ch.realScenarioEn}
                         </p>
                       )}
@@ -3364,41 +3367,45 @@ export function UserManualPage() {
                   </div>
 
                   {/* কীভাবে করবেন? (How to Do It - Step-by-Step) */}
-                  <div className="space-y-2.5">
-                    <p className="text-xs sm:text-sm font-extrabold text-foreground flex items-center gap-1.5">
-                      <ArrowRight className="h-4 w-4 text-primary" />
-                      {langMode === "en"
-                        ? "How to Do It — Step-by-Step Instructions:"
-                        : "কীভাবে করবেন? (ধাপে ধাপে কাজের নিয়ম):"}
+                  <div className="space-y-3 w-full min-w-0">
+                    <p className="text-sm sm:text-base font-extrabold text-foreground flex items-center gap-2">
+                      <ArrowRight className="h-4 w-4 text-primary shrink-0" />
+                      <span>
+                        {langMode === "en"
+                          ? "How to Do It — Step-by-Step Instructions:"
+                          : "কীভাবে করবেন? (ধাপে ধাপে কাজের নিয়ম):"}
+                      </span>
                     </p>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 w-full min-w-0">
                       {ch.howToSteps.map((st) => (
                         <div
                           key={st.stepNum + st.titleEn}
-                          className="rounded-xl border border-border/75 bg-muted/20 p-3.5 space-y-1.5 print-avoid-break"
+                          className="rounded-xl border border-border/75 bg-muted/20 p-4 space-y-2 print-avoid-break min-w-0"
                         >
-                          <div className="flex items-start gap-2.5">
+                          <div className="flex items-start gap-3 min-w-0">
                             <span
-                              className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-lg ${ch.accentBg} ${ch.accentText} font-extrabold text-xs mt-0.5`}
+                              className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${ch.accentBg} ${ch.accentText} font-extrabold text-xs mt-0.5`}
                             >
                               {st.stepNum}
                             </span>
-                            <div className="space-y-1">
+                            <div className="space-y-1.5 min-w-0 flex-1">
                               {showBn && (
-                                <p className="text-xs sm:text-sm font-bold text-foreground">
+                                <p className="text-sm font-bold text-foreground leading-snug">
                                   {st.titleBn}
                                 </p>
                               )}
                               {showEn && (
-                                <p className="text-xs font-semibold text-primary">{st.titleEn}</p>
+                                <p className="text-xs sm:text-sm font-semibold text-primary leading-snug">
+                                  {st.titleEn}
+                                </p>
                               )}
                               {showBn && (
-                                <p className="text-xs text-foreground/90 leading-relaxed">
+                                <p className="text-xs sm:text-sm text-foreground/90 leading-relaxed">
                                   {st.descBn}
                                 </p>
                               )}
                               {showEn && (
-                                <p className="text-xs text-muted-foreground leading-relaxed">
+                                <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
                                   {st.descEn}
                                 </p>
                               )}
@@ -3410,10 +3417,10 @@ export function UserManualPage() {
                   </div>
 
                   {/* Field Pro-Tip & Mistake Prevention Warning */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3.5 flex items-start gap-2.5">
-                      <Lightbulb className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-                      <div className="space-y-1 text-xs">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 w-full min-w-0">
+                    <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4 flex items-start gap-3 min-w-0">
+                      <Lightbulb className="h-5 w-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                      <div className="space-y-1.5 text-xs sm:text-sm min-w-0 flex-1">
                         {showBn && (
                           <p className="text-foreground/90 leading-relaxed">
                             <strong className="text-emerald-700 dark:text-emerald-400">
@@ -3433,9 +3440,9 @@ export function UserManualPage() {
                       </div>
                     </div>
 
-                    <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3.5 flex items-start gap-2.5">
-                      <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-                      <div className="space-y-1 text-xs">
+                    <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 flex items-start gap-3 min-w-0">
+                      <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                      <div className="space-y-1.5 text-xs sm:text-sm min-w-0 flex-1">
                         {showBn && (
                           <p className="text-foreground/90 leading-relaxed">
                             <strong className="text-amber-700 dark:text-amber-400">
@@ -3462,52 +3469,52 @@ export function UserManualPage() {
                     (ল্যান্ডস্কেপ ওয়াইড স্ক্রিন ব্রেকডাউন, কলআউট ① ② ③ ও ফিল্ড রেফারেন্স টেবিল)
                    ========================================================= */}
                 <div
-                  className={`rounded-2xl border-2 ${ch.accentBorder} bg-muted/10 p-4 sm:p-5 space-y-4 shadow-xs transition-all ${
-                    orientationMode === "portrait" ? "max-w-4xl mx-auto" : "w-full"
-                  }`}
+                  className={`w-full max-w-none min-w-0 rounded-2xl border-2 ${ch.accentBorder} bg-muted/10 p-4 sm:p-6 space-y-5 shadow-xs`}
                 >
-                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-2.5">
-                    <span className="text-xs sm:text-sm font-extrabold text-foreground flex items-center gap-1.5">
-                      <Receipt className="h-4 w-4 text-primary" />
-                      {langMode === "en"
-                        ? "Part B — Wide Landscape Live ERP Screen Breakdown, Callouts (① ② ③) & Field Matrix"
-                        : "পার্ট খ — সচিত্র ইআরপি স্ক্রিন ব্রেকডাউন (① ② ③) ও ফিল্ড রেফারেন্স টেবিল"}
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-3">
+                    <span className="text-xs sm:text-sm font-extrabold text-foreground flex items-center gap-2">
+                      <Receipt className="h-4 w-4 text-primary shrink-0" />
+                      <span>
+                        {langMode === "en"
+                          ? "Part B — Wide Landscape Live ERP Screen Breakdown, Callouts (① ② ③) & Field Matrix"
+                          : "পার্ট খ — সচিত্র ইআরপি স্ক্রিন ব্রেকডাউন (① ② ③) ও ফিল্ড রেফারেন্স টেবিল"}
+                      </span>
                     </span>
-                    <Badge className="bg-sky-600 text-white text-[10.5px] font-bold">
+                    <Badge className="bg-sky-600 text-white text-xs font-bold">
                       🖥️ ল্যান্ডস্কেপ ওয়াইড ক্যানভাস • Wide Landscape Canvas (Zero Clipping)
                     </Badge>
                   </div>
 
                   {/* Annotated Screen Preview */}
-                  <div className="manual-mockup-wrapper space-y-1.5 print-avoid-break">
+                  <div className="manual-mockup-wrapper w-full min-w-0 space-y-2 print-avoid-break">
                     <ChapterScreenMockup mockupKey={ch.mockupKey} />
                   </div>
 
                   {/* Screen Callout Pills (① ② ③) */}
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 w-full min-w-0">
                     {ch.screenCallouts.map((sc) => (
                       <div
                         key={sc.badge + sc.nameEn}
-                        className="rounded-xl border border-border/80 bg-card p-3 space-y-1 shadow-2xs print-avoid-break"
+                        className="rounded-xl border border-border/80 bg-card p-4 space-y-1.5 shadow-2xs print-avoid-break min-w-0"
                       >
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2.5 min-w-0">
                           <span
-                            className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${ch.accentBg} ${ch.accentText} font-bold text-xs`}
+                            className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${ch.accentBg} ${ch.accentText} font-bold text-xs`}
                           >
                             {sc.badge}
                           </span>
-                          <div>
-                            {showBn && <p className="text-xs font-bold text-foreground">{sc.nameBn}</p>}
+                          <div className="min-w-0 flex-1">
+                            {showBn && <p className="text-xs sm:text-sm font-bold text-foreground">{sc.nameBn}</p>}
                             {showEn && (
-                              <p className={`text-[11px] font-semibold ${ch.accentText}`}>{sc.nameEn}</p>
+                              <p className={`text-xs font-semibold ${ch.accentText}`}>{sc.nameEn}</p>
                             )}
                           </div>
                         </div>
                         {showBn && (
-                          <p className="text-xs text-foreground/85 leading-relaxed">{sc.actionBn}</p>
+                          <p className="text-xs sm:text-sm text-foreground/85 leading-relaxed">{sc.actionBn}</p>
                         )}
                         {showEn && (
-                          <p className="text-[11px] text-muted-foreground leading-relaxed">
+                          <p className="text-xs text-muted-foreground leading-relaxed">
                             {sc.actionEn}
                           </p>
                         )}
@@ -3516,26 +3523,28 @@ export function UserManualPage() {
                   </div>
 
                   {/* ফিল্ড ও বাটন রেফারেন্স টেবিল (Line-by-Line UI Field & Button Mapping) */}
-                  <div className="space-y-2 print-avoid-break">
-                    <p className="text-xs sm:text-sm font-extrabold text-foreground flex items-center gap-1.5">
-                      <ClipboardCheck className="h-4 w-4 text-primary" />
-                      {langMode === "en"
-                        ? "Line-by-Line UI Field & Button Reference Mapping Matrix:"
-                        : "ফিল্ড ও বাটন রেফারেন্স টেবিল (Line-by-Line UI Field & Button Mapping):"}
+                  <div className="space-y-2.5 w-full min-w-0 print-avoid-break">
+                    <p className="text-sm sm:text-base font-extrabold text-foreground flex items-center gap-2">
+                      <ClipboardCheck className="h-4 w-4 text-primary shrink-0" />
+                      <span>
+                        {langMode === "en"
+                          ? "Line-by-Line UI Field & Button Reference Mapping Matrix:"
+                          : "ফিল্ড ও বাটন রেফারেন্স টেবিল (Line-by-Line UI Field & Button Mapping):"}
+                      </span>
                     </p>
-                    <div className="overflow-x-auto rounded-xl border border-border/80 bg-card shadow-2xs">
-                      <table className="w-full text-left border-collapse text-xs">
+                    <div className="w-full overflow-x-auto rounded-xl border border-border/80 bg-card shadow-2xs">
+                      <table className="w-full min-w-[680px] text-left border-collapse text-xs sm:text-sm">
                         <thead>
                           <tr className="border-b border-border bg-muted/60 text-foreground">
-                            <th className="p-2.5 font-extrabold w-[26%]">
+                            <th className="p-3 font-extrabold w-[26%]">
                               {langMode === "en"
                                 ? "UI Button / Input Field"
                                 : "বাটন / ইনপুট ফিল্ড (UI Element)"}
                             </th>
-                            <th className="p-2.5 font-extrabold w-[20%]">
+                            <th className="p-3 font-extrabold w-[20%]">
                               {langMode === "en" ? "Control Type" : "ফিল্ডের ধরন (Type)"}
                             </th>
-                            <th className="p-2.5 font-extrabold w-[54%]">
+                            <th className="p-3 font-extrabold w-[54%]">
                               {langMode === "en"
                                 ? "Exact System Behavior"
                                 : "সিস্টেমের কাজ ও নিয়ম (System Behavior)"}
@@ -3545,31 +3554,31 @@ export function UserManualPage() {
                         <tbody className="divide-y divide-border/60">
                           {ch.fieldMappings.map((fm) => (
                             <tr key={fm.elementLabel} className="hover:bg-muted/20 transition-colors">
-                              <td className="p-2.5 align-top font-mono font-bold text-foreground bg-muted/15">
+                              <td className="p-3 align-top font-mono font-bold text-foreground bg-muted/15">
                                 {fm.elementLabel}
                               </td>
-                              <td className="p-2.5 align-top">
+                              <td className="p-3 align-top">
                                 {showBn && (
                                   <span
-                                    className={`inline-block rounded-md ${ch.accentBg} ${ch.accentText} px-2 py-0.5 text-[11px] font-bold`}
+                                    className={`inline-block rounded-md ${ch.accentBg} ${ch.accentText} px-2.5 py-0.5 text-xs font-bold`}
                                   >
                                     {fm.controlTypeBn}
                                   </span>
                                 )}
                                 {showEn && (
-                                  <span className="block text-[10.5px] font-semibold text-muted-foreground mt-0.5">
+                                  <span className="block text-xs font-semibold text-muted-foreground mt-1">
                                     {fm.controlTypeEn}
                                   </span>
                                 )}
                               </td>
-                              <td className="p-2.5 align-top space-y-1">
+                              <td className="p-3 align-top space-y-1">
                                 {showBn && (
-                                  <p className="text-xs text-foreground/90 leading-relaxed">
+                                  <p className="text-xs sm:text-sm text-foreground/90 leading-relaxed">
                                     {fm.systemBehaviorBn}
                                   </p>
                                 )}
                                 {showEn && (
-                                  <p className="text-[11px] text-muted-foreground leading-relaxed">
+                                  <p className="text-xs text-muted-foreground leading-relaxed">
                                     {fm.systemBehaviorEn}
                                   </p>
                                 )}
