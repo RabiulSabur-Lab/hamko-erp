@@ -1,4 +1,6 @@
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useCallback } from "react";
+import html2pdf from "html2pdf.js";
+import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -1031,10 +1033,372 @@ function ChapterScreenMockup({ mockupKey }: { mockupKey: ManualChapter["mockupKe
   }
 }
 
+function escapeHtml(str: string): string {
+  return String(str || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+/**
+ * Builds a 100% self-contained, pure-Hex/RGB A4 HTML document with zero external Tailwind v4
+ * `oklch()` / `color-mix()` stylesheets or complex flex/grid containers, guaranteeing 100%
+ * compatibility with Windows "Microsoft Print to PDF", physical laser printers, and html2pdf.js.
+ */
+function buildStandaloneA4ManualHtml(
+  chapters: ManualChapter[],
+  langMode: ManualLangMode,
+  includeToolbar = true,
+): string {
+  const showBn = langMode === "bilingual" || langMode === "bn";
+  const showEn = langMode === "bilingual" || langMode === "en";
+
+  const routineRowsHtml = [
+    {
+      step: langMode === "en" ? "Step 1 (9:00 AM)" : "ধাপ ১ (সকাল ৯:০০)",
+      titleBn: "লগইন ও স্টক দেখা",
+      titleEn: "Login & Check Stock",
+      descBn: "অ্যাপে ঢুকে ড্যাশবোর্ড রিফ্রেশ দিন এবং কোন পণ্যের স্টক কত আছে ও আজকের রুট প্ল্যান দেখে নিন।",
+      descEn: "Sign in, tap Refresh, check warehouse stock & today's route plan.",
+    },
+    {
+      step: langMode === "en" ? "Step 2 (Market Visit)" : "ধাপ ২ (মার্কেট ভিজিট)",
+      titleBn: "নতুন দোকান ও ভিজিট লগ",
+      titleEn: "Add Shop & Log Visit",
+      descBn: "নতুন দোকান হলে CRM-এ '+ নতুন কাস্টমার' অ্যাড করুন এবং SFA-তে '+ ভিজিট লগ' এন্ট্রি দিন।",
+      descEn: "Register any new outlet in CRM and log your shop call in SFA.",
+    },
+    {
+      step: langMode === "en" ? "Step 3 (Order Booking)" : "ধাপ ৩ (অর্ডার বুকিং)",
+      titleBn: "+ নতুন অর্ডার তৈরি",
+      titleEn: "Book Sales Order",
+      descBn: "দোকানদারের চাহিদা অনুযায়ী '+ নতুন অর্ডার'-এ গিয়ে পণ্য ও প্রাইস টিয়ার (DP/D10) বসিয়ে অর্ডার সাবমিট করুন।",
+      descEn: "Tap '+ New Order', select products & price tier (DP/D10), and save.",
+    },
+    {
+      step: langMode === "en" ? "Step 4 (Collection)" : "ধাপ ৪ (বকেয়া আদায়)",
+      titleBn: "$ ক্যাশ কালেকশন এন্ট্রি",
+      titleEn: "Record Cash Collection",
+      descBn: "নগদ, বিকাশ বা চেক যা-ই আদায় করবেন, সাথে সাথে '$ ক্যাশ কালেকশন'-এ এন্ট্রি দিয়ে মানি রিসিট দিন।",
+      descEn: "Log every cash, bKash, or cheque payment immediately in Accounts.",
+    },
+    {
+      step: langMode === "en" ? "Step 5 (7:00 PM)" : "ধাপ ৫ (সন্ধ্যা ৭:০০)",
+      titleBn: "ইভিনিং ক্যাশ হ্যান্ডওভার",
+      titleEn: "Evening Cash Handover",
+      descBn: "অফিসে ফিরে SFA পেজের 'Evening Handover' থেকে ৪-ডিজিট পিন কোড ও সারাদিনের ক্যাশ জমা দিন।",
+      descEn: "Submit your daily cash & 4-digit Handover PIN to the office cashier.",
+    },
+  ]
+    .map(
+      (r) => `
+      <tr>
+        <td style="width: 22%; font-weight: 700; color: #0369a1; background: #f0f9ff;">${escapeHtml(r.step)}</td>
+        <td style="width: 28%; font-weight: 700; color: #0f172a;">
+          ${showBn ? `<div>${escapeHtml(r.titleBn)}</div>` : ""}
+          ${showEn ? `<div style="font-size: 10.5px; color: #0284c7;">${escapeHtml(r.titleEn)}</div>` : ""}
+        </td>
+        <td style="width: 50%; color: #1e293b;">
+          ${showBn ? `<div>${escapeHtml(r.descBn)}</div>` : ""}
+          ${showEn ? `<div style="font-size: 10.5px; color: #475569; margin-top: 2px;">${escapeHtml(r.descEn)}</div>` : ""}
+        </td>
+      </tr>`,
+    )
+    .join("");
+
+  const chaptersHtml = chapters
+    .map((ch) => {
+      const calloutsHtml = ch.screenCallouts
+        .map(
+          (sc) => `
+          <td style="width: 33.33%; vertical-align: top; border: 1px solid #cbd5e1; background: #f8fafc; padding: 8px 10px;">
+            <div style="font-weight: 700; color: #0f172a; font-size: 11.5px; margin-bottom: 3px;">
+              <span style="display: inline-block; background: #0284c7; color: #ffffff; border-radius: 4px; padding: 1px 6px; margin-right: 4px; font-size: 10.5px;">${escapeHtml(sc.badge)}</span>
+              ${showBn ? escapeHtml(sc.nameBn) : escapeHtml(sc.nameEn)}
+            </div>
+            ${showBn && showEn ? `<div style="font-size: 10px; color: #0369a1; font-weight: 600; margin-bottom: 3px;">${escapeHtml(sc.nameEn)}</div>` : ""}
+            ${showBn ? `<div style="font-size: 11px; color: #1e293b; line-height: 1.4;">${escapeHtml(sc.actionBn)}</div>` : ""}
+            ${showEn ? `<div style="font-size: 10px; color: #475569; line-height: 1.35; margin-top: 2px;">${escapeHtml(sc.actionEn)}</div>` : ""}
+          </td>`,
+        )
+        .join("");
+
+      const stepsHtml = ch.howToSteps
+        .map(
+          (st) => `
+          <div class="avoid-break" style="border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px 11px; margin-bottom: 7px; background: #ffffff;">
+            <div style="font-weight: 700; font-size: 12px; color: #0f172a; margin-bottom: 3px;">
+              <span style="display: inline-block; background: #e0f2fe; color: #0369a1; border: 1px solid #7dd3fc; border-radius: 4px; padding: 0 6px; margin-right: 6px;">${escapeHtml(st.stepNum)}</span>
+              ${showBn ? escapeHtml(st.titleBn) : escapeHtml(st.titleEn)}
+              ${showBn && showEn ? `<span style="font-size: 11px; color: #0284c7; font-weight: 600;"> — ${escapeHtml(st.titleEn)}</span>` : ""}
+            </div>
+            ${showBn ? `<div style="font-size: 11.5px; color: #1e293b; line-height: 1.45;">${escapeHtml(st.descBn)}</div>` : ""}
+            ${showEn ? `<div style="font-size: 10.5px; color: #475569; line-height: 1.4; margin-top: 3px;">${escapeHtml(st.descEn)}</div>` : ""}
+          </div>`,
+        )
+        .join("");
+
+      return `
+      <div class="chapter-block" style="border: 1.5px solid #94a3b8; border-radius: 8px; margin-bottom: 16px; background: #ffffff; padding: 12px 14px;">
+        <div class="avoid-break" style="border-bottom: 1.5px solid #cbd5e1; padding-bottom: 8px; margin-bottom: 10px; background: #f8fafc; padding: 8px 10px; border-radius: 6px;">
+          <div style="font-size: 10.5px; font-weight: 700; color: #0369a1; text-transform: uppercase;">
+            ${escapeHtml(ch.chapterNo)} &nbsp;|&nbsp; 📍 ${escapeHtml(langMode === "en" ? ch.menuNameEn : ch.menuNameBn)}
+          </div>
+          ${showBn ? `<div style="font-size: 15px; font-weight: 800; color: #0f172a; margin-top: 2px;">${escapeHtml(ch.titleBn)}</div>` : ""}
+          ${showEn ? `<div style="font-size: 12.5px; font-weight: 700; color: #0284c7; margin-top: 1px;">${escapeHtml(ch.titleEn)}</div>` : ""}
+          <div style="font-size: 11px; color: #475569; margin-top: 2px;">
+            ${showBn ? escapeHtml(ch.subtitleBn) : ""} ${showBn && showEn ? " • " : ""} ${showEn ? escapeHtml(ch.subtitleEn) : ""}
+          </div>
+        </div>
+
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 10px;" class="avoid-break">
+          <tr>
+            <td style="width: 50%; vertical-align: top; border: 1px solid #cbd5e1; background: #f8fafc; padding: 8px 10px;">
+              <div style="font-size: 10.5px; font-weight: 700; color: #0369a1; margin-bottom: 3px;">কেন এই কাজটি গুরুত্বপূর্ণ? (Overview)</div>
+              ${showBn ? `<div style="font-size: 11px; color: #0f172a; line-height: 1.45;">${escapeHtml(ch.whyItMattersBn)}</div>` : ""}
+              ${showEn ? `<div style="font-size: 10px; color: #475569; line-height: 1.35; margin-top: 3px;">${escapeHtml(ch.whyItMattersEn)}</div>` : ""}
+            </td>
+            <td style="width: 50%; vertical-align: top; border: 1px solid #bae6fd; background: #f0f9ff; padding: 8px 10px;">
+              <div style="font-size: 10.5px; font-weight: 700; color: #0284c7; margin-bottom: 3px;">বাস্তব উদাহরণ (Real-World Scenario)</div>
+              ${showBn ? `<div style="font-size: 11px; color: #0f172a; line-height: 1.45;">${escapeHtml(ch.realScenarioBn)}</div>` : ""}
+              ${showEn ? `<div style="font-size: 10px; color: #334155; line-height: 1.35; margin-top: 3px;">${escapeHtml(ch.realScenarioEn)}</div>` : ""}
+            </td>
+          </tr>
+        </table>
+
+        <div style="font-size: 11.5px; font-weight: 700; color: #0f172a; margin-bottom: 5px;">
+          স্ক্রিন বাটন পরিচিতি (Where to Tap — ① ② ③):
+        </div>
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 10px;" class="avoid-break">
+          <tr>${calloutsHtml}</tr>
+        </table>
+
+        <div style="font-size: 12px; font-weight: 800; color: #0f172a; margin-bottom: 6px;">
+          কীভাবে করবেন? — ধাপে ধাপে নির্দেশনা (Step-by-Step Guide):
+        </div>
+        ${stepsHtml}
+
+        <table style="width: 100%; border-collapse: collapse; margin-top: 8px;" class="avoid-break">
+          <tr>
+            <td style="width: 50%; vertical-align: top; border: 1px solid #86efac; background: #f0fdf4; padding: 8px 10px;">
+              <div style="font-size: 11px; font-weight: 700; color: #15803d; margin-bottom: 2px;">💡 মাঠ পর্যায়ের কার্যকরী টিপস (Field Pro-Tip):</div>
+              ${showBn ? `<div style="font-size: 11px; color: #0f172a; line-height: 1.4;">${escapeHtml(ch.proTipBn)}</div>` : ""}
+              ${showEn ? `<div style="font-size: 10px; color: #334155; line-height: 1.35; margin-top: 2px;">${escapeHtml(ch.proTipEn)}</div>` : ""}
+            </td>
+            <td style="width: 50%; vertical-align: top; border: 1px solid #fcd34d; background: #fffbeb; padding: 8px 10px;">
+              <div style="font-size: 11px; font-weight: 700; color: #b45309; margin-bottom: 2px;">⚠️ সাধারণ ভুল থেকে সতর্কতা (Warning):</div>
+              ${showBn ? `<div style="font-size: 11px; color: #0f172a; line-height: 1.4;">${escapeHtml(ch.mistakeWarningBn)}</div>` : ""}
+              ${showEn ? `<div style="font-size: 10px; color: #334155; line-height: 1.35; margin-top: 2px;">${escapeHtml(ch.mistakeWarningEn)}</div>` : ""}
+            </td>
+          </tr>
+        </table>
+      </div>`;
+    })
+    .join("");
+
+  const checklistHtml = [
+    {
+      bn: "১. আজ যতগুলো দোকানে ভিজিট করেছেন, সবগুলোর 'Log Visit' এন্ট্রি দেওয়া হয়েছে কি?",
+      en: "1. Have all shop visits from today's market route been logged in SFA?",
+    },
+    {
+      bn: "২. আজকের সব নতুন অর্ডার সাবমিট করা এবং ডেলিভারি হওয়া অর্ডারের স্ট্যাটাস 'Delivered' করা হয়েছে কি?",
+      en: "2. Are all new orders submitted and completed deliveries marked as 'Delivered'?",
+    },
+    {
+      bn: "৩. দোকান থেকে তোলা প্রতিটি নগদ টাকা, বিকাশ ও চেক '$ ক্যাশ কালেকশন'-এ এন্ট্রি দিয়েছেন কি?",
+      en: "3. Has every cash, bKash, and cheque payment collected today been entered in Cash Collection?",
+    },
+    {
+      bn: "৪. SFA পেজের 'Evening Handover' থেকে ৪-ডিজিট পিন কোড নিয়ে ক্যাশিয়ারের কাছে টাকা বুঝিয়ে দিয়েছেন কি?",
+      en: "4. Did you generate your 4-digit Evening Handover PIN and deposit physical cash with the cashier?",
+    },
+    {
+      bn: "৫. সবশেষে উপরে 'Live Sync / Refresh' বাটনে একবার চাপ দিয়ে সব হিসাব ক্লাউডে সিঙ্ক নিশ্চিত করেছেন কি?",
+      en: "5. Did you tap 'Live Sync / Refresh' once at the end to confirm 100% cloud synchronization?",
+    },
+  ]
+    .map(
+      (item) => `
+      <div style="border-bottom: 1px solid #e2e8f0; padding: 6px 0;">
+        ${showBn ? `<div style="font-size: 11.5px; font-weight: 700; color: #0f172a;">☑ ${escapeHtml(item.bn)}</div>` : ""}
+        ${showEn ? `<div style="font-size: 10.5px; color: #475569; margin-top: 1px;">${escapeHtml(item.en)}</div>` : ""}
+      </div>`,
+    )
+    .join("");
+
+  return `<!DOCTYPE html>
+<html lang="bn">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hamko_Sales_ERP_User_Manual_A4</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    @page {
+      size: A4 portrait;
+      margin: 12mm 14mm 12mm 14mm;
+    }
+    * {
+      box-sizing: border-box;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background-color: #ffffff;
+      color: #0f172a;
+      font-family: 'Hind Siliguri', 'Nirmala UI', 'Segoe UI', 'Inter', Arial, sans-serif;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    .page-wrapper {
+      width: 100%;
+      max-width: 190mm;
+      margin: 0 auto;
+      padding: 12px 0;
+      background-color: #ffffff;
+    }
+    .print-toolbar {
+      position: sticky;
+      top: 0;
+      z-index: 999;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      background: #0f172a;
+      color: #ffffff;
+      padding: 10px 18px;
+      border-bottom: 2px solid #0284c7;
+      margin-bottom: 14px;
+    }
+    .print-btn {
+      background: #059669;
+      color: #ffffff;
+      border: none;
+      border-radius: 6px;
+      padding: 8px 16px;
+      font-weight: 700;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .close-btn {
+      background: #334155;
+      color: #ffffff;
+      border: 1px solid #64748b;
+      border-radius: 6px;
+      padding: 8px 14px;
+      font-weight: 600;
+      font-size: 12px;
+      cursor: pointer;
+      margin-left: 8px;
+    }
+    table.routine-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 16px;
+    }
+    table.routine-table th,
+    table.routine-table td {
+      border: 1px solid #94a3b8;
+      padding: 7px 9px;
+      font-size: 11px;
+      vertical-align: top;
+      text-align: left;
+    }
+    table.routine-table th {
+      background-color: #e0f2fe;
+      color: #0369a1;
+      font-weight: 700;
+    }
+    .avoid-break {
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+    @media print {
+      .print-toolbar {
+        display: none !important;
+      }
+      .page-wrapper {
+        max-width: 100% !important;
+        padding: 0 !important;
+        margin: 0 !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  ${
+    includeToolbar
+      ? `<div class="print-toolbar">
+          <div>
+            <strong>HAMKO Sales ERP — A4 Print &amp; PDF Preview</strong>
+            <span style="font-size: 11px; color: #94a3b8; margin-left: 10px;">Select &quot;Save as PDF&quot; or &quot;Microsoft Print to PDF&quot;</span>
+          </div>
+          <div>
+            <button class="print-btn" onclick="window.focus(); window.print();">🖨️ Print / Save A4 PDF</button>
+            <button class="close-btn" onclick="window.close();">✕ Close</button>
+          </div>
+        </div>`
+      : ""
+  }
+  <div id="manual-a4-root" class="page-wrapper">
+    <!-- Document Header -->
+    <div class="avoid-break" style="border: 2px solid #0284c7; border-radius: 8px; padding: 14px 16px; margin-bottom: 16px; background: #f0f9ff;">
+      <div style="font-size: 11px; font-weight: 700; color: #0369a1; text-transform: uppercase; letter-spacing: 0.5px;">
+        HAMKO GROUP COOKWARE UNIT • হামকো গ্রুপ কুকওয়্যার ইউনিট
+      </div>
+      ${showBn ? `<h1 style="margin: 4px 0 2px 0; font-size: 20px; font-weight: 800; color: #0f172a;">হামকো সেলস ইআরপি (Hamko Sales ERP) — সহজ ও সচিত্র ব্যবহারবিধি</h1>` : ""}
+      ${showEn ? `<h2 style="margin: 2px 0 4px 0; font-size: 14.5px; font-weight: 700; color: #0284c7;">Complete Field Sales Officer Onboarding &amp; Operations Manual (A-to-Z Guide)</h2>` : ""}
+      <div style="font-size: 11px; color: #334155; margin-top: 4px;">
+        ${showBn ? "নতুন সেলস অফিসারদের জন্য প্রথম দিন থেকে নিজে নিজে অ্যাপ পরিচালনার পূর্ণাঙ্গ গাইড (লগইন, কাস্টমার যোগ, স্টক চেক, অর্ডার, কালেকশন ও ক্যাশ হ্যান্ডওভার)।" : "Step-by-step daily field guide covering Login, CRM Outlets, Products & Pricing, Order Booking, Cash Collections, Inventory, and SFA Handover."}
+      </div>
+    </div>
+
+    <!-- 5-Step Daily Routine Table -->
+    <div class="avoid-break" style="margin-bottom: 16px;">
+      <div style="font-size: 13px; font-weight: 800; color: #065f46; margin-bottom: 6px;">
+        এক নজরে একজন সেলস অফিসারের সারাদিনের ৫টি মূল কাজ (5-Step Daily Routine: 9:00 AM – 7:00 PM)
+      </div>
+      <table class="routine-table">
+        <thead>
+          <tr>
+            <th>সময় ও ধাপ (Step)</th>
+            <th>মূল কাজ (Action)</th>
+            <th>কীভাবে করবেন? (What to Do)</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${routineRowsHtml}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 8 Detailed Chapters -->
+    ${chaptersHtml}
+
+    <!-- Daily Closing Checklist -->
+    <div class="avoid-break" style="border: 1.5px solid #059669; border-radius: 8px; padding: 12px 14px; background: #f0fdf4; margin-top: 14px;">
+      <div style="font-size: 13.5px; font-weight: 800; color: #065f46; margin-bottom: 6px;">
+        সেলস অফিসারের দিনশেষের চেকলিস্ট (Daily Closing Checklist Before Leaving Office)
+      </div>
+      ${checklistHtml}
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
 export function UserManualPage() {
   const [langMode, setLangMode] = useState<ManualLangMode>("bilingual");
   const [searchQuery, setSearchQuery] = useState("");
   const [isPreparingPrint, setIsPreparingPrint] = useState(false);
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
 
   const showBn = langMode === "bilingual" || langMode === "bn";
   const showEn = langMode === "bilingual" || langMode === "en";
@@ -1061,161 +1425,180 @@ export function UserManualPage() {
     );
   }, [searchQuery]);
 
-  // Clean up print classes and restore document title after printing finishes
-  useEffect(() => {
-    const handleAfterPrint = () => {
-      document.body.classList.remove("printing-user-manual");
-      setIsPreparingPrint(false);
-    };
-    window.addEventListener("afterprint", handleAfterPrint);
-    return () => {
-      window.removeEventListener("afterprint", handleAfterPrint);
-      document.body.classList.remove("printing-user-manual");
-    };
-  }, []);
-
+  /**
+   * 1. Isolated Clean Window / Iframe Print Handler:
+   * Renders a pure-Hex HTML document completely detached from the main app's Tailwind v4 `oklch()`
+   * stylesheets and React layout tree so Windows "Microsoft Print to PDF" and laser printers
+   * spool 100% cleanly without GDI/XPS driver exceptions.
+   */
   const handlePrintPdf = useCallback(() => {
     if (typeof window === "undefined" || typeof document === "undefined") return;
     if (isPreparingPrint) return;
 
     setIsPreparingPrint(true);
-    const previousTitle = document.title;
+    const htmlContent = buildStandaloneA4ManualHtml(filteredChapters, langMode, true);
 
     try {
-      // 1. Blur any active button/input to prevent focus rings in print spooler
-      if (document.activeElement && typeof (document.activeElement as HTMLElement).blur === "function") {
-        (document.activeElement as HTMLElement).blur();
+      // Primary: Open isolated standalone print window (zero external CSS conflicts)
+      const printWin = window.open("", "_blank");
+      if (printWin && printWin.document) {
+        printWin.document.open();
+        printWin.document.write(htmlContent);
+        printWin.document.close();
+
+        const triggerWinPrint = () => {
+          try {
+            printWin.focus();
+            printWin.print();
+          } catch (e) {
+            console.warn("[UserManual] Popup window print notice:", e);
+          } finally {
+            setIsPreparingPrint(false);
+          }
+        };
+
+        if ((printWin.document as any).fonts?.ready) {
+          (printWin.document as any).fonts.ready.then(() => {
+            setTimeout(triggerWinPrint, 250);
+          }).catch(() => {
+            setTimeout(triggerWinPrint, 400);
+          });
+        } else {
+          setTimeout(triggerWinPrint, 450);
+        }
+        return;
       }
 
-      // 2. Remove any conflicting modal print classes and activate user-manual print isolation
-      document.body.classList.remove("printing-invoice", "printing-collection", "printing-ledger");
-      document.body.classList.add("printing-user-manual");
+      // Fallback if popup blocker prevented window.open: use an isolated hidden iframe
+      const existingFrame = document.getElementById("hamko-isolated-print-iframe");
+      if (existingFrame && existingFrame.parentNode) {
+        existingFrame.parentNode.removeChild(existingFrame);
+      }
 
-      // 3. Use a clean, Windows-safe alphanumeric filename title so Microsoft Print to PDF never fails on special chars
-      document.title = "Hamko_Sales_ERP_User_Manual_A4";
+      const iframe = document.createElement("iframe");
+      iframe.id = "hamko-isolated-print-iframe";
+      iframe.title = "Hamko_Sales_ERP_User_Manual_A4";
+      iframe.style.cssText =
+        "position:fixed;right:0;bottom:0;width:210mm;height:297mm;border:0;opacity:0;pointer-events:none;z-index:-9999;";
+      document.body.appendChild(iframe);
 
-      // 4. Scroll to top so browser print pagination starts at page 1
-      window.scrollTo(0, 0);
+      const frameDoc = iframe.contentDocument || iframe.contentWindow?.document;
+      if (!frameDoc || !iframe.contentWindow) {
+        throw new Error("Unable to initialize print frame");
+      }
 
-      // 5. Wait for DOM & CSS print layout to settle before invoking native print dialog
-      requestAnimationFrame(() => {
-        setTimeout(() => {
-          try {
-            window.print();
-          } catch (printErr) {
-            console.error("[UserManual] Print dialog error:", printErr);
-          } finally {
-            setTimeout(() => {
-              document.title = previousTitle || "Hamko ERP";
-              document.body.classList.remove("printing-user-manual");
-              setIsPreparingPrint(false);
-            }, 500);
-          }
-        }, 150);
-      });
+      frameDoc.open();
+      frameDoc.write(buildStandaloneA4ManualHtml(filteredChapters, langMode, false));
+      frameDoc.close();
+
+      const runFramePrint = () => {
+        try {
+          iframe.contentWindow?.focus();
+          iframe.contentWindow?.print();
+        } catch (err) {
+          console.error("[UserManual] Iframe print error:", err);
+          toast.error("Printer driver busy. Use 'Direct Save .PDF' button instead.");
+        } finally {
+          setTimeout(() => {
+            setIsPreparingPrint(false);
+            if (iframe.parentNode) {
+              iframe.parentNode.removeChild(iframe);
+            }
+          }, 2000);
+        }
+      };
+
+      if ((frameDoc as any).fonts?.ready) {
+        (frameDoc as any).fonts.ready.then(() => {
+          setTimeout(runFramePrint, 250);
+        }).catch(() => {
+          setTimeout(runFramePrint, 450);
+        });
+      } else {
+        setTimeout(runFramePrint, 500);
+      }
     } catch (err) {
-      console.error("[UserManual] Print preparation error:", err);
-      document.title = previousTitle || "Hamko ERP";
-      document.body.classList.remove("printing-user-manual");
+      console.error("[UserManual] Print error:", err);
       setIsPreparingPrint(false);
+      toast.error("Could not open print preview. Try 'Direct Save .PDF' instead.");
     }
-  }, [isPreparingPrint]);
+  }, [filteredChapters, isPreparingPrint, langMode]);
+
+  /**
+   * 2. Direct One-Click `.PDF` File Download via `html2pdf.js` inside an isolated pure-Hex iframe:
+   * Completely bypasses Windows print drivers / Microsoft Print to PDF spooler and saves
+   * `Hamko_Sales_ERP_User_Manual_A4.pdf` directly to the user's Downloads folder.
+   */
+  const handleDirectDownloadPdf = useCallback(async () => {
+    if (typeof window === "undefined" || typeof document === "undefined") return;
+    if (isDownloadingPdf) return;
+
+    setIsDownloadingPdf(true);
+    const toastId = `manual-pdf-${Date.now()}`;
+    toast.loading("Generating A4 PDF file (পিডিএফ ফাইল তৈরি হচ্ছে)...", { id: toastId });
+
+    const iframe = document.createElement("iframe");
+    iframe.style.cssText =
+      "position:fixed;left:-10000px;top:0;width:794px;height:1123px;border:0;background:#ffffff;z-index:-9999;";
+    document.body.appendChild(iframe);
+
+    try {
+      const frameDoc = iframe.contentDocument || iframe.contentWindow?.document;
+      if (!frameDoc) {
+        throw new Error("Could not create isolated PDF render document");
+      }
+
+      frameDoc.open();
+      frameDoc.write(buildStandaloneA4ManualHtml(filteredChapters, langMode, false));
+      frameDoc.close();
+
+      if ((frameDoc as any).fonts?.ready) {
+        await Promise.race([
+          (frameDoc as any).fonts.ready,
+          new Promise((r) => setTimeout(r, 1200)),
+        ]);
+      } else {
+        await new Promise((r) => setTimeout(r, 400));
+      }
+
+      const targetEl = frameDoc.getElementById("manual-a4-root") || frameDoc.body;
+
+      await html2pdf()
+        .set({
+          margin: [8, 8, 8, 8],
+          filename: "Hamko_Sales_ERP_User_Manual_A4.pdf",
+          image: { type: "jpeg", quality: 0.98 },
+          html2canvas: {
+            scale: 2,
+            useCORS: true,
+            backgroundColor: "#ffffff",
+            windowWidth: 794,
+            scrollX: 0,
+            scrollY: 0,
+          },
+          jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+          pagebreak: { mode: ["avoid-all", "css", "legacy"] },
+        } as any)
+        .from(targetEl)
+        .save();
+
+      toast.dismiss(toastId);
+      toast.success("A4 PDF downloaded successfully! (পিডিএফ ডাউনলোড সম্পন্ন হয়েছে)");
+    } catch (err: any) {
+      toast.dismiss(toastId);
+      console.error("[UserManual] Direct PDF download error:", err);
+      toast.error("Direct PDF generation failed. Opening clean A4 Print view instead...");
+      handlePrintPdf();
+    } finally {
+      setIsDownloadingPdf(false);
+      if (iframe.parentNode) {
+        iframe.parentNode.removeChild(iframe);
+      }
+    }
+  }, [filteredChapters, handlePrintPdf, isDownloadingPdf, langMode]);
 
   return (
     <div id="print-user-manual" className="manual-root space-y-6 pb-12">
-      {/* A4 Print & Microsoft Print to PDF Resilient Stylesheet */}
-      <style>{`
-        @media print {
-          @page {
-            size: A4 portrait;
-            margin: 12mm 14mm 12mm 14mm !important;
-          }
-
-          html, body {
-            background: #ffffff !important;
-            color: #000000 !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            width: 100% !important;
-            height: auto !important;
-            max-height: none !important;
-            overflow: visible !important;
-            position: static !important;
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-          }
-
-          /* Hide all application chrome, sidebars, sticky headers, bottom nav, and action buttons */
-          aside,
-          header,
-          nav,
-          footer,
-          button,
-          .no-print {
-            display: none !important;
-          }
-
-          /* Reset AppLayout wrapper offsets and scroll containers so multi-page A4 pagination never clips */
-          #root,
-          .min-h-screen,
-          .lg\\:pl-64,
-          main,
-          #print-user-manual,
-          .manual-root {
-            display: block !important;
-            position: static !important;
-            width: 100% !important;
-            max-width: 100% !important;
-            height: auto !important;
-            min-height: 0 !important;
-            max-height: none !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            overflow: visible !important;
-            background: #ffffff !important;
-            box-shadow: none !important;
-          }
-
-          /* Remove GPU-heavy gradients, shadows, blurs, and overflow:hidden that crash Microsoft Print to PDF */
-          #print-user-manual *,
-          .manual-root * {
-            box-shadow: none !important;
-            text-shadow: none !important;
-            backdrop-filter: none !important;
-            -webkit-backdrop-filter: none !important;
-            background-image: none !important;
-            overflow: visible !important;
-          }
-
-          /* Allow large chapter cards to break naturally across A4 pages while keeping headers attached */
-          .manual-chapter-card {
-            display: block !important;
-            break-inside: auto !important;
-            page-break-inside: auto !important;
-            border: 1px solid #cbd5e1 !important;
-            border-radius: 8px !important;
-            background: #ffffff !important;
-            margin-bottom: 16px !important;
-            padding: 0 !important;
-          }
-
-          /* Convert dark slate mockup previews into crisp light-mode boxes for clean black-on-white A4 printing */
-          .manual-mockup-wrapper,
-          .manual-mockup-wrapper div,
-          .manual-mockup-wrapper span,
-          .manual-mockup-wrapper p {
-            background-color: #f8fafc !important;
-            color: #0f172a !important;
-            border-color: #cbd5e1 !important;
-          }
-
-          /* Only prevent page breaks inside small, compact atomic blocks (< 200px tall) */
-          .print-avoid-break {
-            break-inside: avoid !important;
-            page-break-inside: avoid !important;
-          }
-        }
-      `}</style>
 
       {/* =====================================================================
           HERO BANNER & LANGUAGE / A4 PDF CONTROLS
@@ -1295,16 +1678,32 @@ export function UserManualPage() {
 
               <Button
                 type="button"
-                onClick={handlePrintPdf}
-                disabled={isPreparingPrint}
+                onClick={handleDirectDownloadPdf}
+                disabled={isDownloadingPdf || isPreparingPrint}
                 size="sm"
                 className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm h-9 px-3.5 rounded-xl"
               >
                 <Download className="h-4 w-4" />
                 <span>
+                  {isDownloadingPdf
+                    ? "Downloading PDF..."
+                    : "Download PDF (A4) / পিডিএফ ডাউনলোড"}
+                </span>
+              </Button>
+
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handlePrintPdf}
+                disabled={isPreparingPrint || isDownloadingPdf}
+                size="sm"
+                className="gap-1.5 h-9 px-3 rounded-xl"
+              >
+                <Printer className="h-4 w-4 text-primary" />
+                <span>
                   {isPreparingPrint
-                    ? "Preparing A4 PDF..."
-                    : "Download PDF (A4) / প্রিন্ট বা পিডিএফ"}
+                    ? "Opening Print..."
+                    : "Print A4 / প্রিন্ট"}
                 </span>
               </Button>
             </div>
@@ -1717,15 +2116,29 @@ export function UserManualPage() {
               100% Live Cloud Sync Edition • সচিত্র বাংলা ও ইংরেজি অনবোর্ডিং গাইড
             </p>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handlePrintPdf}
-            className="gap-1.5 no-print self-start sm:self-auto rounded-xl"
-          >
-            <Printer className="h-3.5 w-3.5" />
-            Print / Save A4 PDF (প্রিন্ট বা পিডিএফ)
-          </Button>
+          <div className="flex flex-wrap items-center gap-2 no-print self-start sm:self-auto">
+            <Button
+              type="button"
+              onClick={handleDirectDownloadPdf}
+              disabled={isDownloadingPdf || isPreparingPrint}
+              size="sm"
+              className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl"
+            >
+              <Download className="h-3.5 w-3.5" />
+              {isDownloadingPdf ? "Downloading PDF..." : "Download PDF (A4)"}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handlePrintPdf}
+              disabled={isPreparingPrint || isDownloadingPdf}
+              className="gap-1.5 rounded-xl"
+            >
+              <Printer className="h-3.5 w-3.5" />
+              Print A4 (প্রিন্ট)
+            </Button>
+          </div>
         </CardContent>
       </Card>
     </div>
