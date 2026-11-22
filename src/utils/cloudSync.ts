@@ -472,11 +472,25 @@ export async function pushAllLocalDataToSupabase(
       let syncSuccess = false;
 
       for (let attempt = 0; attempt < 6; attempt++) {
-        const { error } = await safeTimedQuery(
+        let { error } = await safeTimedQuery(
           supabase.from("products").upsert(currentPayload, { onConflict: "sku_code" }),
           10000,
           `Product upsert (${p.name})`,
         );
+
+        // Fallback if custom DB schema lacks UNIQUE(sku_code) constraint (42P10)
+        if (
+          error &&
+          (error.code === "42P10" ||
+            String(error.message || "").toLowerCase().includes("no unique or exclusion constraint"))
+        ) {
+          const retryPk = await safeTimedQuery(
+            supabase.from("products").upsert(currentPayload, { onConflict: "id" }),
+            10000,
+            `Product PK upsert fallback (${p.name})`,
+          );
+          error = retryPk.error;
+        }
 
         if (!error) {
           syncSuccess = true;
@@ -689,11 +703,44 @@ export async function pushAllLocalDataToSupabase(
         updated_at: new Date().toISOString(),
       });
 
-      const { error: orderError } = await safeTimedQuery(
+      let { error: orderError } = await safeTimedQuery(
         supabase.from("orders").upsert(orderPayload, { onConflict: "order_number" }),
         10000,
         `Order upsert (${o.order_number})`,
       );
+
+      // Resilience against 42P10 (missing UNIQUE constraint on order_number in custom DB schemas)
+      if (
+        orderError &&
+        (orderError.code === "42P10" ||
+          String(orderError.message || "").toLowerCase().includes("no unique or exclusion constraint"))
+      ) {
+        const { data: existingOrd } = await safeTimedQuery(
+          supabase
+            .from("orders")
+            .select("id")
+            .eq("order_number", orderPayload.order_number)
+            .maybeSingle(),
+          10000,
+          `Order lookup (${orderPayload.order_number})`,
+        );
+        if (existingOrd?.id) {
+          orderPayload.id = existingOrd.id;
+          const retryOrd = await safeTimedQuery(
+            supabase.from("orders").update(orderPayload).eq("id", existingOrd.id),
+            10000,
+            `Order update fallback (${orderPayload.order_number})`,
+          );
+          orderError = retryOrd.error;
+        } else {
+          const retryOrd = await safeTimedQuery(
+            supabase.from("orders").upsert(orderPayload, { onConflict: "id" }),
+            10000,
+            `Order PK upsert fallback (${orderPayload.order_number})`,
+          );
+          orderError = retryOrd.error;
+        }
+      }
 
       if (orderError) {
         summary.errors.push(`Order ${o.order_number}: ${orderError.message}`);
@@ -767,6 +814,20 @@ export async function pushAllLocalDataToSupabase(
     const localCollections = getCollections().filter((c) => c && !deletedColIds.has(String(c.id)));
     report("Synchronizing Collections", 0, localCollections.length);
 
+    // Pre-fetch remote collection IDs by collection_number so upserts can resolve existing primary keys
+    // even if a custom Supabase environment lacks a UNIQUE constraint on collection_number (42P10).
+    const { data: dbCollections } = await safeTimedQuery(
+      () => supabase.from("collections").select("id, collection_number"),
+      12000,
+      "Collections lookup fetch",
+    );
+    const colNumToRemoteId = new Map<string, string>();
+    (dbCollections || []).forEach((rc: any) => {
+      if (rc?.collection_number && rc?.id) {
+        colNumToRemoteId.set(String(rc.collection_number).trim().toLowerCase(), rc.id);
+      }
+    });
+
     for (let i = 0; i < localCollections.length; i++) {
       const col = localCollections[i];
       if (!col || !col.collection_number) continue;
@@ -788,9 +849,13 @@ export async function pushAllLocalDataToSupabase(
       const colAmount = Number(col.amount) || 0;
       if (colAmount <= 0) continue;
 
+      const cleanColNumber = col.collection_number.trim();
+      const remoteExistingId = colNumToRemoteId.get(cleanColNumber.toLowerCase());
+      const resolvedColId = remoteExistingId || (isValidUUID(col.id) ? col.id : generateUUID());
+
       const colPayload = sanitizeCollectionPayload({
-        id: isValidUUID(col.id) ? col.id : generateUUID(),
-        collection_number: col.collection_number.trim(),
+        id: resolvedColId,
+        collection_number: cleanColNumber,
         customer_id: custId,
         order_id: isValidUUID(col.order_id) ? col.order_id : null,
         amount: colAmount,
@@ -800,18 +865,62 @@ export async function pushAllLocalDataToSupabase(
         notes: col.notes || null,
       });
 
-      const { error: colError } = await safeTimedQuery(
-        supabase.from("collections").upsert(colPayload, { onConflict: "collection_number" }),
+      // Primary strategy: upsert on primary key `id` (guaranteed to have a PRIMARY KEY constraint in PostgreSQL)
+      let { error: colError } = await safeTimedQuery(
+        supabase.from("collections").upsert(colPayload, { onConflict: "id" }),
         10000,
-        `Collection upsert (${col.collection_number})`,
+        `Collection upsert (${cleanColNumber})`,
       );
 
+      // Secondary strategy: if duplicate collection_number exists under another id (23505) or onConflict fallback needed
       if (colError) {
-        summary.errors.push(`Collection ${col.collection_number}: ${colError.message}`);
+        const errCode = String(colError.code || "");
+        const errMsg = String(colError.message || "").toLowerCase();
+        if (
+          errCode === "23505" ||
+          errCode === "42P10" ||
+          errMsg.includes("duplicate") ||
+          errMsg.includes("unique") ||
+          errMsg.includes("no unique or exclusion constraint")
+        ) {
+          const { data: existingCol } = await safeTimedQuery(
+            supabase
+              .from("collections")
+              .select("id")
+              .eq("collection_number", cleanColNumber)
+              .maybeSingle(),
+            10000,
+            `Collection lookup (${cleanColNumber})`,
+          );
+
+          if (existingCol?.id) {
+            colPayload.id = existingCol.id;
+            colNumToRemoteId.set(cleanColNumber.toLowerCase(), existingCol.id);
+            const retryRes = await safeTimedQuery(
+              supabase.from("collections").update(colPayload).eq("id", existingCol.id),
+              10000,
+              `Collection update (${cleanColNumber})`,
+            );
+            colError = retryRes.error;
+          } else {
+            const insRes = await safeTimedQuery(
+              supabase.from("collections").insert(colPayload),
+              10000,
+              `Collection insert (${cleanColNumber})`,
+            );
+            colError = insRes.error;
+          }
+        }
+      }
+
+      if (colError) {
+        summary.errors.push(`Collection ${cleanColNumber}: ${colError.message}`);
       } else {
         summary.collections++;
+        col.id = colPayload.id;
         col._unsynced = false;
         col.is_offline = false;
+        colNumToRemoteId.set(cleanColNumber.toLowerCase(), colPayload.id);
       }
       if (i % 5 === 0) await yieldToUI();
       report("Synchronizing Collections", i + 1, localCollections.length);
@@ -879,11 +988,43 @@ export async function pushAllLocalDataToSupabase(
           updated_at: new Date().toISOString(),
         });
 
-        const { error: invError } = await safeTimedQuery(
+        let { error: invError } = await safeTimedQuery(
           supabase.from("inventory").upsert(invPayload, { onConflict: "product_id,warehouse" }),
           10000,
           `Inventory upsert (${inv.product_id})`,
         );
+
+        if (
+          invError &&
+          (invError.code === "42P10" ||
+            String(invError.message || "").toLowerCase().includes("no unique or exclusion constraint"))
+        ) {
+          const { data: existingInv } = await safeTimedQuery(
+            supabase
+              .from("inventory")
+              .select("id")
+              .eq("product_id", invPayload.product_id)
+              .eq("warehouse", invPayload.warehouse)
+              .maybeSingle(),
+            10000,
+            `Inventory lookup (${inv.product_id})`,
+          );
+          if (existingInv?.id) {
+            const retryInv = await safeTimedQuery(
+              supabase.from("inventory").update(invPayload).eq("id", existingInv.id),
+              10000,
+              `Inventory update fallback (${inv.product_id})`,
+            );
+            invError = retryInv.error;
+          } else {
+            const retryInv = await safeTimedQuery(
+              supabase.from("inventory").insert(invPayload),
+              10000,
+              `Inventory insert fallback (${inv.product_id})`,
+            );
+            invError = retryInv.error;
+          }
+        }
 
         if (!invError) {
           summary.inventory++;
@@ -1120,7 +1261,25 @@ export async function pushAllLocalDataToSupabase(
           const { error: rErr } = await executeWithSchemaResilience(
             "route_plan",
             cleanRoute,
-            (p) => supabase.from("route_plan").upsert(p, { onConflict: "customer_id" })
+            async (p) => {
+              const res = await supabase.from("route_plan").upsert(p, { onConflict: "customer_id" });
+              if (
+                res.error &&
+                (res.error.code === "42P10" ||
+                  String(res.error.message || "").toLowerCase().includes("no unique or exclusion constraint"))
+              ) {
+                const { data: existingRoute } = await supabase
+                  .from("route_plan")
+                  .select("id")
+                  .eq("customer_id", p.customer_id)
+                  .maybeSingle();
+                if (existingRoute?.id) {
+                  return supabase.from("route_plan").update({ ...p, id: existingRoute.id }).eq("id", existingRoute.id);
+                }
+                return supabase.from("route_plan").upsert(p, { onConflict: "id" });
+              }
+              return res;
+            }
           );
           if (!rErr) {
             summary.routePlan++;

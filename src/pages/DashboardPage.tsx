@@ -1,4 +1,4 @@
-import { useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useI18n } from "@/lib/i18n";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -8,6 +8,7 @@ import {
   TrendingUp, TrendingDown, DollarSign, AlertTriangle,
   Users, ArrowUpRight, RefreshCw, ShoppingCart, Wallet,
   Truck, Warehouse, MapPin, BookOpen, PlusCircle, Sparkles,
+  Package, Calendar, Clock, CheckCircle2,
 } from "lucide-react";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -132,7 +133,7 @@ function KpiSkeleton() {
   return (
     <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
       {Array.from({ length: 6 }).map((_, i) => (
-        <Card key={i} className="overflow-hidden rounded-2xl md:rounded-xl border-border/60">
+        <Card key={i} className="overflow-hidden rounded-lg border-border">
           <CardContent className="p-4 space-y-3">
             <div className="flex items-start justify-between">
               <div className="h-9 w-9 rounded-lg bg-muted animate-pulse" />
@@ -150,6 +151,7 @@ function KpiSkeleton() {
 export function DashboardPage() {
   const { t, lang } = useI18n();
   const { navigate } = useRouter();
+  const [mobileTab, setMobileTab] = useState<"dashboard" | "timeline">("dashboard");
 
   const {
     orders,
@@ -543,17 +545,343 @@ export function DashboardPage() {
     [lang, navigate, refresh, refreshing],
   );
 
+  // ── 9-Tile Mobile Corporate 3-Column Utility Grid (3x3) ────────────────────
+  const mobileUtilityModules = useMemo(
+    () => [
+      {
+        key: "order-entry",
+        label: lang === "bn" ? "অর্ডার এন্ট্রি" : "Order Entry",
+        sub: lang === "bn" ? "+ নতুন ইনভয়েস" : "+ New Invoice",
+        icon: ShoppingCart,
+        iconStyle: "bg-[#0f3460]/10 text-[#0f3460] dark:bg-sky-500/15 dark:text-sky-300 border-[#0f3460]/20",
+        onClick: () => navigate("orders/create"),
+      },
+      {
+        key: "cash-collection",
+        label: lang === "bn" ? "কালেকশন" : "Collections",
+        sub: lang === "bn" ? "নগদ ও বকেয়া" : "Receive Due",
+        icon: Wallet,
+        iconStyle: "bg-teal-700/10 text-teal-800 dark:bg-teal-500/15 dark:text-teal-300 border-teal-700/20",
+        onClick: () => navigate("accounts"),
+      },
+      {
+        key: "products-stock",
+        label: lang === "bn" ? "পণ্য ও স্টক" : "Products & SKU",
+        sub: lang === "bn" ? "দর ও ক্যাটালগ" : "Price Catalog",
+        icon: Package,
+        iconStyle: "bg-blue-700/10 text-blue-800 dark:bg-blue-500/15 dark:text-blue-300 border-blue-700/20",
+        onClick: () => navigate("products"),
+      },
+      {
+        key: "crm-dealers",
+        label: lang === "bn" ? "CRM ডিলার" : "CRM Dealers",
+        sub: lang === "bn" ? "দোকান তালিকা" : "Outlets & Due",
+        icon: Users,
+        iconStyle: "bg-indigo-700/10 text-indigo-800 dark:bg-indigo-500/15 dark:text-indigo-300 border-indigo-700/20",
+        onClick: () => navigate("customers"),
+      },
+      {
+        key: "warehouse-inv",
+        label: lang === "bn" ? "গোডাউন মজুদ" : "Warehouse",
+        sub: lang === "bn" ? "লাইভ ইনভেন্টরি" : "Stock Status",
+        icon: Warehouse,
+        iconStyle: "bg-sky-700/10 text-sky-800 dark:bg-sky-500/15 dark:text-sky-300 border-sky-700/20",
+        onClick: () => navigate("inventory"),
+      },
+      {
+        key: "field-visit",
+        label: lang === "bn" ? "ফিল্ড ভিজিট" : "Field Visit",
+        sub: lang === "bn" ? "ভিজিট ও পিন" : "SFA & PIN",
+        icon: MapPin,
+        iconStyle: "bg-emerald-700/10 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300 border-emerald-700/20",
+        onClick: () => navigate("sfa"),
+      },
+      {
+        key: "time-table",
+        label: lang === "bn" ? "রুট টাইমটেবিল" : "Time Table",
+        sub: lang === "bn" ? "সাপ্তাহিক রুট" : "Route Plan",
+        icon: Calendar,
+        iconStyle: "bg-slate-700/10 text-slate-800 dark:bg-slate-500/15 dark:text-slate-300 border-slate-700/20",
+        onClick: () => navigate("sfa"),
+      },
+      {
+        key: "purchase-chalan",
+        label: lang === "bn" ? "পারচেজ চালান" : "Procurement",
+        sub: lang === "bn" ? "ফ্যাক্টরি চালান" : "Chalan & Ledger",
+        icon: Truck,
+        iconStyle: "bg-cyan-700/10 text-cyan-800 dark:bg-cyan-500/15 dark:text-cyan-300 border-cyan-700/20",
+        onClick: () => navigate("procurement"),
+      },
+      {
+        key: "info-desk",
+        label: lang === "bn" ? "Info Desk গাইড" : "Info Desk",
+        sub: lang === "bn" ? "সচিত্র ম্যানুয়াল" : "User Manual",
+        icon: BookOpen,
+        iconStyle: "bg-blue-900/10 text-blue-900 dark:bg-blue-400/15 dark:text-blue-300 border-blue-900/20",
+        onClick: () => navigate("manual"),
+      },
+    ],
+    [lang, navigate],
+  );
+
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-5 md:space-y-6">
-      {/* 1A. Desktop-Only Classic Enterprise Web ERP Header (>= 768px) */}
-      <div className="hidden md:flex flex-wrap items-center justify-between gap-2">
+      {/* =====================================================================
+          MOBILE-FIRST NATIVE CORPORATE APP INTERFACE (< 768px / md:hidden)
+          Official Hamko Deep Corporate Blue / Navy Blue Palette
+         ===================================================================== */}
+      <div className="block md:hidden max-w-md mx-auto space-y-4">
+        {/* 1. Official Hamko Corporate Brand Header Card & Segmented Toggle Tabs */}
+        <div className="rounded-2xl bg-gradient-to-br from-[#0a2540] via-[#0f3460] to-[#1e3a8a] text-white p-4 shadow-md space-y-3.5">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 border border-white/25 px-2.5 py-0.5 text-[10px] font-bold tracking-wide text-sky-200">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  {lang === "bn" ? "হামকো কর্পোরেট ইআরপি" : "HAMKO CORPORATE ERP"}
+                </span>
+              </div>
+              <h2 className="text-base font-extrabold tracking-tight text-white mt-1.5">
+                {lang === "bn" ? "সেলস ও অপারেশনস ড্যাশবোর্ড" : "Sales & Operations Hub"}
+              </h2>
+              {lastSynced && (
+                <p className="text-[10.5px] text-blue-200 mt-0.5">
+                  {lang === "bn" ? "লাইভ সিঙ্ক: " : "Last synced: "}
+                  {lastSynced.toLocaleTimeString(lang === "bn" ? "bn-BD" : "en", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </p>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => void refresh(true)}
+              disabled={refreshing}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-white/15 hover:bg-white/25 border border-white/25 px-3 py-1.5 text-xs font-bold text-white transition-colors active:scale-95"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
+              <span>{refreshing ? (lang === "bn" ? "সিঙ্ক..." : "Sync...") : (lang === "bn" ? "সিঙ্ক" : "Sync")}</span>
+            </button>
+          </div>
+
+          {/* Compact Corporate KPI Summary Strip inside Deep Blue Header */}
+          <div className="grid grid-cols-3 gap-2 pt-1">
+            <div
+              onClick={() => navigate("orders")}
+              className="rounded-xl bg-white/10 border border-white/15 px-2.5 py-2 cursor-pointer"
+            >
+              <p className="text-[10px] text-blue-200 truncate">
+                {lang === "bn" ? "আজকের বিক্রি" : "Today's Sales"}
+              </p>
+              <p className="text-xs font-extrabold text-white mt-0.5 truncate">
+                {formatBDT(kpi.todaySales, lang)}
+              </p>
+            </div>
+            <div
+              onClick={() => navigate("accounts")}
+              className="rounded-xl bg-white/10 border border-white/15 px-2.5 py-2 cursor-pointer"
+            >
+              <p className="text-[10px] text-blue-200 truncate">
+                {lang === "bn" ? "মাসের আদায়" : "Collection"}
+              </p>
+              <p className="text-xs font-extrabold text-emerald-300 mt-0.5 truncate">
+                {formatBDT(kpi.collection, lang)}
+              </p>
+            </div>
+            <div
+              onClick={() => navigate("customers")}
+              className="rounded-xl bg-white/10 border border-white/15 px-2.5 py-2 cursor-pointer"
+            >
+              <p className="text-[10px] text-blue-200 truncate">
+                {lang === "bn" ? "মার্কেট বকেয়া" : "Market Due"}
+              </p>
+              <p className="text-xs font-extrabold text-amber-300 mt-0.5 truncate">
+                {formatBDT(kpi.outstandingDue, lang)}
+              </p>
+            </div>
+          </div>
+
+          {/* Segmented Toggle Tabs (ড্যাশবোর্ড / টাইমলাইন) */}
+          <div className="grid grid-cols-2 rounded-xl bg-[#07192e]/70 p-1 border border-white/15">
+            <button
+              type="button"
+              onClick={() => setMobileTab("dashboard")}
+              className={`py-1.5 rounded-lg text-xs font-bold transition-all ${
+                mobileTab === "dashboard"
+                  ? "bg-white text-[#0a2540] shadow-xs"
+                  : "text-blue-100 hover:text-white"
+              }`}
+            >
+              {lang === "bn" ? "ড্যাশবোর্ড (Modules)" : "Dashboard"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setMobileTab("timeline")}
+              className={`py-1.5 rounded-lg text-xs font-bold transition-all ${
+                mobileTab === "timeline"
+                  ? "bg-white text-[#0a2540] shadow-xs"
+                  : "text-blue-100 hover:text-white"
+              }`}
+            >
+              {lang === "bn" ? "টাইমলাইন (Timeline)" : "Timeline"}
+            </button>
+          </div>
+        </div>
+
+        {/* 2A. Mobile Tab 1: 3-Column Rounded Icon Card Grid + Corporate Summary Cards */}
+        {mobileTab === "dashboard" ? (
+          <>
+            <div className="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-card p-3.5 shadow-xs space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-extrabold text-[#0a2540] dark:text-sky-300 uppercase tracking-wide">
+                  {lang === "bn" ? "কর্পোরেট মডিউল ও সেবা (Quick Modules)" : "Enterprise Modules"}
+                </span>
+                <span className="text-[10px] font-semibold text-muted-foreground">
+                  {lang === "bn" ? "ট্যাপ করে খুলুন" : "Tap to open"}
+                </span>
+              </div>
+
+              {/* 3-Column Rounded Icon Grid (grid-cols-3 gap-3) */}
+              <div className="grid grid-cols-3 gap-3">
+                {mobileUtilityModules.map((mod) => {
+                  const ModIcon = mod.icon;
+                  return (
+                    <button
+                      key={mod.key}
+                      type="button"
+                      onClick={mod.onClick}
+                      className="group flex flex-col items-center justify-center rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/60 hover:bg-blue-50/60 dark:hover:bg-slate-800/80 p-3 text-center shadow-2xs transition-all active:scale-95 focus:outline-none"
+                    >
+                      <div
+                        className={`flex h-11 w-11 items-center justify-center rounded-2xl border shadow-2xs ${mod.iconStyle}`}
+                      >
+                        <ModIcon className="h-5 w-5" />
+                      </div>
+                      <span className="mt-2 text-xs font-bold text-foreground leading-tight line-clamp-1">
+                        {mod.label}
+                      </span>
+                      <span className="mt-0.5 text-[10px] text-muted-foreground leading-tight line-clamp-1">
+                        {mod.sub}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Secondary 2-Column Mobile KPI Status Cards */}
+            <div className="grid grid-cols-2 gap-2.5">
+              {kpiCards.map((card: any) => {
+                const Icon = card.icon;
+                return (
+                  <div
+                    key={card.label}
+                    onClick={() => navigate(card.route)}
+                    className="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-card p-3.5 shadow-2xs cursor-pointer active:scale-[0.99] transition-transform"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#0f3460]/10 dark:bg-sky-500/15 text-[#0f3460] dark:text-sky-300">
+                        <Icon className="h-4 w-4" />
+                      </div>
+                      <Badge variant={card.up ? "success" : "secondary"} className="text-[9.5px] px-1.5 py-0">
+                        {card.trend}
+                      </Badge>
+                    </div>
+                    <p className="text-[11px] font-medium text-muted-foreground mt-2 truncate">{card.label}</p>
+                    <p className="text-sm font-extrabold text-foreground mt-0.5 truncate">{card.value}</p>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        ) : (
+          /* 2B. Mobile Tab 2: Timeline & Card-Based List Modules (Recent Orders & Top Products) */
+          <div className="space-y-3.5">
+            <div className="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-card p-3.5 shadow-xs space-y-2.5">
+              <div className="flex items-center justify-between border-b border-border/60 pb-2">
+                <div className="flex items-center gap-1.5">
+                  <Clock className="h-4 w-4 text-[#0f3460] dark:text-sky-400" />
+                  <span className="text-xs font-extrabold text-foreground">
+                    {lang === "bn" ? "সাম্প্রতিক অর্ডার টাইমলাইন" : "Recent Order Activity"}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => navigate("orders")}
+                  className="text-[11px] font-bold text-[#0f3460] dark:text-sky-400"
+                >
+                  {t("viewAll")} →
+                </button>
+              </div>
+
+              {recentOrders.length === 0 ? (
+                <div className="py-8 text-center text-xs text-muted-foreground">{t("noData")}</div>
+              ) : (
+                <div className="space-y-2">
+                  {recentOrders.map((o, idx) => {
+                    const statusLabel = String(o?.status || "Pending");
+                    const isComplete = statusLabel === "Delivered";
+                    return (
+                      <div
+                        key={o?.id || o?.order_number || idx}
+                        onClick={() => navigate("orders")}
+                        className="flex items-center justify-between rounded-xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900/50 p-3 cursor-pointer"
+                      >
+                        <div className="flex items-start gap-2.5 min-w-0 flex-1">
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#0f3460]/10 dark:bg-sky-500/15 text-[#0f3460] dark:text-sky-300 mt-0.5">
+                            <CheckCircle2 className="h-4 w-4" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs font-bold text-foreground truncate">
+                              {o?.customer?.name ?? "Retail Outlet"}
+                            </p>
+                            <p className="text-[10.5px] font-mono text-muted-foreground truncate">
+                              {o?.order_number || "—"} • {o?.order_date ? String(o.order_date).slice(0, 10) : "Today"}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="text-right ml-2 shrink-0">
+                          <p className="text-xs font-extrabold text-foreground">
+                            {formatBDT(Number(o?.total_amount || 0), lang)}
+                          </p>
+                          <span
+                            className={`inline-block mt-0.5 rounded-full px-2 py-0.5 text-[9.5px] font-bold ${
+                              isComplete
+                                ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+                                : "bg-amber-500/15 text-amber-700 dark:text-amber-300"
+                            }`}
+                          >
+                            {isComplete ? (lang === "bn" ? "Complete" : "Complete") : statusLabel}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* =====================================================================
+          DESKTOP ENTERPRISE WEB ERP INTERFACE (>= 768px)
+         ===================================================================== */}
+      {/* 1. Desktop Enterprise Web ERP Header */}
+      <div className="hidden md:flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-border pb-4">
         <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-xl font-bold text-foreground">{t("dashboard") || "Dashboard"}</h1>
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-lg sm:text-xl font-bold text-foreground">{t("dashboard") || "Dashboard"}</h1>
+            <Badge variant="outline" className="text-[11px] font-medium border-emerald-500/40 text-emerald-700 dark:text-emerald-400 bg-emerald-500/10">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 mr-1.5" />
+              {lang === "bn" ? "লাইভ ইআরপি" : "Enterprise Live"}
+            </Badge>
           </div>
           {lastSynced && (
-            <p className="text-xs text-muted-foreground mt-0.5">
+            <p className="text-xs text-muted-foreground mt-1">
               {lang === "bn" ? "সর্বশেষ আপডেট: " : "Last synced: "}
               {lastSynced.toLocaleTimeString(lang === "bn" ? "bn-BD" : "en", {
                 hour: "2-digit",
@@ -563,95 +891,71 @@ export function DashboardPage() {
             </p>
           )}
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={refreshing}
-          onClick={() => void refresh(true)}
-          className="gap-2 text-xs h-8"
-        >
-          <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
-          {refreshing
-            ? lang === "bn"
-              ? "লোড হচ্ছে..."
-              : "Syncing..."
-            : lang === "bn"
-              ? "রিফ্রেশ"
-              : "Refresh"}
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            size="sm"
+            onClick={() => navigate("orders/create")}
+            className="gap-1.5 text-xs h-8 rounded-lg"
+          >
+            <PlusCircle className="h-3.5 w-3.5" />
+            {lang === "bn" ? "+ নতুন অর্ডার" : "+ New Order"}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => navigate("accounts")}
+            className="gap-1.5 text-xs h-8 rounded-lg"
+          >
+            <Wallet className="h-3.5 w-3.5 text-emerald-600" />
+            {lang === "bn" ? "ক্যাশ কালেকশন" : "Cash Collection"}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={refreshing}
+            onClick={() => void refresh(true)}
+            className="gap-1.5 text-xs h-8 rounded-lg"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
+            {refreshing
+              ? lang === "bn"
+                ? "লোড হচ্ছে..."
+                : "Syncing..."
+              : lang === "bn"
+                ? "রিফ্রেশ"
+                : "Refresh"}
+          </Button>
+        </div>
       </div>
 
-      {/* 1B. Mobile-Only Fintech Hero Banner & 4x2 Quick Action Hub (< 768px) */}
-      <Card className="block md:hidden rounded-2xl border-border/70 bg-gradient-to-br from-primary/10 via-card to-sky-500/5 shadow-xs overflow-hidden">
-        <CardContent className="p-4 space-y-3.5">
-          <div className="flex items-center justify-between gap-2">
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-base font-bold tracking-tight text-foreground">
-                  {t("dashboard") || "Dashboard"}
-                </h1>
-                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-400">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  {lang === "bn" ? "লাইভ" : "Live"}
-                </span>
-              </div>
-              {lastSynced && (
-                <p className="text-[11px] text-muted-foreground mt-0.5">
-                  {lang === "bn" ? "আপডেট: " : "Synced: "}
-                  {lastSynced.toLocaleTimeString(lang === "bn" ? "bn-BD" : "en", {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                </p>
-              )}
-            </div>
-
-            <Button
-              size="sm"
-              onClick={() => navigate("orders/create")}
-              className="gap-1 text-xs h-8 rounded-xl shadow-xs px-3"
+      {/* 2. Desktop Corporate Enterprise Quick Operations Bar */}
+      <div className="hidden md:grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2.5">
+        {quickActions.map((act) => {
+          const ActIcon = act.icon;
+          return (
+            <button
+              key={act.key}
+              type="button"
+              onClick={act.onClick}
+              disabled={act.key === "live-sync" && refreshing}
+              className="flex items-center gap-2.5 rounded-lg border border-border bg-card px-3 py-2.5 text-left shadow-2xs transition-colors hover:bg-accent/60 hover:border-primary/40 focus:outline-none"
             >
-              <PlusCircle className="h-3.5 w-3.5" />
-              {lang === "bn" ? "+ অর্ডার" : "+ Order"}
-            </Button>
-          </div>
+              <div
+                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md border ${act.iconBg}`}
+              >
+                <ActIcon className={`h-4 w-4 ${act.spin ? "animate-spin" : ""}`} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-semibold text-foreground truncate">{act.label}</p>
+                <p className="text-[10px] text-muted-foreground truncate">{act.sub}</p>
+              </div>
+            </button>
+          );
+        })}
+      </div>
 
-          {/* Mobile 4x2 Fintech Quick Action Grid */}
-          <div className="pt-2.5 border-t border-border/50">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
-                <Sparkles className="h-3 w-3 text-primary" />
-                {lang === "bn" ? "দ্রুত সেবা (Quick Actions)" : "Quick Actions"}
-              </span>
-            </div>
-            <div className="grid grid-cols-4 gap-2">
-              {quickActions.map((act) => {
-                const ActIcon = act.icon;
-                return (
-                  <button
-                    key={act.key}
-                    type="button"
-                    onClick={act.onClick}
-                    disabled={act.key === "live-sync" && refreshing}
-                    className="group flex flex-col items-center justify-center rounded-2xl border border-border/60 bg-card/90 p-2 text-center shadow-2xs transition-all active:scale-95 focus:outline-none"
-                  >
-                    <div
-                      className={`flex h-9 w-9 items-center justify-center rounded-xl border ${act.iconBg}`}
-                    >
-                      <ActIcon className={`h-4 w-4 ${act.spin ? "animate-spin" : ""}`} />
-                    </div>
-                    <span className="mt-1.5 text-[10px] font-semibold text-foreground leading-tight line-clamp-1">
-                      {act.label}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* KPI cards — Fintech rounded-2xl on mobile (<768px), Classic Enterprise ERP cards on desktop (>=768px) */}
+      {/* 3. Desktop Enterprise KPI Summary Cards */}
+      <div className="hidden md:block">
       <ErrorBoundary
         name="Widget:KpiCards"
         fallbackRender={({ resetErrorBoundary }) => (
@@ -674,13 +978,13 @@ export function DashboardPage() {
               return (
                 <Card
                   key={card.label}
-                  className="overflow-hidden rounded-2xl md:rounded-xl cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md flex flex-col justify-between"
+                  className="overflow-hidden rounded-lg border-border cursor-pointer transition-all hover:border-primary/40 hover:shadow-sm flex flex-col justify-between"
                   onClick={() => navigate(card.route)}
                 >
-                  <CardContent className="p-3.5 md:p-4 flex flex-col justify-between h-full">
+                  <CardContent className="p-4 flex flex-col justify-between h-full">
                     <div>
                       <div className="flex items-start justify-between">
-                        <div className={`flex h-9 w-9 items-center justify-center rounded-xl md:rounded-lg ${card.bg}`}>
+                        <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${card.bg}`}>
                           <Icon className={`h-4 w-4 ${card.color}`} />
                         </div>
                         <Badge variant={card.up ? "success" : "secondary"} className="text-[10px]">
@@ -719,6 +1023,7 @@ export function DashboardPage() {
           </div>
         )}
       </ErrorBoundary>
+      </div>
 
       {/* AI Executive Insights Widget */}
       <ErrorBoundary
@@ -761,7 +1066,7 @@ export function DashboardPage() {
             </div>
           )}
         >
-          <Card className="lg:col-span-2 min-w-0 min-h-[320px] overflow-hidden rounded-2xl border-border/70 shadow-xs">
+          <Card className="lg:col-span-2 min-w-0 min-h-[320px] overflow-hidden rounded-lg border-border shadow-2xs">
             <CardHeader className="pb-2">
               <CardTitle className="text-base font-bold">{t("salesTrend")}</CardTitle>
             </CardHeader>
@@ -817,7 +1122,7 @@ export function DashboardPage() {
             />
           )}
         >
-          <Card className="min-w-0 min-h-[320px] overflow-hidden rounded-2xl border-border/70 shadow-xs">
+          <Card className="min-w-0 min-h-[320px] overflow-hidden rounded-lg border-border shadow-2xs">
             <CardHeader className="pb-2">
               <CardTitle className="text-base font-bold">{t("salesByStatus")}</CardTitle>
             </CardHeader>
@@ -862,16 +1167,16 @@ export function DashboardPage() {
             />
           )}
         >
-          <Card className="overflow-hidden rounded-2xl border-border/70 shadow-xs">
+          <Card className="overflow-hidden rounded-lg border-border shadow-2xs">
             <CardHeader className="pb-2 flex flex-row items-center justify-between">
               <CardTitle className="text-base font-bold">{t("topSellingProducts")}</CardTitle>
-              <Badge variant="outline" className="rounded-full px-2.5 text-[11px] font-medium text-muted-foreground">Top 5</Badge>
+              <Badge variant="outline" className="rounded-md px-2 text-[11px] font-medium text-muted-foreground">Top 5</Badge>
             </CardHeader>
             <CardContent>
               {loading ? (
                 <div className="space-y-2 py-2">
                   {Array.from({ length: 4 }).map((_, i) => (
-                    <div key={i} className="h-12 w-full rounded-xl bg-muted/40 animate-pulse" />
+                    <div key={i} className="h-12 w-full rounded-lg bg-muted/40 animate-pulse" />
                   ))}
                 </div>
               ) : topProducts.length === 0 ? (
@@ -879,9 +1184,9 @@ export function DashboardPage() {
               ) : (
                 <div className="space-y-2">
                   {topProducts.map((p, idx) => (
-                    <div key={p.id || p.name} className="flex items-center justify-between rounded-xl border border-border/60 p-3 hover:bg-muted/30 transition-colors">
+                    <div key={p.id || p.name} className="flex items-center justify-between rounded-lg border border-border p-3 hover:bg-muted/30 transition-colors">
                       <div className="flex items-center gap-3 min-w-0 flex-1">
-                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-xs font-bold text-primary">
+                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary/10 text-xs font-bold text-primary">
                           {idx + 1}
                         </div>
                         <div className="min-w-0 flex-1">
@@ -915,10 +1220,10 @@ export function DashboardPage() {
             />
           )}
         >
-          <Card className="overflow-hidden rounded-2xl border-border/70 shadow-xs">
+          <Card className="overflow-hidden rounded-lg border-border shadow-2xs">
             <CardHeader className="pb-2 flex flex-row items-center justify-between">
               <CardTitle className="text-base font-bold">{t("recentOrders")}</CardTitle>
-              <Button variant="ghost" size="sm" onClick={() => navigate("orders")} className="rounded-xl text-xs gap-1">
+              <Button variant="ghost" size="sm" onClick={() => navigate("orders")} className="rounded-md text-xs gap-1">
                 {t("viewAll")} <ArrowUpRight className="h-3.5 w-3.5" />
               </Button>
             </CardHeader>
@@ -926,7 +1231,7 @@ export function DashboardPage() {
               {loading ? (
                 <div className="space-y-2 py-2">
                   {Array.from({ length: 4 }).map((_, i) => (
-                    <div key={i} className="h-12 w-full rounded-xl bg-muted/40 animate-pulse" />
+                    <div key={i} className="h-12 w-full rounded-lg bg-muted/40 animate-pulse" />
                   ))}
                 </div>
               ) : recentOrders.length === 0 ? (
@@ -936,7 +1241,7 @@ export function DashboardPage() {
                   {recentOrders.map((o, idx) => {
                     const statusLabel = String(o?.status || "Pending");
                     return (
-                      <div key={o?.id || o?.order_number || idx} className="flex items-center justify-between rounded-xl border border-border/60 p-3 hover:bg-muted/30 transition-colors">
+                      <div key={o?.id || o?.order_number || idx} className="flex items-center justify-between rounded-lg border border-border p-3 hover:bg-muted/30 transition-colors">
                         <div className="min-w-0 flex-1">
                           <p className="text-sm font-semibold truncate">{o?.order_number || "—"}</p>
                           <p className="text-xs text-muted-foreground truncate">{o?.customer?.name ?? "—"}</p>
@@ -945,7 +1250,7 @@ export function DashboardPage() {
                           <p className="text-sm font-bold">{formatBDT(Number(o?.total_amount || 0))}</p>
                           <Badge
                             variant={statusLabel === "Delivered" ? "success" : statusLabel === "Cancelled" ? "destructive" : "secondary"}
-                            className="rounded-full px-2 text-[10px]"
+                            className="rounded-md px-2 text-[10px]"
                           >
                             {t(statusLabel.toLowerCase()) || statusLabel}
                           </Badge>

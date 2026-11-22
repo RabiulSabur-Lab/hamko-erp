@@ -3675,12 +3675,32 @@ export const saveCollection = (
   }
 
   // Background cloud sync to Supabase collections table
+  // Uses primary key `id` conflict resolution with fallback lookup by `collection_number`
+  // so PostgreSQL never throws 42P10 ("no unique or exclusion constraint matching the ON CONFLICT specification").
   try {
     const cleanCol = sanitizeCollectionPayload(record, !isExisting);
     if (cleanCol.customer_id && Number(cleanCol.amount) > 0) {
-      executeWithSchemaResilience("collections", cleanCol, (p) =>
-        supabase.from("collections").upsert(p, { onConflict: "collection_number" })
-      ).then(undefined, () => {});
+      executeWithSchemaResilience("collections", cleanCol, async (p) => {
+        const res = await supabase.from("collections").upsert(p, { onConflict: "id" });
+        if (
+          res.error &&
+          (res.error.code === "23505" ||
+            res.error.code === "42P10" ||
+            String(res.error.message || "").toLowerCase().includes("duplicate") ||
+            String(res.error.message || "").toLowerCase().includes("no unique or exclusion constraint"))
+        ) {
+          const { data: existingRow } = await supabase
+            .from("collections")
+            .select("id")
+            .eq("collection_number", p.collection_number)
+            .maybeSingle();
+          if (existingRow?.id) {
+            return supabase.from("collections").update({ ...p, id: existingRow.id }).eq("id", existingRow.id);
+          }
+          return supabase.from("collections").insert(p);
+        }
+        return res;
+      }).then(undefined, () => {});
     }
   } catch {
     // Non-critical

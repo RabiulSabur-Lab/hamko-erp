@@ -110,7 +110,7 @@ export const Sidebar: FC<SidebarProps> = ({ open, onClose, unreadCount = 0 }) =>
         </button>
       </div>
 
-      <nav className="flex flex-col gap-1 p-3 overflow-y-auto h-[calc(100vh-4rem)] pb-20 md:pb-3">
+      <nav className="flex flex-col gap-1 p-3 overflow-y-auto h-[calc(100vh-4rem)]">
         {visibleNavItems.map((item) => {
           const Icon = item.icon;
           const active = String(activeRoute) === String(item.path);
@@ -122,7 +122,7 @@ export const Sidebar: FC<SidebarProps> = ({ open, onClose, unreadCount = 0 }) =>
                 onClose();
               }}
               className={cn(
-                "flex items-center gap-3 rounded-xl md:rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
                 active
                   ? "bg-primary text-primary-foreground"
                   : "text-sidebar-foreground hover:bg-sidebar-accent",

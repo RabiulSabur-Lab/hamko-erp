@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, type ReactNode } from "react";
 import {
   Menu, X, Moon, Sun, Globe, Bell, LogOut, ChevronDown,
   LayoutDashboard, Users, Package, ShoppingCart, Truck, Warehouse,
-  Wallet, MapPin, BarChart3, UserCog, Download, BookOpen, Plus,
+  Wallet, MapPin, BarChart3, UserCog, Download, BookOpen, Plus, ArrowLeft,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { withQueryTimeout } from "@/lib/supabaseQuery";
@@ -234,16 +234,36 @@ export function AppLayout({ children }: { children: ReactNode }) {
 
       {/* Main content */}
       <div className="lg:pl-64">
-        {/* Header */}
-        <header className="sticky top-0 z-20 flex h-16 items-center gap-3 border-b bg-background/80 px-4 backdrop-blur-md lg:px-6">
-          <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setSidebarOpen(true)}>
+        {/* Top Header: Official Hamko Corporate Deep Blue/Navy on Mobile (<768px), Classic Enterprise Bar on Desktop (>=768px) */}
+        <header className="sticky top-0 z-20 flex h-16 items-center gap-2.5 border-b border-blue-950/20 md:border-border bg-gradient-to-r from-[#0a2540] via-[#0f3460] to-[#1e3a8a] text-white md:bg-none md:bg-background/90 md:text-foreground px-3.5 backdrop-blur-md lg:px-6 shadow-xs md:shadow-none">
+          {/* Mobile Back Arrow (when on inner pages) + Hamburger Drawer Toggle */}
+          {activeRoute !== "dashboard" && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="md:hidden h-9 w-9 text-white hover:bg-white/15 hover:text-white shrink-0"
+              onClick={() => navigate("dashboard")}
+              title={lang === "bn" ? "ড্যাশবোর্ডে ফিরুন" : "Back to Dashboard"}
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="lg:hidden h-9 w-9 text-white md:text-foreground hover:bg-white/15 md:hover:bg-accent shrink-0"
+            onClick={() => setSidebarOpen(true)}
+          >
             <Menu className="h-5 w-5" />
           </Button>
 
-          <div className="flex-1">
-            <h1 className="text-base font-semibold lg:text-lg">
+          <div className="flex-1 min-w-0">
+            <h1 className="text-sm sm:text-base font-bold lg:text-lg truncate text-white md:text-foreground">
               {t(navItems.find((n) => String(n.path) === String(activeRoute))?.key ?? "dashboard")}
             </h1>
+            <p className="text-[10px] text-blue-200 md:hidden truncate leading-tight">
+              HAMKO Group • Cookware Sales ERP
+            </p>
           </div>
 
           {/* User Manual Quick Button */}
@@ -251,10 +271,10 @@ export function AppLayout({ children }: { children: ReactNode }) {
             variant="ghost"
             size="sm"
             onClick={() => navigate("manual")}
-            className="gap-1.5 hidden sm:inline-flex"
+            className="gap-1.5 hidden sm:inline-flex text-white md:text-foreground hover:bg-white/15 md:hover:bg-accent"
             title={lang === "bn" ? "সচিত্র ব্যবহারবিধি (User Manual)" : "Illustrated User Manual (A-Z)"}
           >
-            <BookOpen className="h-4 w-4 text-primary" />
+            <BookOpen className="h-4 w-4 text-blue-200 md:text-primary" />
             <span className="text-xs font-semibold">{lang === "bn" ? "ব্যবহারবিধি" : "Manual"}</span>
           </Button>
 
@@ -263,22 +283,32 @@ export function AppLayout({ children }: { children: ReactNode }) {
             variant="ghost"
             size="sm"
             onClick={() => setLang(lang === "en" ? "bn" : "en")}
-            className="gap-1.5"
+            className="gap-1 h-8 px-2 text-white md:text-foreground hover:bg-white/15 md:hover:bg-accent"
           >
             <Globe className="h-4 w-4" />
             <span className="text-xs font-semibold">{lang === "en" ? "EN" : "বাং"}</span>
           </Button>
 
           {/* Theme toggle */}
-          <Button variant="ghost" size="icon" onClick={toggleTheme}>
-            {theme === "dark" ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={toggleTheme}
+            className="h-8 w-8 text-white md:text-foreground hover:bg-white/15 md:hover:bg-accent"
+          >
+            {theme === "dark" ? <Sun className="h-4 w-4 md:h-5 md:w-5" /> : <Moon className="h-4 w-4 md:h-5 md:w-5" />}
           </Button>
 
           {/* Notifications */}
-          <Button variant="ghost" size="icon" onClick={() => navigate("notifications")} className="relative">
-            <Bell className="h-5 w-5" />
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => navigate("notifications")}
+            className="relative h-8 w-8 text-white md:text-foreground hover:bg-white/15 md:hover:bg-accent"
+          >
+            <Bell className="h-4 w-4 md:h-5 md:w-5" />
             {unreadCount > 0 && (
-              <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-destructive" />
+              <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-rose-400 md:bg-destructive ring-2 ring-[#0f3460] md:ring-0" />
             )}
           </Button>
 
@@ -286,24 +316,24 @@ export function AppLayout({ children }: { children: ReactNode }) {
           <div className="relative">
             <button
               onClick={() => setUserMenuOpen(!userMenuOpen)}
-              className="flex items-center gap-2 rounded-lg p-1 pr-2 hover:bg-accent"
+              className="flex items-center gap-2 rounded-lg p-1 pr-2 hover:bg-white/15 md:hover:bg-accent transition-colors"
             >
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/20 md:bg-primary text-xs font-bold text-white md:text-primary-foreground border border-white/30 md:border-0">
                 {initials(profile?.full_name ?? "U")}
               </div>
               <div className="hidden text-left sm:block">
-                <p className="text-xs font-medium leading-tight">{profile?.full_name ?? "User"}</p>
-                <p className="text-[10px] text-muted-foreground">
+                <p className="text-xs font-medium leading-tight text-white md:text-foreground">{profile?.full_name ?? "User"}</p>
+                <p className="text-[10px] text-blue-200 md:text-muted-foreground">
                   {profile?.role_name ? t(profile.role_name.toLowerCase().replace(/\s+/g, "")) : "Sales Staff"}
                 </p>
               </div>
-              <ChevronDown className="h-3 w-3 text-muted-foreground" />
+              <ChevronDown className="h-3 w-3 text-blue-200 md:text-muted-foreground" />
             </button>
 
             {userMenuOpen && (
               <>
                 <div className="fixed inset-0 z-30" onClick={() => setUserMenuOpen(false)} />
-                <div className="absolute right-0 top-full z-40 mt-2 w-56 rounded-lg border bg-popover p-1 shadow-lg">
+                <div className="absolute right-0 top-full z-40 mt-2 w-56 rounded-lg border bg-popover text-popover-foreground p-1 shadow-lg">
                   <div className="px-3 py-2 border-b mb-1">
                     <p className="text-sm font-medium">{profile?.full_name ?? "User"}</p>
                     <p className="text-xs text-muted-foreground truncate">{profile?.email ?? user?.email ?? ""}</p>
@@ -348,14 +378,14 @@ export function AppLayout({ children }: { children: ReactNode }) {
           </div>
         </header>
 
-        {/* Page content — extra bottom padding on mobile (<768px) for fixed bottom nav bar */}
-        <main className="p-4 pb-24 md:pb-6 lg:p-6">{children}</main>
+        {/* Page content — extra bottom clearance on mobile (<768px) for fixed corporate bottom navigation bar */}
+        <main className="p-3.5 pb-24 md:p-6 md:pb-6">{children}</main>
       </div>
 
-      {/* Mobile-Only Fintech Bottom Navigation Bar (< 768px) */}
+      {/* Fixed Mobile Bottom Navigation Bar (< 768px) — Hamko Corporate Deep Blue / Navy Palette */}
       <nav
         aria-label="Mobile quick navigation"
-        className="fixed bottom-0 inset-x-0 z-30 md:hidden border-t border-border/80 bg-background/95 backdrop-blur-md shadow-[0_-4px_16px_rgba(0,0,0,0.06)] print:hidden"
+        className="fixed bottom-0 inset-x-0 z-30 md:hidden border-t border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-[0_-4px_20px_rgba(10,37,64,0.08)] print:hidden"
       >
         <div className="grid grid-cols-5 items-center h-16 px-2 max-w-md mx-auto">
           {/* 1. Home / Dashboard */}
@@ -368,8 +398,8 @@ export function AppLayout({ children }: { children: ReactNode }) {
             className={cn(
               "flex flex-col items-center justify-center gap-0.5 py-1 rounded-xl transition-colors",
               activeRoute === "dashboard"
-                ? "text-primary font-semibold"
-                : "text-muted-foreground hover:text-foreground",
+                ? "text-[#0f3460] dark:text-sky-400 font-bold"
+                : "text-slate-500 dark:text-slate-400 hover:text-foreground",
             )}
           >
             <LayoutDashboard className="h-5 w-5" />
@@ -386,15 +416,15 @@ export function AppLayout({ children }: { children: ReactNode }) {
             className={cn(
               "flex flex-col items-center justify-center gap-0.5 py-1 rounded-xl transition-colors",
               activeRoute === "orders" && path !== "/orders/create"
-                ? "text-primary font-semibold"
-                : "text-muted-foreground hover:text-foreground",
+                ? "text-[#0f3460] dark:text-sky-400 font-bold"
+                : "text-slate-500 dark:text-slate-400 hover:text-foreground",
             )}
           >
             <ShoppingCart className="h-5 w-5" />
             <span className="text-[10px] leading-tight">{lang === "bn" ? "অর্ডার" : "Orders"}</span>
           </button>
 
-          {/* 3. Center Floating Fintech Action: + New Order */}
+          {/* 3. Center Floating Corporate Brand Action: + New Order */}
           <div className="flex flex-col items-center justify-center">
             <button
               type="button"
@@ -402,12 +432,12 @@ export function AppLayout({ children }: { children: ReactNode }) {
                 setSidebarOpen(false);
                 navigate("orders/create");
               }}
-              className="-mt-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-md ring-4 ring-background active:scale-95 transition-transform"
+              className="-mt-5 flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-[#0a2540] via-[#0f3460] to-[#1e3a8a] text-white shadow-lg ring-4 ring-white dark:ring-slate-900 active:scale-95 transition-transform"
               title={lang === "bn" ? "+ নতুন অর্ডার" : "+ New Order"}
             >
               <Plus className="h-6 w-6" />
             </button>
-            <span className="text-[10px] font-semibold text-primary leading-tight mt-0.5">
+            <span className="text-[10px] font-bold text-[#0f3460] dark:text-sky-400 leading-tight mt-0.5">
               {lang === "bn" ? "+ নতুন" : "+ New"}
             </span>
           </div>
@@ -422,8 +452,8 @@ export function AppLayout({ children }: { children: ReactNode }) {
             className={cn(
               "flex flex-col items-center justify-center gap-0.5 py-1 rounded-xl transition-colors",
               activeRoute === "customers"
-                ? "text-primary font-semibold"
-                : "text-muted-foreground hover:text-foreground",
+                ? "text-[#0f3460] dark:text-sky-400 font-bold"
+                : "text-slate-500 dark:text-slate-400 hover:text-foreground",
             )}
           >
             <Users className="h-5 w-5" />
@@ -437,8 +467,8 @@ export function AppLayout({ children }: { children: ReactNode }) {
             className={cn(
               "flex flex-col items-center justify-center gap-0.5 py-1 rounded-xl transition-colors",
               sidebarOpen
-                ? "text-primary font-semibold"
-                : "text-muted-foreground hover:text-foreground",
+                ? "text-[#0f3460] dark:text-sky-400 font-bold"
+                : "text-slate-500 dark:text-slate-400 hover:text-foreground",
             )}
           >
             <Menu className="h-5 w-5" />
