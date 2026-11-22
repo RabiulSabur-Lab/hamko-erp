@@ -1,4 +1,39 @@
 apply plugin: 'com.android.application'
+import groovy.json.JsonSlurper
+
+def resolveAppVersionInfo() {
+    def pkgFile = file("../../package.json")
+    def verFile = file("../../public/version.json")
+    def pkgJson = pkgFile.exists() ? new JsonSlurper().parseText(pkgFile.getText("UTF-8")) : [:]
+    def verJson = verFile.exists() ? new JsonSlurper().parseText(verFile.getText("UTF-8")) : [:]
+
+    def propVerName = project.hasProperty("VERSION_NAME") ? project.property("VERSION_NAME")?.toString()?.trim() : null
+    def envVerName = System.getenv("APP_VERSION_NAME")?.trim()
+    def resolvedName = propVerName ?: envVerName ?: verJson.version?.toString()?.trim() ?: pkgJson.version?.toString()?.trim() ?: "1.2.0"
+
+    def propVerCode = project.hasProperty("VERSION_CODE") ? project.property("VERSION_CODE")?.toString()?.trim() : null
+    def envVerCode = System.getenv("APP_VERSION_CODE")?.trim()
+    def resolvedCode = 120
+    if (propVerCode && propVerCode.isInteger()) {
+        resolvedCode = propVerCode.toInteger()
+    } else if (envVerCode && envVerCode.isInteger()) {
+        resolvedCode = envVerCode.toInteger()
+    } else if (verJson.versionCode != null) {
+        resolvedCode = (verJson.versionCode as Integer)
+    } else if (pkgJson.versionCode != null) {
+        resolvedCode = (pkgJson.versionCode as Integer)
+    } else {
+        def parts = resolvedName.replaceAll(/[^0-9.]/, "").tokenize(".")
+        def major = parts.size() > 0 && parts[0].isInteger() ? parts[0].toInteger() : 1
+        def minor = parts.size() > 1 && parts[1].isInteger() ? parts[1].toInteger() : 2
+        def patch = parts.size() > 2 && parts[2].isInteger() ? parts[2].toInteger() : 0
+        resolvedCode = (major * 10000) + (minor * 100) + patch
+    }
+
+    return [versionName: resolvedName, versionCode: Math.max(1, resolvedCode)]
+}
+
+def appVersionInfo = resolveAppVersionInfo()
 
 android {
     namespace = "com.hamko.erp"
@@ -7,8 +42,8 @@ android {
         applicationId "com.hamko.erp"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode appVersionInfo.versionCode
+        versionName appVersionInfo.versionName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

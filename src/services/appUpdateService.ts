@@ -1,6 +1,10 @@
 import { App } from "@capacitor/app";
 import { Capacitor } from "@capacitor/core";
 import { supabase } from "@/lib/supabase";
+import pkgJson from "../../package.json";
+
+const BUNDLED_APP_VERSION = String((pkgJson as any)?.version || "1.2.0").trim();
+const BUNDLED_APP_VERSION_CODE = Number((pkgJson as any)?.versionCode) || 120;
 
 export interface AppVersionMetadata {
   id?: string;
@@ -45,13 +49,13 @@ export const GITHUB_LATEST_RELEASE_APK =
   "https://github.com/RabiulSabur-Lab/hamko-erp/releases/latest/download/app-release.apk";
 
 export const DEFAULT_FALLBACK_METADATA: AppVersionMetadata = {
-  version: "1.0.1",
-  versionCode: 2,
+  version: BUNDLED_APP_VERSION,
+  versionCode: BUNDLED_APP_VERSION_CODE,
   minSupportedVersion: "1.0.0",
   forceUpdate: false,
   apkUrl: GITHUB_LATEST_RELEASE_APK,
-  releaseNotes: "• Real-time cross-device sync optimization\n• Offline cache persistence enhancements\n• Performance and UI improvements",
-  releasedAt: "2026-11-05T12:00:00Z",
+  releaseNotes: "• Official Hamko Corporate Deep Blue Mobile App UI\n• Resilient collections ON CONFLICT cloud sync\n• Illustrated A-to-Z Bilingual User Manual with A4 PDF download",
+  releasedAt: "2026-11-22T12:15:00Z",
   platform: "android",
 };
 
@@ -115,8 +119,8 @@ export async function getCurrentAppInfo(): Promise<CurrentAppInfo> {
       return {
         name: info.name || "Hamko ERP",
         id: info.id || "com.hamko.erp",
-        version: info.version || "1.0.0",
-        build: info.build || "1",
+        version: info.version || BUNDLED_APP_VERSION,
+        build: info.build || String(BUNDLED_APP_VERSION_CODE),
         isNative: true,
       };
     } catch (err) {
@@ -127,8 +131,8 @@ export async function getCurrentAppInfo(): Promise<CurrentAppInfo> {
   return {
     name: "Hamko ERP",
     id: "com.hamko.erp",
-    version: "1.0.0",
-    build: "1",
+    version: BUNDLED_APP_VERSION,
+    build: String(BUNDLED_APP_VERSION_CODE),
     isNative: false,
   };
 }

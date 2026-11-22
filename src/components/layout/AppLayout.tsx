@@ -30,6 +30,22 @@ export function AppLayout({ children }: { children: ReactNode }) {
   const { path, navigate } = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [isMobileViewport, setIsMobileViewport] = useState<boolean>(() =>
+    typeof window !== "undefined" ? window.innerWidth < 768 : false,
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mql = window.matchMedia("(max-width: 767px)");
+    const updateViewport = () => setIsMobileViewport(mql.matches || window.innerWidth < 768);
+    updateViewport();
+    mql.addEventListener?.("change", updateViewport);
+    window.addEventListener("resize", updateViewport);
+    return () => {
+      mql.removeEventListener?.("change", updateViewport);
+      window.removeEventListener("resize", updateViewport);
+    };
+  }, []);
 
   const [unreadCount, setUnreadCount] = useState<number>(() => {
     const list = getLocalData<any>(STORAGE_KEYS.NOTIFICATIONS, []);
@@ -234,132 +250,209 @@ export function AppLayout({ children }: { children: ReactNode }) {
 
       {/* Main content */}
       <div className="lg:pl-64">
-        {/* Top Header: Official Hamko Corporate Deep Blue/Navy on Mobile (<768px), Classic Enterprise Bar on Desktop (>=768px) */}
-        <header className="sticky top-0 z-20 flex h-16 items-center gap-2.5 border-b border-blue-950/20 md:border-border bg-gradient-to-r from-[#0a2540] via-[#0f3460] to-[#1e3a8a] text-white md:bg-none md:bg-background/90 md:text-foreground px-3.5 backdrop-blur-md lg:px-6 shadow-xs md:shadow-none">
-          {/* Mobile Back Arrow (when on inner pages) + Hamburger Drawer Toggle */}
-          {activeRoute !== "dashboard" && (
+        {isMobileViewport ? (
+          /* Mobile-Only Top Header (<768px): Official Hamko Corporate Deep Blue/Navy */
+          <header className="md:hidden sticky top-0 z-20 flex h-16 items-center gap-2.5 border-b border-blue-950/20 bg-gradient-to-r from-[#0a2540] via-[#0f3460] to-[#1e3a8a] text-white px-3.5 shadow-xs">
+            {activeRoute !== "dashboard" && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-9 w-9 text-white hover:bg-white/15 hover:text-white shrink-0"
+                onClick={() => navigate("dashboard")}
+                title={lang === "bn" ? "ড্যাশবোর্ডে ফিরুন" : "Back to Dashboard"}
+              >
+                <ArrowLeft className="h-5 w-5" />
+              </Button>
+            )}
             <Button
               variant="ghost"
               size="icon"
-              className="md:hidden h-9 w-9 text-white hover:bg-white/15 hover:text-white shrink-0"
-              onClick={() => navigate("dashboard")}
-              title={lang === "bn" ? "ড্যাশবোর্ডে ফিরুন" : "Back to Dashboard"}
+              className="h-9 w-9 text-white hover:bg-white/15 hover:text-white shrink-0"
+              onClick={() => setSidebarOpen(true)}
             >
-              <ArrowLeft className="h-5 w-5" />
+              <Menu className="h-5 w-5" />
             </Button>
-          )}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="lg:hidden h-9 w-9 text-white md:text-foreground hover:bg-white/15 md:hover:bg-accent shrink-0"
-            onClick={() => setSidebarOpen(true)}
-          >
-            <Menu className="h-5 w-5" />
-          </Button>
 
-          <div className="flex-1 min-w-0">
-            <h1 className="text-sm sm:text-base font-bold lg:text-lg truncate text-white md:text-foreground">
-              {t(navItems.find((n) => String(n.path) === String(activeRoute))?.key ?? "dashboard")}
-            </h1>
-            <p className="text-[10px] text-blue-200 md:hidden truncate leading-tight">
-              HAMKO Group • Cookware Sales ERP
-            </p>
-          </div>
+            <div className="flex-1 min-w-0">
+              <h1 className="text-sm font-bold truncate text-white">
+                {t(navItems.find((n) => String(n.path) === String(activeRoute))?.key ?? "dashboard")}
+              </h1>
+              <p className="text-[10px] text-blue-200 truncate leading-tight">
+                HAMKO Group • Cookware Sales ERP
+              </p>
+            </div>
 
-          {/* Language toggle */}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setLang(lang === "en" ? "bn" : "en")}
-            className="gap-1 h-8 px-2 text-white md:text-foreground hover:bg-white/15 md:hover:bg-accent"
-          >
-            <Globe className="h-4 w-4" />
-            <span className="text-xs font-semibold">{lang === "en" ? "EN" : "বাং"}</span>
-          </Button>
-
-          {/* Theme toggle */}
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={toggleTheme}
-            className="h-8 w-8 text-white md:text-foreground hover:bg-white/15 md:hover:bg-accent"
-          >
-            {theme === "dark" ? <Sun className="h-4 w-4 md:h-5 md:w-5" /> : <Moon className="h-4 w-4 md:h-5 md:w-5" />}
-          </Button>
-
-          {/* Notifications */}
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => navigate("notifications")}
-            className="relative h-8 w-8 text-white md:text-foreground hover:bg-white/15 md:hover:bg-accent"
-          >
-            <Bell className="h-4 w-4 md:h-5 md:w-5" />
-            {unreadCount > 0 && (
-              <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-rose-400 md:bg-destructive ring-2 ring-[#0f3460] md:ring-0" />
-            )}
-          </Button>
-
-          {/* User menu */}
-          <div className="relative">
-            <button
-              onClick={() => setUserMenuOpen(!userMenuOpen)}
-              className="flex items-center gap-2 rounded-lg p-1 pr-2 hover:bg-white/15 md:hover:bg-accent transition-colors"
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setLang(lang === "en" ? "bn" : "en")}
+              className="gap-1 h-8 px-2 text-white hover:bg-white/15 hover:text-white"
             >
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/20 md:bg-primary text-xs font-bold text-white md:text-primary-foreground border border-white/30 md:border-0">
-                {initials(profile?.full_name ?? "U")}
-              </div>
-              <div className="hidden text-left sm:block">
-                <p className="text-xs font-medium leading-tight text-white md:text-foreground">{profile?.full_name ?? "User"}</p>
-                <p className="text-[10px] text-blue-200 md:text-muted-foreground">
-                  {profile?.role_name ? t(profile.role_name.toLowerCase().replace(/\s+/g, "")) : "Sales Staff"}
-                </p>
-              </div>
-              <ChevronDown className="h-3 w-3 text-blue-200 md:text-muted-foreground" />
-            </button>
+              <Globe className="h-4 w-4" />
+              <span className="text-xs font-semibold">{lang === "en" ? "EN" : "বাং"}</span>
+            </Button>
 
-            {userMenuOpen && (
-              <>
-                <div className="fixed inset-0 z-30" onClick={() => setUserMenuOpen(false)} />
-                <div className="absolute right-0 top-full z-40 mt-2 w-56 rounded-lg border bg-popover text-popover-foreground p-1 shadow-lg">
-                  <div className="px-3 py-2 border-b mb-1">
-                    <p className="text-sm font-medium">{profile?.full_name ?? "User"}</p>
-                    <p className="text-xs text-muted-foreground truncate">{profile?.email ?? user?.email ?? ""}</p>
-                    <Badge variant="secondary" className="mt-1 text-[10px]">{profile?.role_name ?? "Staff"}</Badge>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setUserMenuOpen(false);
-                      window.dispatchEvent(new CustomEvent("hamko_check_app_update", { detail: { manual: true } }));
-                    }}
-                    className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-foreground hover:bg-accent transition-colors"
-                  >
-                    <Download className="h-4 w-4 text-primary" />
-                    <span>{lang === "bn" ? "অ্যাপ আপডেট চেক করুন" : "Check for Updates"}</span>
-                  </button>
-                  <button
-                    onClick={async () => {
-                      setUserMenuOpen(false);
-                      await signOut();
-                      navigate("/login");
-                    }}
-                    className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-destructive hover:bg-destructive/10"
-                  >
-                    <LogOut className="h-4 w-4" />
-                    {t("signOut")}
-                  </button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={toggleTheme}
+              className="h-8 w-8 text-white hover:bg-white/15 hover:text-white"
+            >
+              {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            </Button>
+
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => navigate("notifications")}
+              className="relative h-8 w-8 text-white hover:bg-white/15 hover:text-white"
+            >
+              <Bell className="h-4 w-4" />
+              {unreadCount > 0 && (
+                <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-rose-400 ring-2 ring-[#0f3460]" />
+              )}
+            </Button>
+
+            <div className="relative">
+              <button
+                onClick={() => setUserMenuOpen(!userMenuOpen)}
+                className="flex items-center gap-1.5 rounded-lg p-1 hover:bg-white/15 transition-colors"
+              >
+                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/20 text-xs font-bold text-white border border-white/30">
+                  {initials(profile?.full_name ?? "U")}
                 </div>
-              </>
-            )}
-          </div>
-        </header>
+              </button>
+              {userMenuOpen && (
+                <>
+                  <div className="fixed inset-0 z-30" onClick={() => setUserMenuOpen(false)} />
+                  <div className="absolute right-0 top-full z-40 mt-2 w-56 rounded-lg border bg-popover text-popover-foreground p-1 shadow-lg">
+                    <div className="px-3 py-2 border-b mb-1">
+                      <p className="text-sm font-medium">{profile?.full_name ?? "User"}</p>
+                      <p className="text-xs text-muted-foreground truncate">{profile?.email ?? user?.email ?? ""}</p>
+                      <Badge variant="secondary" className="mt-1 text-[10px]">{profile?.role_name ?? "Staff"}</Badge>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUserMenuOpen(false);
+                        window.dispatchEvent(new CustomEvent("hamko_check_app_update", { detail: { manual: true } }));
+                      }}
+                      className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-foreground hover:bg-accent transition-colors"
+                    >
+                      <Download className="h-4 w-4 text-primary" />
+                      <span>{lang === "bn" ? "অ্যাপ আপডেট চেক করুন" : "Check for Updates"}</span>
+                    </button>
+                    <button
+                      onClick={async () => {
+                        setUserMenuOpen(false);
+                        await signOut();
+                        navigate("/login");
+                      }}
+                      className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-destructive hover:bg-destructive/10"
+                    >
+                      <LogOut className="h-4 w-4" />
+                      {t("signOut")}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </header>
+        ) : (
+          /* Desktop-Only Classic Enterprise Web ERP Header (>=768px) */
+          <header className="hidden md:flex sticky top-0 z-20 h-16 items-center gap-3 border-b bg-background/80 px-4 backdrop-blur-md lg:px-6">
+            <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setSidebarOpen(true)}>
+              <Menu className="h-5 w-5" />
+            </Button>
 
-        {/* Page content — extra bottom clearance on mobile (<768px) for fixed corporate bottom navigation bar */}
-        <main className="p-3.5 pb-24 md:p-6 md:pb-6">{children}</main>
+            <div className="flex-1">
+              <h1 className="text-base font-semibold lg:text-lg">
+                {t(navItems.find((n) => String(n.path) === String(activeRoute))?.key ?? "dashboard")}
+              </h1>
+            </div>
+
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setLang(lang === "en" ? "bn" : "en")}
+              className="gap-1.5"
+            >
+              <Globe className="h-4 w-4" />
+              <span className="text-xs font-semibold">{lang === "en" ? "EN" : "বাং"}</span>
+            </Button>
+
+            <Button variant="ghost" size="icon" onClick={toggleTheme}>
+              {theme === "dark" ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+            </Button>
+
+            <Button variant="ghost" size="icon" onClick={() => navigate("notifications")} className="relative">
+              <Bell className="h-5 w-5" />
+              {unreadCount > 0 && (
+                <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-destructive" />
+              )}
+            </Button>
+
+            <div className="relative">
+              <button
+                onClick={() => setUserMenuOpen(!userMenuOpen)}
+                className="flex items-center gap-2 rounded-lg p-1 pr-2 hover:bg-accent"
+              >
+                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
+                  {initials(profile?.full_name ?? "U")}
+                </div>
+                <div className="hidden text-left sm:block">
+                  <p className="text-xs font-medium leading-tight">{profile?.full_name ?? "User"}</p>
+                  <p className="text-[10px] text-muted-foreground">
+                    {profile?.role_name ? t(profile.role_name.toLowerCase().replace(/\s+/g, "")) : "Sales Staff"}
+                  </p>
+                </div>
+                <ChevronDown className="h-3 w-3 text-muted-foreground" />
+              </button>
+
+              {userMenuOpen && (
+                <>
+                  <div className="fixed inset-0 z-30" onClick={() => setUserMenuOpen(false)} />
+                  <div className="absolute right-0 top-full z-40 mt-2 w-56 rounded-lg border bg-popover text-popover-foreground p-1 shadow-lg">
+                    <div className="px-3 py-2 border-b mb-1">
+                      <p className="text-sm font-medium">{profile?.full_name ?? "User"}</p>
+                      <p className="text-xs text-muted-foreground truncate">{profile?.email ?? user?.email ?? ""}</p>
+                      <Badge variant="secondary" className="mt-1 text-[10px]">{profile?.role_name ?? "Staff"}</Badge>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUserMenuOpen(false);
+                        window.dispatchEvent(new CustomEvent("hamko_check_app_update", { detail: { manual: true } }));
+                      }}
+                      className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-foreground hover:bg-accent transition-colors"
+                    >
+                      <Download className="h-4 w-4 text-primary" />
+                      <span>{lang === "bn" ? "অ্যাপ আপডেট চেক করুন" : "Check for Updates"}</span>
+                    </button>
+                    <button
+                      onClick={async () => {
+                        setUserMenuOpen(false);
+                        await signOut();
+                        navigate("/login");
+                      }}
+                      className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-destructive hover:bg-destructive/10"
+                    >
+                      <LogOut className="h-4 w-4" />
+                      {t("signOut")}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </header>
+        )}
+
+        {/* Page content */}
+        <main className={isMobileViewport ? "p-3.5 pb-24" : "p-4 lg:p-6"}>{children}</main>
       </div>
 
-      {/* Fixed Mobile Bottom Navigation Bar (< 768px) — Hamko Corporate Deep Blue / Navy Palette */}
+      {/* Fixed Mobile Bottom Navigation Bar — STRICTLY mounted on Mobile Viewports (< 768px) only */}
+      {isMobileViewport && (
       <nav
         aria-label="Mobile quick navigation"
         className="fixed bottom-0 inset-x-0 z-30 md:hidden border-t border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-[0_-4px_20px_rgba(10,37,64,0.08)] print:hidden"
@@ -453,6 +546,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
           </button>
         </div>
       </nav>
+      )}
     </div>
   );
 }

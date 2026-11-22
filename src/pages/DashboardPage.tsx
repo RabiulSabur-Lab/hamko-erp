@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { useI18n } from "@/lib/i18n";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -152,6 +152,22 @@ export function DashboardPage() {
   const { t, lang } = useI18n();
   const { navigate } = useRouter();
   const [mobileTab, setMobileTab] = useState<"dashboard" | "timeline">("dashboard");
+  const [isMobileViewport, setIsMobileViewport] = useState<boolean>(() =>
+    typeof window !== "undefined" ? window.innerWidth < 768 : false,
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mql = window.matchMedia("(max-width: 767px)");
+    const updateViewport = () => setIsMobileViewport(mql.matches || window.innerWidth < 768);
+    updateViewport();
+    mql.addEventListener?.("change", updateViewport);
+    window.addEventListener("resize", updateViewport);
+    return () => {
+      mql.removeEventListener?.("change", updateViewport);
+      window.removeEventListener("resize", updateViewport);
+    };
+  }, []);
 
   const {
     orders,
@@ -625,13 +641,11 @@ export function DashboardPage() {
   );
 
   // ── Render ─────────────────────────────────────────────────────────────────
-  return (
-    <div className="space-y-5 md:space-y-6">
-      {/* =====================================================================
-          MOBILE-FIRST NATIVE CORPORATE APP INTERFACE (< 768px / md:hidden)
-          Official Hamko Deep Corporate Blue / Navy Blue Palette
-         ===================================================================== */}
-      <div className="block md:hidden max-w-md mx-auto space-y-4">
+  // Strict Responsive Separation: Mobile (<768px) renders ONLY the native mobile utility shell;
+  // Desktop (>=768px) renders ONLY the wide enterprise dashboard (KPIs, AI Insights, Full Charts & Wide Lists).
+  if (isMobileViewport) {
+    return (
+      <div className="md:hidden max-w-md mx-auto space-y-4">
         {/* 1. Official Hamko Corporate Brand Header Card & Segmented Toggle Tabs */}
         <div className="rounded-2xl bg-gradient-to-br from-[#0a2540] via-[#0f3460] to-[#1e3a8a] text-white p-4 shadow-md space-y-3.5">
           <div className="flex items-center justify-between gap-2">
@@ -866,15 +880,19 @@ export function DashboardPage() {
           </div>
         )}
       </div>
+    );
+  }
 
+  return (
+    <div className="space-y-6">
       {/* =====================================================================
           DESKTOP ENTERPRISE WEB ERP INTERFACE (>= 768px)
          ===================================================================== */}
       {/* 1. Desktop Enterprise Web ERP Header */}
-      <div className="hidden md:flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-border pb-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-border pb-4">
         <div>
           <div className="flex items-center gap-2.5">
-            <h1 className="text-lg sm:text-xl font-bold text-foreground">{t("dashboard") || "Dashboard"}</h1>
+            <h1 className="text-xl font-bold text-foreground">{t("dashboard") || "Dashboard"}</h1>
             <Badge variant="outline" className="text-[11px] font-medium border-emerald-500/40 text-emerald-700 dark:text-emerald-400 bg-emerald-500/10">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 mr-1.5" />
               {lang === "bn" ? "লাইভ ইআরপি" : "Enterprise Live"}
@@ -928,34 +946,7 @@ export function DashboardPage() {
         </div>
       </div>
 
-      {/* 2. Desktop Corporate Enterprise Quick Operations Bar */}
-      <div className="hidden md:grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2.5">
-        {quickActions.map((act) => {
-          const ActIcon = act.icon;
-          return (
-            <button
-              key={act.key}
-              type="button"
-              onClick={act.onClick}
-              disabled={act.key === "live-sync" && refreshing}
-              className="flex items-center gap-2.5 rounded-lg border border-border bg-card px-3 py-2.5 text-left shadow-2xs transition-colors hover:bg-accent/60 hover:border-primary/40 focus:outline-none"
-            >
-              <div
-                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md border ${act.iconBg}`}
-              >
-                <ActIcon className={`h-4 w-4 ${act.spin ? "animate-spin" : ""}`} />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-xs font-semibold text-foreground truncate">{act.label}</p>
-                <p className="text-[10px] text-muted-foreground truncate">{act.sub}</p>
-              </div>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* 3. Desktop Enterprise KPI Summary Cards */}
-      <div className="hidden md:block">
+      {/* 2. Desktop Enterprise KPI Summary Cards */}
       <ErrorBoundary
         name="Widget:KpiCards"
         fallbackRender={({ resetErrorBoundary }) => (
@@ -1023,7 +1014,6 @@ export function DashboardPage() {
           </div>
         )}
       </ErrorBoundary>
-      </div>
 
       {/* AI Executive Insights Widget */}
       <ErrorBoundary
