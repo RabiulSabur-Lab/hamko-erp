@@ -21,11 +21,27 @@ export function registerServiceWorker(): void {
 
   window.addEventListener("load", async () => {
     try {
-      const registration = await navigator.serviceWorker.register("/sw.js", {
+      // Purge any legacy v1 caches on load so stale desktop/mobile bundles never persist
+      if (typeof caches !== "undefined") {
+        caches.keys().then((keys) => {
+          keys.forEach((key) => {
+            if (key === "hamko-erp-cache-v1" || key === "hamko-erp-cache-v2") {
+              caches.delete(key);
+            }
+          });
+        }).catch(() => null);
+      }
+
+      const registration = await navigator.serviceWorker.register("/sw.js?v=3", {
         scope: "/",
+        updateViaCache: "none",
       });
 
       console.log("[SW] Registered with scope:", registration.scope);
+
+      if (registration.waiting) {
+        registration.waiting.postMessage({ type: "SKIP_WAITING" });
+      }
 
       // 1. Check for updates on install and state change
       registration.onupdatefound = () => {
@@ -35,8 +51,8 @@ export function registerServiceWorker(): void {
         installingWorker.onstatechange = () => {
           if (installingWorker.state === "installed") {
             if (navigator.serviceWorker.controller) {
-              // New content is available; prompt or auto-reload
-              console.log("[SW] New update installed and ready.");
+              console.log("[SW] New update installed; activating immediately.");
+              installingWorker.postMessage({ type: "SKIP_WAITING" });
               notifyNewVersionAvailable(installingWorker);
             }
           }

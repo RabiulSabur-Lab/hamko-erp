@@ -1,9 +1,9 @@
 /**
  * Hamko ERP - Production Mobile & PWA Service Worker
- * Network-First for Navigation & APIs, Stale-While-Revalidate for Static Assets
+ * Strict Network-First for HTML & Hashed Assets so new deployments take effect immediately
  */
 
-const CACHE_NAME = "hamko-erp-cache-v1";
+const CACHE_NAME = "hamko-erp-cache-v3-20261122";
 
 const STATIC_ASSETS = [
   "/",
@@ -27,7 +27,7 @@ self.addEventListener("install", (event) => {
   );
 });
 
-// 2. Activation - Claim active clients & purge outdated caches
+// 2. Activation - Claim active clients & purge all outdated caches immediately
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     Promise.all([
@@ -50,7 +50,6 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const req = event.request;
 
-  // Only handle GET requests
   if (req.method !== "GET") return;
 
   const url = new URL(req.url);
@@ -66,9 +65,12 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Strategy A: HTML Documents / Page Navigations -> Strict NETWORK-FIRST
-  // Guarantees users never get stuck on stale bundle hashes after new deployments
-  if (req.mode === "navigate" || req.headers.get("accept")?.includes("text/html")) {
+  // Strategy A: HTML Documents, Page Navigations, and JS/CSS Bundles -> Strict NETWORK-FIRST
+  if (
+    req.mode === "navigate" ||
+    req.headers.get("accept")?.includes("text/html") ||
+    url.pathname.startsWith("/assets/")
+  ) {
     event.respondWith(
       fetch(req, { cache: "no-cache" })
         .then((networkRes) => {
@@ -85,42 +87,18 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Strategy B: Static Hashed Assets (/assets/*.js, *.css) -> Cache-First with Background Revalidation
-  if (url.pathname.startsWith("/assets/")) {
-    event.respondWith(
-      caches.match(req).then((cached) => {
-        const fetchPromise = fetch(req)
-          .then((networkRes) => {
-            if (networkRes && networkRes.status === 200) {
-              const resClone = networkRes.clone();
-              caches.open(CACHE_NAME).then((cache) => cache.put(req, resClone));
-            }
-            return networkRes;
-          })
-          .catch(() => null);
-
-        return cached || fetchPromise;
-      }),
-    );
-    return;
-  }
-
-  // Strategy C: Other local resources (images, icons, fonts) -> Stale-While-Revalidate
+  // Strategy B: Other local resources (images, icons, fonts) -> Network-First with cache fallback
   if (url.origin === self.location.origin) {
     event.respondWith(
-      caches.match(req).then((cached) => {
-        const networkFetch = fetch(req)
-          .then((networkRes) => {
-            if (networkRes && networkRes.status === 200) {
-              const resClone = networkRes.clone();
-              caches.open(CACHE_NAME).then((cache) => cache.put(req, resClone));
-            }
-            return networkRes;
-          })
-          .catch(() => cached);
-
-        return cached || networkFetch;
-      }),
+      fetch(req)
+        .then((networkRes) => {
+          if (networkRes && networkRes.status === 200) {
+            const resClone = networkRes.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(req, resClone));
+          }
+          return networkRes;
+        })
+        .catch(() => caches.match(req)),
     );
   }
 });
@@ -136,4 +114,3 @@ self.addEventListener("message", (event) => {
     });
   }
 });
-

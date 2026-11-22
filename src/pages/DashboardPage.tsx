@@ -483,85 +483,7 @@ export function DashboardPage() {
     [lang],
   );
 
-  // ── Fintech-Style Quick Action Hub Tiles ────────────────────────────────────
-  const quickActions = useMemo(
-    () => [
-      {
-        key: "new-order",
-        label: lang === "bn" ? "+ নতুন অর্ডার" : "+ New Order",
-        sub: lang === "bn" ? "ইনভয়েস তৈরি" : "Create Invoice",
-        icon: ShoppingCart,
-        iconBg: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/25",
-        onClick: () => navigate("orders/create"),
-      },
-      {
-        key: "cash-collection",
-        label: lang === "bn" ? "$ ক্যাশ কালেকশন" : "$ Cash Collection",
-        sub: lang === "bn" ? "বকেয়া আদায়" : "Receive Payment",
-        icon: Wallet,
-        iconBg: "bg-teal-500/15 text-teal-600 dark:text-teal-400 border-teal-500/25",
-        onClick: () => navigate("accounts"),
-      },
-      {
-        key: "purchase-chalan",
-        label: lang === "bn" ? "+ পারচেজ চালান" : "+ Purchase Chalan",
-        sub: lang === "bn" ? "সাপ্লায়ার লেজার" : "Stock & Payable",
-        icon: Truck,
-        iconBg: "bg-sky-500/15 text-sky-600 dark:text-sky-400 border-sky-500/25",
-        onClick: () => navigate("procurement"),
-      },
-      {
-        key: "add-customer",
-        label: lang === "bn" ? "+ কাস্টমার" : "+ Customers",
-        sub: lang === "bn" ? "ডিলার ও রিটেইলার" : "CRM Directory",
-        icon: Users,
-        iconBg: "bg-violet-500/15 text-violet-600 dark:text-violet-400 border-violet-500/25",
-        onClick: () => navigate("customers"),
-      },
-      {
-        key: "inventory-stock",
-        label: lang === "bn" ? "ইনভেন্টরি স্টক" : "Inventory Stock",
-        sub: lang === "bn" ? "মজুদ ও অ্যালার্ট" : "Warehouse SKUs",
-        icon: Warehouse,
-        iconBg: "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/25",
-        onClick: () => navigate("inventory"),
-      },
-      {
-        key: "field-sfa",
-        label: lang === "bn" ? "ফিল্ড ভিজিট" : "Field Visit (SFA)",
-        sub: lang === "bn" ? "রুট ও হ্যান্ডওভার" : "Route & Handover",
-        icon: MapPin,
-        iconBg: "bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border-indigo-500/25",
-        onClick: () => navigate("sfa"),
-      },
-      {
-        key: "user-manual",
-        label: lang === "bn" ? "ব্যবহারবিধি" : "User Manual",
-        sub: lang === "bn" ? "সচিত্র গাইড PDF" : "A-Z Guide & PDF",
-        icon: BookOpen,
-        iconBg: "bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/25",
-        onClick: () => navigate("manual"),
-      },
-      {
-        key: "live-sync",
-        label: refreshing
-          ? lang === "bn"
-            ? "সিঙ্ক হচ্ছে..."
-            : "Syncing..."
-          : lang === "bn"
-            ? "লাইভ সিঙ্ক"
-            : "Live Sync",
-        sub: lang === "bn" ? "ক্লাউড আপডেট" : "Cloud Refresh",
-        icon: RefreshCw,
-        iconBg: "bg-primary/15 text-primary border-primary/25",
-        spin: refreshing,
-        onClick: () => void refresh(true),
-      },
-    ],
-    [lang, navigate, refresh, refreshing],
-  );
-
-  // ── 9-Tile Mobile Corporate 3-Column Utility Grid (3x3) ────────────────────
+  // ── 9-Tile Mobile Corporate 3-Column Utility Grid (3x3 — Strictly Mobile < 768px Only) ──
   const mobileUtilityModules = useMemo(
     () => [
       {
@@ -645,7 +567,7 @@ export function DashboardPage() {
   // Desktop (>=768px) renders ONLY the wide enterprise dashboard (KPIs, AI Insights, Full Charts & Wide Lists).
   if (isMobileViewport) {
     return (
-      <div className="md:hidden max-w-md mx-auto space-y-4">
+      <div className="mobile-only-dashboard-shell md:hidden max-w-md mx-auto space-y-4">
         {/* 1. Official Hamko Corporate Brand Header Card & Segmented Toggle Tabs */}
         <div className="rounded-2xl bg-gradient-to-br from-[#0a2540] via-[#0f3460] to-[#1e3a8a] text-white p-4 shadow-md space-y-3.5">
           <div className="flex items-center justify-between gap-2">

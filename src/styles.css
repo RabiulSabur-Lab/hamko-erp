@@ -892,5 +892,14 @@ html {
   font-family: 'Yellowtail', 'Dancing Script', 'Caveat', cursive;
 }
 
+/* Strict Desktop vs. Mobile Viewport Isolation Guards */
+@media (min-width: 768px) {
+  .mobile-only-dashboard-shell,
+  nav[aria-label="Mobile quick navigation"] {
+    display: none !important;
+  }
+}
+
+
 
 
