@@ -1,9 +1,14 @@
-import { useState, memo } from "react";
+import { useState, useEffect, useCallback, useRef, memo } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Sparkles, Loader2, Bot, TrendingUp, RefreshCw, Copy, Check, AlertCircle } from "lucide-react";
-import { analyzeSalesData } from "@/services/geminiService";
+import { Sparkles, Loader2, TrendingUp, RefreshCw, Copy, Check, AlertCircle, Zap } from "lucide-react";
+import {
+  analyzeSalesDataWithMeta,
+  getCachedSalesInsights,
+  type AnalyticsLang,
+} from "@/services/geminiService";
+import { useI18n } from "@/lib/i18n";
 import { toast } from "sonner";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -16,6 +21,47 @@ interface AIInsightsWidgetProps {
   onSyncCloud?: () => Promise<void>;
 }
 
+function InsightsSkeleton({ isBn }: { isBn: boolean }) {
+  return (
+    <div className="space-y-4 py-2 animate-in fade-in duration-200">
+      <div className="flex items-center gap-2.5 text-xs text-primary font-medium">
+        <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+        <span>
+          {isBn
+            ? "লাইভ বিক্রয়, কালেকশন ও ইনভেন্টরি বিশ্লেষণ করে বাংলা রিপোর্ট তৈরি করা হচ্ছে..."
+            : "Analyzing live sales velocity, collections, and inventory metrics..."}
+        </span>
+      </div>
+
+      {/* Simulated Executive Table Skeleton */}
+      <div className="rounded-lg border border-border/60 overflow-hidden">
+        <div className="grid grid-cols-3 gap-3 bg-muted/50 px-3 py-2.5 border-b border-border/50">
+          <div className="h-3 w-20 rounded bg-muted animate-pulse" />
+          <div className="h-3 w-24 rounded bg-muted animate-pulse" />
+          <div className="h-3 w-28 rounded bg-muted animate-pulse" />
+        </div>
+        <div className="divide-y divide-border/40 p-3 space-y-2.5">
+          {[0, 1, 2].map((row) => (
+            <div key={row} className="grid grid-cols-3 gap-3 pt-1 first:pt-0">
+              <div className="h-3.5 w-3/4 rounded bg-muted/70 animate-pulse" />
+              <div className="h-3.5 w-1/2 rounded bg-muted/70 animate-pulse" />
+              <div className="h-3.5 w-5/6 rounded bg-muted/70 animate-pulse" />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Simulated Recommendations Skeleton */}
+      <div className="space-y-2">
+        <div className="h-3.5 w-44 rounded bg-muted/80 animate-pulse" />
+        <div className="h-3 w-full rounded bg-muted/60 animate-pulse" />
+        <div className="h-3 w-11/12 rounded bg-muted/60 animate-pulse" />
+        <div className="h-3 w-4/5 rounded bg-muted/60 animate-pulse" />
+      </div>
+    </div>
+  );
+}
+
 export const AIInsightsWidget = memo(function AIInsightsWidget({
   orders,
   products,
@@ -23,46 +69,146 @@ export const AIInsightsWidget = memo(function AIInsightsWidget({
   customers,
   onSyncCloud,
 }: AIInsightsWidgetProps) {
+  const { lang } = useI18n();
+  const activeLang: AnalyticsLang = lang === "bn" ? "bn" : "en";
+  const isBn = activeLang === "bn";
+
   const [loading, setLoading] = useState(false);
-  const [insights, setInsights] = useState<string | null>(null);
+  const [insights, setInsights] = useState<string | null>(() => {
+    const cached = getCachedSalesInsights(activeLang, orders, products, collections, customers);
+    return cached?.markdown ?? null;
+  });
+  const [insightsLang, setInsightsLang] = useState<AnalyticsLang | null>(() => {
+    const cached = getCachedSalesInsights(activeLang, orders, products, collections, customers);
+    return cached?.lang ?? null;
+  });
+  const [isCachedResult, setIsCachedResult] = useState<boolean>(() => {
+    return Boolean(getCachedSalesInsights(activeLang, orders, products, collections, customers));
+  });
+  const [generatedAt, setGeneratedAt] = useState<number | null>(() => {
+    const cached = getCachedSalesInsights(activeLang, orders, products, collections, customers);
+    return cached?.generatedAt ?? null;
+  });
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleGenerate = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      if (typeof navigator !== "undefined" && navigator.onLine === false) {
-        throw new Error(
-          "Internet connection is currently unavailable. Please reconnect and click Try Again to run Live Cloud AI Analytics.",
-        );
+  const requestSeqRef = useRef(0);
+  const hasVisibleInsightsRef = useRef(Boolean(insights));
+  hasVisibleInsightsRef.current = Boolean(insights);
+
+  const runAnalysis = useCallback(
+    async (opts?: { forceRefresh?: boolean; silentToast?: boolean }) => {
+      const reqId = ++requestSeqRef.current;
+      const forceRefresh = opts?.forceRefresh === true;
+      const targetLang = activeLang;
+
+      setError(null);
+
+      // Instant zero-latency cache hit when not forcing regeneration
+      if (!forceRefresh) {
+        const hit = getCachedSalesInsights(targetLang, orders, products, collections, customers);
+        if (hit) {
+          setInsights(hit.markdown);
+          setInsightsLang(hit.lang);
+          setIsCachedResult(true);
+          setGeneratedAt(hit.generatedAt);
+          return;
+        }
       }
 
-      if (onSyncCloud) {
-        await onSyncCloud();
-      }
+      setLoading(true);
+      try {
+        if (typeof navigator !== "undefined" && navigator.onLine === false) {
+          throw new Error(
+            targetLang === "bn"
+              ? "ইন্টারনেট সংযোগ বর্তমানে বিচ্ছিন্ন রয়েছে। লাইভ ক্লাউড এআই অ্যানালিটিক্স চালাতে সংযোগ পুনঃস্থাপন করে আবার চেষ্টা করুন।"
+              : "Internet connection is currently unavailable. Please reconnect and click Try Again to run Live Cloud AI Analytics.",
+          );
+        }
 
-      const result = await analyzeSalesData(orders, products, collections, customers);
-      setInsights(result);
-      toast.success("Real-time cloud AI insights generated!");
-    } catch (err: any) {
-      console.warn("AI Insights widget catch:", err);
-      const errMsg =
-        err?.message || "Failed to synchronize with live cloud analytics service. Please check your internet connection.";
-      setError(errMsg);
-      toast.error(errMsg);
-    } finally {
-      setLoading(false);
+        // Only trigger a capped cloud sync when explicitly regenerating; avoid blocking normal generation
+        if (forceRefresh && onSyncCloud) {
+          await Promise.race([
+            onSyncCloud().catch(() => undefined),
+            new Promise<void>((resolve) => setTimeout(resolve, 2200)),
+          ]);
+        }
+
+        const result = await analyzeSalesDataWithMeta(orders, products, collections, customers, {
+          lang: targetLang,
+          forceRefresh,
+          syncCloud: false,
+        });
+
+        if (reqId !== requestSeqRef.current) return;
+
+        setInsights(result.markdown);
+        setInsightsLang(result.lang);
+        setIsCachedResult(result.cached);
+        setGeneratedAt(result.generatedAt);
+
+        if (!opts?.silentToast) {
+          toast.success(
+            targetLang === "bn"
+              ? result.cached
+                ? "ক্যাশ থেকে তাৎক্ষণিক এআই বিশ্লেষণ লোড হয়েছে!"
+                : "রিয়েল-টাইম বাংলা এআই ইনসাইটস তৈরি হয়েছে!"
+              : result.cached
+                ? "Loaded instant cached AI insights!"
+                : "Real-time cloud AI insights generated!",
+          );
+        }
+      } catch (err: any) {
+        if (reqId !== requestSeqRef.current) return;
+        console.warn("AI Insights widget catch:", err);
+        const errMsg =
+          err?.message ||
+          (targetLang === "bn"
+            ? "লাইভ ক্লাউড অ্যানালিটিক্স সার্ভিসের সাথে সংযোগ করা যায়নি। অনুগ্রহ করে ইন্টারনেট সংযোগ পরীক্ষা করুন।"
+            : "Failed to synchronize with live cloud analytics service. Please check your internet connection.");
+        setError(errMsg);
+        toast.error(errMsg);
+      } finally {
+        if (reqId === requestSeqRef.current) {
+          setLoading(false);
+        }
+      }
+    },
+    [activeLang, orders, products, collections, customers, onSyncCloud],
+  );
+
+  // Auto-hydrate valid cache on mount/data update, and seamlessly switch language if user toggles EN <-> বাংলা
+  useEffect(() => {
+    const cached = getCachedSalesInsights(activeLang, orders, products, collections, customers);
+    if (cached) {
+      setInsights(cached.markdown);
+      setInsightsLang(cached.lang);
+      setIsCachedResult(true);
+      setGeneratedAt(cached.generatedAt);
+      setError(null);
+      return;
     }
-  };
+
+    // If insights were already open in the previous language, automatically regenerate in the newly selected language
+    if (hasVisibleInsightsRef.current && insightsLang && insightsLang !== activeLang) {
+      void runAnalysis({ forceRefresh: false, silentToast: true });
+    }
+  }, [activeLang, orders, products, collections, customers, insightsLang, runAnalysis]);
 
   const handleCopy = () => {
     if (!insights) return;
     navigator.clipboard.writeText(insights);
     setCopied(true);
-    toast.success("Insights copied to clipboard!");
+    toast.success(isBn ? "ইনসাইটস ক্লিপবোর্ডে কপি করা হয়েছে!" : "Insights copied to clipboard!");
     setTimeout(() => setCopied(false), 2000);
   };
+
+  const formattedGenTime = generatedAt
+    ? new Date(generatedAt).toLocaleTimeString(isBn ? "bn-BD" : "en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : null;
 
   return (
     <Card className="border border-border/80 shadow-sm bg-gradient-to-br from-card via-card to-primary/5 overflow-hidden">
@@ -74,17 +220,33 @@ export const AIInsightsWidget = memo(function AIInsightsWidget({
             </span>
             <div>
               <div className="flex items-center gap-2 flex-wrap">
-                <CardTitle className="text-base font-semibold">Executive AI Intelligence & Analytics</CardTitle>
+                <CardTitle className="text-base font-semibold">
+                  {isBn
+                    ? "এক্সিকিউটিভ এআই ইন্টেলিজেন্স ও অ্যানালিটিক্স"
+                    : "Executive AI Intelligence & Analytics"}
+                </CardTitle>
                 <Badge
                   variant="outline"
                   className="text-[10px] text-emerald-600 bg-emerald-500/10 border-emerald-500/30 font-medium py-0 h-4 flex items-center gap-1"
                 >
                   <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  {insights ? "Live Cloud Sync" : "Real-Time Online Analytics"}
+                  {insights
+                    ? isCachedResult
+                      ? isBn
+                        ? `তাৎক্ষণিক ক্যাশ${formattedGenTime ? ` · ${formattedGenTime}` : ""}`
+                        : `Instant Cache${formattedGenTime ? ` · ${formattedGenTime}` : ""}`
+                      : isBn
+                        ? "লাইভ ক্লাউড সিঙ্ক"
+                        : "Live Cloud Sync"
+                    : isBn
+                      ? "রিয়েল-টাইম অনলাইন অ্যানালিটিক্স"
+                      : "Real-Time Online Analytics"}
                 </Badge>
               </div>
               <CardDescription className="text-xs mt-0.5">
-                Powered by Advanced AI Technology — automated demand forecasting, collection velocity, and distribution health auditing.
+                {isBn
+                  ? "অ্যাডভান্সড এআই প্রযুক্তি দ্বারা চালিত — স্বয়ংক্রিয় চাহিদা পূর্বাভাস, কালেকশন গতি এবং ডিস্ট্রিবিউশন স্বাস্থ্য বিশ্লেষণ।"
+                  : "Powered by Advanced AI Technology — automated demand forecasting, collection velocity, and distribution health auditing."}
               </CardDescription>
             </div>
           </div>
@@ -96,27 +258,33 @@ export const AIInsightsWidget = memo(function AIInsightsWidget({
                 size="sm"
                 onClick={handleCopy}
                 className="h-8 text-xs gap-1.5"
-                title="Copy markdown text"
+                title={isBn ? "রিপোর্ট কপি করুন" : "Copy markdown text"}
               >
                 {copied ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
-                {copied ? "Copied" : "Copy"}
+                {copied ? (isBn ? "কপি হয়েছে" : "Copied") : (isBn ? "কপি" : "Copy")}
               </Button>
             )}
             <Button
               size="sm"
-              onClick={handleGenerate}
+              onClick={() => void runAnalysis({ forceRefresh: Boolean(insights) })}
               disabled={loading}
               className="h-8 text-xs gap-1.5 shadow-sm"
             >
               {loading ? (
                 <>
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  Analyzing...
+                  {isBn ? "বিশ্লেষণ হচ্ছে..." : "Analyzing..."}
                 </>
               ) : (
                 <>
                   {insights ? <RefreshCw className="h-3.5 w-3.5" /> : <Sparkles className="h-3.5 w-3.5" />}
-                  {insights ? "Regenerate" : "Generate AI Insights"}
+                  {insights
+                    ? isBn
+                      ? "পুনরায় বিশ্লেষণ"
+                      : "Regenerate"
+                    : isBn
+                      ? "এআই ইনসাইট তৈরি করুন"
+                      : "Generate AI Insights"}
                 </>
               )}
             </Button>
@@ -126,35 +294,34 @@ export const AIInsightsWidget = memo(function AIInsightsWidget({
 
       <CardContent className="pt-4">
         {loading ? (
-          <div className="flex flex-col items-center justify-center py-8 text-center space-y-3">
-            <div className="relative">
-              <div className="h-10 w-10 rounded-full bg-primary/10 text-primary flex items-center justify-center animate-pulse">
-                <Bot className="h-6 w-6" />
-              </div>
-              <span className="absolute -top-1 -right-1 flex h-3 w-3">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
-                <span className="relative inline-flex rounded-full h-3 w-3 bg-primary" />
-              </span>
-            </div>
-            <div>
-              <p className="text-sm font-medium text-foreground">Synchronizing Live Cloud Sales & Inventory Data</p>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Fetching real-time Supabase orders, collections, customer receivables, and stock velocity...
-              </p>
-            </div>
-          </div>
+          <InsightsSkeleton isBn={isBn} />
         ) : error ? (
           <div className="p-3.5 rounded-lg border border-destructive/20 bg-destructive/5 text-xs text-destructive flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <AlertCircle className="h-4 w-4 shrink-0" />
               <span>{error}</span>
             </div>
-            <Button variant="outline" size="sm" onClick={handleGenerate} className="h-7 text-[11px]">
-              Try Again
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void runAnalysis({ forceRefresh: true })}
+              className="h-7 text-[11px] shrink-0"
+            >
+              {isBn ? "আবার চেষ্টা করুন" : "Try Again"}
             </Button>
           </div>
         ) : insights ? (
           <div className="text-xs sm:text-sm text-foreground/90 space-y-3 leading-relaxed">
+            {isCachedResult && (
+              <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground bg-muted/30 border border-border/50 rounded-md px-2.5 py-1 w-fit">
+                <Zap className="h-3 w-3 text-amber-500 shrink-0" />
+                <span>
+                  {isBn
+                    ? "সর্বশেষ অর্ডার/কালেকশন ডেটা অপরিবর্তিত থাকায় তাৎক্ষণিক ক্যাশড রিপোর্ট প্রদর্শিত হচ্ছে।"
+                    : "Showing instant cached report — auto-refreshes whenever orders, collections, or stock change."}
+                </span>
+              </div>
+            )}
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
               components={{
@@ -220,20 +387,30 @@ export const AIInsightsWidget = memo(function AIInsightsWidget({
             </ReactMarkdown>
           </div>
         ) : (
-          <div className="flex items-center justify-between p-3.5 rounded-lg border border-dashed border-border/80 bg-muted/20 text-xs text-muted-foreground">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-lg border border-dashed border-border/80 bg-muted/20 text-xs text-muted-foreground">
             <div className="flex items-center gap-2.5">
               <TrendingUp className="h-4 w-4 text-primary shrink-0" />
               <span>
-                Click <strong>Generate AI Summary</strong> to run an instant diagnostic on top-selling cookware, customer balances, and 7-day forecasts.
+                {isBn ? (
+                  <>
+                    সর্বাধিক বিক্রিত কুকওয়্যার, গ্রাহকের বকেয়া স্থিতি এবং আগামী ৭ দিনের পূর্বাভাস জানতে{" "}
+                    <strong>এআই ইনসাইট তৈরি করুন</strong> বাটনে ক্লিক করুন।
+                  </>
+                ) : (
+                  <>
+                    Click <strong>Generate AI Insights</strong> to run an instant diagnostic on top-selling cookware,
+                    customer balances, and 7-day forecasts.
+                  </>
+                )}
               </span>
             </div>
             <Button
               variant="secondary"
               size="sm"
-              onClick={handleGenerate}
-              className="text-xs h-7 shrink-0 font-medium"
+              onClick={() => void runAnalysis({ forceRefresh: false })}
+              className="text-xs h-7 shrink-0 font-medium self-end sm:self-auto"
             >
-              Analyze Now
+              {isBn ? "এখনই বিশ্লেষণ করুন" : "Analyze Now"}
             </Button>
           </div>
         )}

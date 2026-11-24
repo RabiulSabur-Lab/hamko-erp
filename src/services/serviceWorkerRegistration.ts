@@ -30,7 +30,8 @@ export function registerServiceWorker(): void {
               key === "hamko-erp-cache-v2" ||
               key === "hamko-erp-cache-v3-20261122" ||
               key === "hamko-erp-cache-v4-20261122" ||
-              key === "hamko-erp-cache-v5-20261124"
+              key === "hamko-erp-cache-v5-20261124" ||
+              key === "hamko-erp-cache-v6-20261124"
             ) {
               caches.delete(key);
             }
@@ -38,7 +39,7 @@ export function registerServiceWorker(): void {
         }).catch(() => null);
       }
 
-      const registration = await navigator.serviceWorker.register("/sw.js?v=6", {
+      const registration = await navigator.serviceWorker.register("/sw.js?v=7", {
         scope: "/",
         updateViaCache: "none",
       });
