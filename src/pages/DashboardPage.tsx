@@ -7,7 +7,7 @@ import { formatBDT, toBnDigit } from "@/lib/utils";
 import {
   TrendingUp, TrendingDown, DollarSign, AlertTriangle,
   Users, ArrowUpRight, RefreshCw, ShoppingCart, Wallet,
-  Truck, Warehouse, MapPin, BookOpen, Plus,
+  Truck, Warehouse, MapPin, BookOpen,
   Package, Calendar, Clock, CheckCircle2,
 } from "lucide-react";
 import {
@@ -810,7 +810,7 @@ export function DashboardPage() {
       {/* =====================================================================
           DESKTOP ENTERPRISE WEB ERP INTERFACE (>= 768px)
          ===================================================================== */}
-      {/* 1. Desktop Enterprise Status & Consolidated Action Bar (Page title is rendered once in AppLayout header) */}
+      {/* 1. Desktop Enterprise Status & Sync Bar (Page title is rendered once in AppLayout header) */}
       <div className="flex flex-wrap items-center justify-between gap-3 pb-1">
         <div className="flex flex-wrap items-center gap-2.5">
           <Badge variant="outline" className="text-[11px] font-medium border-emerald-500/40 text-emerald-700 dark:text-emerald-400 bg-emerald-500/10">
@@ -829,23 +829,6 @@ export function DashboardPage() {
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Button
-            size="sm"
-            onClick={() => navigate("orders/create")}
-            className="gap-1.5 text-xs h-8 rounded-lg"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            {lang === "bn" ? "নতুন অর্ডার" : "New Order"}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => navigate("accounts")}
-            className="gap-1.5 text-xs h-8 rounded-lg"
-          >
-            <Wallet className="h-3.5 w-3.5 text-emerald-600" />
-            {lang === "bn" ? "ক্যাশ কালেকশন" : "Cash Collection"}
-          </Button>
           <Button
             variant="outline"
             size="sm"
