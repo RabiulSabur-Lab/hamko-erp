@@ -15,7 +15,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { EmptyState } from "@/components/ui/empty";
-import { formatBDT, formatDate, cn } from "@/lib/utils";
+import { formatBDT, formatDate, cn, toBnDigit } from "@/lib/utils";
 import { exportToExcel } from "@/lib/export";
 import { Plus, Download, Wallet, Loader2, DollarSign, TrendingDown, BookOpen, CreditCard, Trash2, Calendar, X, User, AlertCircle, Phone, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
@@ -546,9 +546,49 @@ export function AccountsPage() {
   // BUG-023: Liquid account balance derived strictly from actual Cash Book entries
   // (COLLECTIONS cash inflows and EXPENSES cash outflows).
   // Raw order.paid_amount fields are NEVER added into liquid cash, preventing double-counting of collection receipts.
-  const { totalCollection, totalExpense, opexExpense, supplierExpense, netCash, myCollectionTotal } = useMemo(() => {
+  const {
+    todayCollection,
+    todayCollectionCount,
+    totalCollection,
+    totalExpense,
+    opexExpense,
+    supplierExpense,
+    netCash,
+    myCollectionTotal,
+  } = useMemo(() => {
     const uniqueCols = deduplicateCollections(collections);
-    const tc = r2(uniqueCols.reduce((s, c) => s + Number(c.amount || 0), 0));
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const todayStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+
+    const toLocalDateKey = (raw: unknown): string => {
+      if (!raw) return "";
+      const str = String(raw).trim();
+      if (!str) return "";
+      if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+      const parsed = new Date(str);
+      if (!isNaN(parsed.getTime())) {
+        return `${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-${pad(parsed.getDate())}`;
+      }
+      return str.slice(0, 10);
+    };
+
+    let todayCol = 0;
+    let todayColCount = 0;
+    let tc = 0;
+    for (let i = 0; i < uniqueCols.length; i++) {
+      const c = uniqueCols[i];
+      const amt = Number(c?.amount || 0);
+      tc += amt;
+      const cDate = toLocalDateKey(c?.collection_date || (c as any)?.date || c?.created_at || (c as any)?.timestamp);
+      if (cDate === todayStr) {
+        todayCol += amt;
+        todayColCount++;
+      }
+    }
+    todayCol = r2(todayCol);
+    tc = r2(tc);
+
     const te = r2(expenses.reduce((s, e) => s + Number(e.amount || 0), 0));
     const se = r2(
       expenses
@@ -561,6 +601,8 @@ export function AccountsPage() {
       : [];
     const myTotal = r2(myCols.reduce((s, c) => s + Number(c.amount || 0), 0));
     return {
+      todayCollection: todayCol,
+      todayCollectionCount: todayColCount,
       totalCollection: tc,
       totalExpense: te,
       opexExpense: oe,
@@ -1100,7 +1142,16 @@ export function AccountsPage() {
   return (
     <div className="space-y-4">
       {/* KPI cards */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
+        <Card className="border-teal-200/80 dark:border-teal-800/60 bg-teal-50/30 dark:bg-teal-950/20"><CardContent className="p-4">
+          <div className="flex items-center gap-2"><Wallet className="h-4 w-4 text-teal-600" /><p className="text-xs font-medium text-teal-800 dark:text-teal-300">{t("todaysCollection") || (lang === "bn" ? "আজকের কালেকশন" : "Today's Collection")}</p></div>
+          <p className="text-xl font-bold mt-2 text-teal-700 dark:text-teal-400">{formatBDT(todayCollection, lang)}</p>
+          <p className="text-[11px] text-muted-foreground mt-1">
+            {lang === "bn"
+              ? `আজ ${toBnDigit(todayCollectionCount)}টি রিসিট আদায়`
+              : `${todayCollectionCount} ${todayCollectionCount === 1 ? "receipt" : "receipts"} today`}
+          </p>
+        </CardContent></Card>
         <Card><CardContent className="p-4">
           <div className="flex items-center gap-2"><DollarSign className="h-4 w-4 text-emerald-600" /><p className="text-xs text-muted-foreground">{t("totalCollection")}</p></div>
           <p className="text-xl font-bold mt-2 text-emerald-600">{formatBDT(totalCollection)}</p>

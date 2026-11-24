@@ -29,6 +29,8 @@ import {
 
 interface KpiData {
   todaySales: number;
+  todayCollection: number;
+  todayCollectionCount: number;
   monthSales: number;
   totalRevenue: number;
   collection: number;
@@ -42,6 +44,7 @@ interface KpiData {
 
 interface KpiTrends {
   todaySales: number | null;
+  todayCollection: number | null;
   monthSales: number | null;
   collection: number | null;
   outstandingDue: number | null;
@@ -51,6 +54,8 @@ interface KpiTrends {
 
 const EMPTY_KPI: KpiData = {
   todaySales: 0,
+  todayCollection: 0,
+  todayCollectionCount: 0,
   monthSales: 0,
   totalRevenue: 0,
   collection: 0,
@@ -64,6 +69,7 @@ const EMPTY_KPI: KpiData = {
 
 const EMPTY_TRENDS: KpiTrends = {
   todaySales: null,
+  todayCollection: null,
   monthSales: null,
   collection: null,
   outstandingDue: null,
@@ -131,8 +137,8 @@ function WidgetErrorCard({
 // ─── Skeleton loader for KPI cards ───────────────────────────────────────────
 function KpiSkeleton() {
   return (
-    <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
-      {Array.from({ length: 6 }).map((_, i) => (
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-7">
+      {Array.from({ length: 7 }).map((_, i) => (
         <Card key={i} className="overflow-hidden rounded-lg border-border">
           <CardContent className="p-4 space-y-3">
             <div className="flex items-start justify-between">
@@ -193,6 +199,18 @@ export function DashboardPage() {
       const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
       const prevMonthPrefix = `${prevMonth.getFullYear()}-${pad(prevMonth.getMonth() + 1)}`;
 
+      const toLocalDateKey = (raw: unknown): string => {
+        if (!raw) return "";
+        const str = String(raw).trim();
+        if (!str) return "";
+        if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+        const parsed = new Date(str);
+        if (!isNaN(parsed.getTime())) {
+          return `${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-${pad(parsed.getDate())}`;
+        }
+        return str.slice(0, 10);
+      };
+
       const validOrders = deduplicateOrders(orders, { excludeDrafts: true, excludeCancelled: true });
 
       let todaySales = 0;
@@ -205,7 +223,7 @@ export function DashboardPage() {
         const o = validOrders[i];
         const amt = Number(o.total_amount || 0);
         totalRevenue += amt;
-        const dStr = String(o.order_date || o.created_at || "").slice(0, 10);
+        const dStr = toLocalDateKey(o.order_date || o.created_at);
         if (dStr === todayStr) todaySales += amt;
         else if (dStr === yesterdayStr) yesterdaySales += amt;
         if (dStr.startsWith(currentMonthPrefix)) monthSales += amt;
@@ -218,6 +236,9 @@ export function DashboardPage() {
       totalRevenue = r2(totalRevenue);
 
       const uniqueCollections = deduplicateCollections(collections);
+      let todayCollection = 0;
+      let todayCollectionCount = 0;
+      let yesterdayCollection = 0;
       let monthCollections = 0;
       let totalCollections = 0;
       let calculatedPrevMonthCollections = 0;
@@ -226,10 +247,18 @@ export function DashboardPage() {
         const c = uniqueCollections[i];
         const amt = Number(c.amount || 0);
         totalCollections += amt;
-        const cDate = String(c.collection_date || c.created_at || "").slice(0, 10);
+        const cDate = toLocalDateKey(c.collection_date || (c as any).date || c.created_at || (c as any).timestamp);
+        if (cDate === todayStr) {
+          todayCollection += amt;
+          todayCollectionCount++;
+        } else if (cDate === yesterdayStr) {
+          yesterdayCollection += amt;
+        }
         if (cDate.startsWith(currentMonthPrefix)) monthCollections += amt;
         else if (cDate.startsWith(prevMonthPrefix)) calculatedPrevMonthCollections += amt;
       }
+      todayCollection = r2(todayCollection);
+      yesterdayCollection = r2(yesterdayCollection);
       monthCollections = r2(monthCollections);
       totalCollections = r2(totalCollections);
       const collection = monthCollections;
@@ -264,13 +293,14 @@ export function DashboardPage() {
       }
 
       const k: KpiData = {
-        todaySales, monthSales, totalRevenue, collection, totalCollections,
+        todaySales, todayCollection, todayCollectionCount, monthSales, totalRevenue, collection, totalCollections,
         outstandingDue, totalCustomers, activeCustomers: activeCount,
         inactiveCustomers: inactiveCount, lowStockCount,
       };
 
       const tr: KpiTrends = {
         todaySales: calcGrowth(todaySales, yesterdaySales),
+        todayCollection: calcGrowth(todayCollection, yesterdayCollection),
         monthSales: calcGrowth(monthSales, prevMonthSales),
         collection: calcGrowth(collection, prevMonthCollections),
         outstandingDue: calcGrowth(outstandingDue, prevMetrics.prevDue),
@@ -423,12 +453,22 @@ export function DashboardPage() {
   const kpiCards = useMemo(
     () => [
       {
-        label: t("todaysSales"), value: formatBDT(kpi.todaySales),
+        label: t("todaysSales"), value: formatBDT(kpi.todaySales, lang),
         icon: DollarSign, color: "text-sky-600", bg: "bg-sky-50 dark:bg-sky-950/30",
         trend: formatTrend(trends.todaySales), up: (trends.todaySales ?? 0) >= 0, route: "orders",
       },
       {
-        label: t("monthlySales"), value: formatBDT(kpi.monthSales),
+        label: t("todaysCollection") || (lang === "bn" ? "আজকের কালেকশন" : "Today's Collection"),
+        subtitle:
+          lang === "bn"
+            ? `আজ ${toBnDigit(kpi.todayCollectionCount)}টি রিসিট`
+            : `${kpi.todayCollectionCount} ${kpi.todayCollectionCount === 1 ? "receipt" : "receipts"} today`,
+        value: formatBDT(kpi.todayCollection, lang),
+        icon: Wallet, color: "text-teal-600", bg: "bg-teal-50 dark:bg-teal-950/30",
+        trend: formatTrend(trends.todayCollection), up: (trends.todayCollection ?? 0) >= 0, route: "accounts",
+      },
+      {
+        label: t("monthlySales"), value: formatBDT(kpi.monthSales, lang),
         icon: TrendingUp, color: "text-blue-600", bg: "bg-blue-50 dark:bg-blue-950/30",
         trend: formatTrend(trends.monthSales), up: (trends.monthSales ?? 0) >= 0, route: "orders",
       },
@@ -865,7 +905,7 @@ export function DashboardPage() {
         {loading ? (
           <KpiSkeleton />
         ) : (
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-7">
             {kpiCards.map((card: any) => {
               const Icon = card.icon;
               return (
