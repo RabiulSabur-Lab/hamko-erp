@@ -223,11 +223,19 @@ export function LandingPage() {
   const currentRoleData = roles.find((r) => r.id === activeRole) || roles[0];
 
   return (
-    <div className="min-h-screen bg-background text-foreground antialiased selection:bg-primary/20 selection:text-primary">
-      {/* Huawei-Style Ethereal Radial Glows */}
-      <div className="fixed inset-0 -z-50 pointer-events-none overflow-hidden huawei-radial-glow">
+    <div className="relative isolate min-h-screen overflow-x-clip landing-light-canvas dark:bg-background text-foreground antialiased selection:bg-primary/20 selection:text-primary">
+      {/* Light Mode: Subtle Modern Dot-Grid & Soft Ambient Radial Mesh Layer */}
+      <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden dark:hidden" aria-hidden="true">
+        <div className="absolute inset-0 landing-light-dots" />
+        <div className="absolute -top-32 left-1/2 -translate-x-1/2 h-[440px] w-[860px] rounded-full bg-gradient-to-b from-sky-200/45 via-blue-100/30 to-transparent blur-3xl" />
+        <div className="absolute top-[22%] -left-24 h-80 w-80 rounded-full bg-sky-200/30 blur-3xl" />
+        <div className="absolute top-[16%] -right-24 h-96 w-96 rounded-full bg-indigo-200/30 blur-3xl" />
+      </div>
+
+      {/* Dark Mode: Preserved Huawei-Style Ethereal Radial Glows */}
+      <div className="hidden dark:block fixed inset-0 -z-50 pointer-events-none overflow-hidden huawei-radial-glow" aria-hidden="true">
         <div
-          className="absolute inset-0 opacity-[0.02] dark:opacity-[0.04]"
+          className="absolute inset-0 opacity-[0.04]"
           style={{
             backgroundImage: "radial-gradient(circle at 1px 1px, currentColor 1px, transparent 0)",
             backgroundSize: "36px 36px",
@@ -236,7 +244,7 @@ export function LandingPage() {
       </div>
 
       {/* Apple-Style Minimalist Floating Navigation */}
-      <header className="sticky top-0 z-50 apple-glass border-b border-border/50 transition-all duration-300">
+      <header className="sticky top-0 z-50 apple-glass border-b border-slate-200/75 dark:border-border/50 transition-all duration-300">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
           {/* Logo & Brand (Huawei Corporate Clean Style) */}
           <div className="flex items-center py-1 select-none">
@@ -307,11 +315,11 @@ export function LandingPage() {
       </header>
 
       {/* 1. Hero Section (Apple-Style Minimalist & Dynamic + Huawei Luminous Glow) */}
-      <section className="relative pt-16 pb-20 lg:pt-24 lg:pb-32 overflow-hidden">
+      <section className="relative z-10 pt-16 pb-20 lg:pt-24 lg:pb-32 overflow-hidden">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="mx-auto max-w-3xl text-center">
             {/* Pill Badge */}
-            <div className="inline-flex items-center gap-2 rounded-full border border-border/80 bg-muted/40 px-3.5 py-1 text-xs font-medium text-muted-foreground backdrop-blur-xl shadow-xs mb-6">
+            <div className="inline-flex items-center gap-2 rounded-full border border-slate-200/90 bg-white/85 px-3.5 py-1 text-xs font-medium text-slate-700 dark:border-border/80 dark:bg-muted/40 dark:text-muted-foreground backdrop-blur-xl shadow-xs mb-6">
               <Sparkles className="h-3.5 w-3.5 text-sky-500 animate-pulse" />
               <span>Next-Gen Enterprise Architecture · Powered by Advanced AI Technology</span>
             </div>
@@ -326,7 +334,7 @@ export function LandingPage() {
             </h1>
 
             {/* Subtitle */}
-            <p className="mt-6 text-base sm:text-lg text-muted-foreground text-balance max-w-2xl mx-auto font-normal leading-relaxed">
+            <p className="mt-6 text-base sm:text-lg text-slate-600 dark:text-muted-foreground text-balance max-w-2xl mx-auto font-normal leading-relaxed">
               Powered by Advanced AI Technology with smart pricing governance, real-time inventory deductions on delivery, automated credit ledgers, and intelligent field sales mobility.
             </p>
 
@@ -343,14 +351,14 @@ export function LandingPage() {
                 size="lg"
                 variant="outline"
                 onClick={() => document.getElementById("modules")?.scrollIntoView({ behavior: "smooth" })}
-                className="h-11 px-7 rounded-full border-border/80 bg-background/60 backdrop-blur-md hover:bg-accent/80 font-medium text-sm transition-all"
+                className="h-11 px-7 rounded-full border-slate-300/85 bg-white/85 text-slate-800 hover:bg-white shadow-xs dark:border-border/80 dark:bg-background/60 dark:text-foreground dark:hover:bg-accent/80 backdrop-blur-md font-medium text-sm transition-all"
               >
                 Explore 9 Modules
               </Button>
             </div>
 
             {/* Trust Badges */}
-            <div className="mt-8 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs text-muted-foreground font-medium">
+            <div className="mt-8 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs text-slate-600 dark:text-muted-foreground font-medium">
               <span className="flex items-center gap-1.5">
                 <Sparkles className="h-3.5 w-3.5 text-sky-500 stroke-[2.5]" /> Advanced AI Automation
               </span>
@@ -409,7 +417,7 @@ export function LandingPage() {
             </div>
 
             {/* Realistic High-Res Mockup Window Frame */}
-            <div className="relative rounded-[26px] border border-border/80 bg-card/95 shadow-[0_25px_60px_rgba(0,0,0,0.08)] dark:shadow-[0_30px_90px_rgba(0,0,0,0.55)] overflow-hidden">
+            <div className="relative rounded-[26px] border border-slate-200/90 dark:border-border/80 bg-white/95 dark:bg-card/95 shadow-[0_25px_65px_-12px_rgba(15,23,42,0.12)] dark:shadow-[0_30px_90px_rgba(0,0,0,0.55)] overflow-hidden">
               {/* Window Chrome Header */}
               <div className="flex h-11 items-center justify-between border-b border-border/60 bg-muted/30 px-4">
                 <div className="flex items-center gap-2">
@@ -528,7 +536,7 @@ export function LandingPage() {
       </section>
 
       {/* 2. Feature Modules & Cards (Huawei Enterprise Style: 9 Core Modules in 3-Column Grid) */}
-      <section id="modules" className="py-20 lg:py-28 border-t border-border/60 relative">
+      <section id="modules" className="relative z-10 py-20 lg:py-28 border-t border-slate-200/75 dark:border-border/60 bg-gradient-to-b from-white/75 via-slate-50/70 to-indigo-50/25 dark:bg-none">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="mx-auto max-w-2xl text-center mb-16">
             <span className="rounded-full bg-primary/10 border border-primary/20 px-3.5 py-1 text-xs font-semibold text-primary">
@@ -537,7 +545,7 @@ export function LandingPage() {
             <h2 className="mt-3 text-3xl sm:text-4xl font-bold tracking-tight text-foreground">
               9 Integrated Core ERP Modules
             </h2>
-            <p className="mt-3 text-sm sm:text-base text-muted-foreground leading-relaxed">
+            <p className="mt-3 text-sm sm:text-base text-slate-600 dark:text-muted-foreground leading-relaxed">
               Enhanced by Advanced AI Technology for regional cookware distribution with zero ghost stock, automated master ledgers, and intelligent field mobility.
             </p>
           </div>
@@ -549,7 +557,7 @@ export function LandingPage() {
               return (
                 <div
                   key={m.title}
-                  className="card-hover-elevation rounded-[24px] border border-border/70 bg-card/60 p-6 backdrop-blur-md shadow-xs flex flex-col justify-between"
+                  className="card-hover-elevation rounded-[24px] border border-slate-200/85 dark:border-border/70 bg-white/85 dark:bg-card/60 p-6 backdrop-blur-md shadow-[0_4px_20px_-4px_rgba(15,23,42,0.06)] hover:shadow-[0_14px_32px_-8px_rgba(15,23,42,0.10)] hover:border-sky-300/70 dark:shadow-xs dark:hover:shadow-none dark:hover:border-border/70 flex flex-col justify-between"
                 >
                   <div>
                     {/* Header: Icon & Badge */}
@@ -593,14 +601,14 @@ export function LandingPage() {
       </section>
 
       {/* 3. Dynamic Stats & Metrics Section (Apple-Inspired Rounded Squircle Badges) */}
-      <section id="metrics" className="border-t border-border/60 bg-muted/20 py-16 lg:py-20 relative">
+      <section id="metrics" className="relative z-10 border-t border-slate-200/75 dark:border-border/60 bg-gradient-to-b from-slate-100/70 via-sky-50/40 to-slate-100/55 dark:bg-none dark:bg-muted/20 py-16 lg:py-20">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="mx-auto max-w-2xl text-center mb-12">
             <span className="text-xs font-bold uppercase tracking-wider text-primary">Platform Excellence</span>
             <h2 className="mt-2 text-2xl sm:text-3xl font-bold tracking-tight text-foreground">
               Enterprise-Grade Performance
             </h2>
-            <p className="mt-2 text-xs sm:text-sm text-muted-foreground">
+            <p className="mt-2 text-xs sm:text-sm text-slate-600 dark:text-muted-foreground">
               Real-time operational indicators reflecting active distribution nodes and automated operations across the network.
             </p>
           </div>
@@ -611,7 +619,7 @@ export function LandingPage() {
               return (
                 <div
                   key={s.label}
-                  className="rounded-[24px] border border-border/70 bg-card p-6 shadow-xs card-hover-elevation text-center"
+                  className="rounded-[24px] border border-slate-200/85 dark:border-border/70 bg-white/90 dark:bg-card p-6 shadow-[0_4px_20px_-4px_rgba(15,23,42,0.06)] dark:shadow-xs card-hover-elevation text-center"
                 >
                   <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary mb-3">
                     <Icon className="h-5 w-5" />
@@ -627,7 +635,7 @@ export function LandingPage() {
       </section>
 
       {/* 4. Interactive Role Showcase & Apple-Like CTA */}
-      <section id="roles" className="border-t border-border/60 py-20 lg:py-28 relative">
+      <section id="roles" className="relative z-10 border-t border-slate-200/75 dark:border-border/60 bg-gradient-to-b from-white/75 via-slate-50/65 to-sky-50/30 dark:bg-none py-20 lg:py-28">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="mx-auto max-w-2xl text-center mb-12">
             <span className="rounded-full bg-primary/10 border border-primary/20 px-3.5 py-1 text-xs font-semibold text-primary">
@@ -636,7 +644,7 @@ export function LandingPage() {
             <h2 className="mt-3 text-3xl sm:text-4xl font-bold tracking-tight text-foreground">
               Built for Every Team Member
             </h2>
-            <p className="mt-2 text-sm text-muted-foreground">
+            <p className="mt-2 text-sm text-slate-600 dark:text-muted-foreground">
               Click any role to see how Sales ERP Pro tailors views, authorizations, and operational speed.
             </p>
           </div>
@@ -653,7 +661,7 @@ export function LandingPage() {
                   className={`flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold transition-all cursor-pointer ${
                     isSelected
                       ? "bg-foreground text-background shadow-md shadow-foreground/10"
-                      : "border border-border/70 bg-card/60 text-muted-foreground hover:text-foreground hover:bg-card"
+                      : "border border-slate-200/90 bg-white/85 text-slate-600 hover:text-slate-900 hover:bg-white shadow-2xs dark:border-border/70 dark:bg-card/60 dark:text-muted-foreground dark:hover:text-foreground dark:hover:bg-card"
                   }`}
                 >
                   <Icon className="h-3.5 w-3.5" />
@@ -664,7 +672,7 @@ export function LandingPage() {
           </div>
 
           {/* Active Role Preview Card */}
-          <div className="rounded-[28px] border border-border/80 bg-card p-6 sm:p-8 shadow-xl max-w-4xl mx-auto">
+          <div className="rounded-[28px] border border-slate-200/90 dark:border-border/80 bg-white/95 dark:bg-card p-6 sm:p-8 shadow-[0_20px_50px_-15px_rgba(15,23,42,0.10)] dark:shadow-xl max-w-4xl mx-auto">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-border/50 pb-5">
               <div>
                 <div className="flex items-center gap-2">
@@ -776,7 +784,7 @@ export function LandingPage() {
       </section>
 
       {/* Corporate Clean Footer (Apple Minimalist Style) */}
-      <footer className="border-t border-border/50 bg-background/50 backdrop-blur-md">
+      <footer className="relative z-10 border-t border-slate-200/80 dark:border-border/50 bg-white/80 dark:bg-background/50 backdrop-blur-md">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-muted-foreground">
             <div className="flex items-center gap-3 select-none">

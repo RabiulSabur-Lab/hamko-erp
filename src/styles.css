@@ -178,7 +178,7 @@ html {
 
 /* Apple & Huawei Aesthetic Utilities */
 .apple-glass {
-  background: rgba(255, 255, 255, 0.65);
+  background: rgba(255, 255, 255, 0.72);
   backdrop-filter: blur(24px) saturate(180%);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
 }
@@ -187,6 +187,30 @@ html {
   background: rgba(18, 22, 34, 0.65);
   backdrop-filter: blur(24px) saturate(180%);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
+}
+
+/* Premium Light Mode Landing Canvas: Soft Sky/Blue/Indigo Radial Mesh fading into Alabaster Slate */
+.landing-light-canvas {
+  background-color: #f8fafc;
+  background-image:
+    radial-gradient(ellipse 85% 48% at 50% -10%, rgba(56, 189, 248, 0.19), rgba(59, 130, 246, 0.08) 44%, transparent 74%),
+    radial-gradient(circle 540px at 88% 12%, rgba(99, 102, 241, 0.13), transparent 72%),
+    radial-gradient(circle 480px at 10% 24%, rgba(14, 165, 233, 0.11), transparent 70%),
+    radial-gradient(ellipse 70% 45% at 50% 62%, rgba(224, 231, 255, 0.36), transparent 76%),
+    linear-gradient(180deg, #f4f8ff 0%, #f8fafc 38%, #f3f7fc 74%, #f8fafc 100%);
+}
+
+.dark .landing-light-canvas {
+  background-color: hsl(var(--background));
+  background-image: none;
+}
+
+/* Subtle Architectural Dot Grid with Organic Radial Mask (Light Mode Only) */
+.landing-light-dots {
+  background-image: radial-gradient(circle, rgba(30, 41, 59, 0.11) 1px, transparent 1px);
+  background-size: 26px 26px;
+  -webkit-mask-image: radial-gradient(ellipse 92% 74% at 50% 15%, rgba(0, 0, 0, 0.85) 26%, rgba(0, 0, 0, 0.25) 68%, transparent 100%);
+  mask-image: radial-gradient(ellipse 92% 74% at 50% 15%, rgba(0, 0, 0, 0.85) 26%, rgba(0, 0, 0, 0.25) 68%, transparent 100%);
 }
 
 .huawei-radial-glow {
