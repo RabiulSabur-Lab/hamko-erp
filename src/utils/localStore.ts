@@ -4411,6 +4411,8 @@ export const dispatchGlobalStateUpdate = (detail?: TransactionLedgerDetail) => {
 
 export interface CustomerDueInfo {
   due: number;
+  closingBalance: number;
+  advanceDeposit: number;
   status: "Clear" | "Partial" | "Overdue";
   opening: number;
   billed: number;
@@ -4497,8 +4499,11 @@ export function calculateCustomerDues(
     // Total Collections = Sum of all Collections (amount) received from the specific customer ID (strict ID separation)
     const collected = r2(cId ? (colTotalsByCustId.get(cId) || 0) : 0);
 
-    // Dynamic Current Due = (Opening Balance + Total Invoiced) - Total Collections
-    const computedDue = Math.max(0, r2((opening + billed) - collected));
+    // Signed Closing Balance = (Opening Balance + Total Invoiced) - Total Collections
+    // Positive = Customer owes due; Negative = Customer holds Advance Deposit
+    const closingBalance = r2((opening + billed) - collected);
+    const computedDue = Math.max(0, closingBalance);
+    const advanceDeposit = closingBalance < 0 ? Math.abs(closingBalance) : 0;
 
     const status: "Clear" | "Partial" | "Overdue" =
       computedDue <= 0
@@ -4507,7 +4512,7 @@ export function calculateCustomerDues(
         ? "Overdue"
         : "Partial";
 
-    dueMap.set(c.id, { due: computedDue, status, opening, billed, collected });
+    dueMap.set(c.id, { due: computedDue, closingBalance, advanceDeposit, status, opening, billed, collected });
     totalDue = r2(totalDue + computedDue);
   });
 
@@ -5020,6 +5025,353 @@ export function getCustomerLedgerDetails(
 }
 
 export const recalculateCustomerLedger = getCustomerLedgerDetails;
+
+export interface CustomerCurrentBalance {
+  customerId: string;
+  customerName: string;
+  openingBalance: number;
+  totalInvoiced: number;
+  totalCollected: number;
+  /** Signed running balance: > 0 means Due, < 0 means Advance Deposit, === 0 means Clear */
+  balance: number;
+  /** Clamped positive due amount: Math.max(0, balance) */
+  currentDue: number;
+  /** Positive advance credit amount: balance < 0 ? Math.abs(balance) : 0 */
+  advanceDeposit: number;
+  balanceType: "due" | "advance" | "clear";
+  dueStatus: "Clear" | "Partial" | "Overdue";
+  formattedStatus: string;
+}
+
+/**
+ * Unified single-source-of-truth helper for a customer's live signed running balance.
+ * Computes: Opening Balance + Confirmed Invoices - Collections (including authorized settlement discounts).
+ * - Negative balance => Advance Deposit (automatically offsets subsequent orders).
+ * - Positive balance => Outstanding Due.
+ */
+export function getCustomerCurrentBalance(
+  customerIdOrCustomer: string | Customer | null | undefined,
+  options?: {
+    orders?: any[];
+    collections?: any[];
+    customers?: Customer[];
+    excludeOrderId?: string;
+    excludeCollectionId?: string;
+    lang?: "en" | "bn";
+  }
+): CustomerCurrentBalance {
+  let effectiveOrders = options?.orders !== undefined ? options.orders : getOrders();
+  let effectiveCollections = options?.collections !== undefined ? options.collections : getCollections();
+
+  if (options?.excludeOrderId) {
+    const exId = String(options.excludeOrderId).trim();
+    effectiveOrders = (Array.isArray(effectiveOrders) ? effectiveOrders : []).filter(
+      (o: any) => String(o?.id || "").trim() !== exId
+    );
+  }
+
+  if (options?.excludeCollectionId) {
+    const exColId = String(options.excludeCollectionId).trim();
+    effectiveCollections = (Array.isArray(effectiveCollections) ? effectiveCollections : []).filter(
+      (c: any) => String(c?.id || "").trim() !== exColId
+    );
+  }
+
+  const ledger = getCustomerLedgerDetails(
+    customerIdOrCustomer,
+    effectiveOrders,
+    effectiveCollections,
+    { persist: false, customers: options?.customers }
+  );
+
+  const signedBalance = r2(ledger.closingBalance);
+  const currentDue = Math.max(0, signedBalance);
+  const advanceDeposit = signedBalance < 0 ? Math.abs(signedBalance) : 0;
+  const balanceType: "due" | "advance" | "clear" =
+    signedBalance > 0 ? "due" : signedBalance < 0 ? "advance" : "clear";
+  const formatted = formatLedgerBalance(signedBalance, options?.lang ?? "en", options?.lang !== "bn");
+
+  return {
+    customerId: ledger.customerId,
+    customerName: ledger.customerName,
+    openingBalance: ledger.openingBalance,
+    totalInvoiced: ledger.totalInvoiced,
+    totalCollected: ledger.totalCollected,
+    balance: signedBalance,
+    currentDue,
+    advanceDeposit,
+    balanceType,
+    dueStatus: ledger.dueStatus,
+    formattedStatus: formatted.text,
+  };
+}
+
+export interface OrderInvoiceBalanceSnapshot {
+  subtotal: number;
+  discount: number;
+  currentBill: number;
+  /** Exact signed ledger balance immediately BEFORE this order (< 0 = Advance Deposit, > 0 = Previous Due) */
+  previousBalance: number;
+  previousDue: number;
+  previousAdvance: number;
+  /** Portion of previousAdvance absorbed by this order */
+  advanceAdjusted: number;
+  /** Actual cash/cheque payments recorded directly against this order (never double-counting prior advance) */
+  cashPaidOnOrder: number;
+  /** Exact signed balance immediately AFTER this order & its linked payments: previousBalance + currentBill - cashPaidOnOrder */
+  netBalance: number;
+  netPayable: number;
+  remainingAdvance: number;
+  foundInLedger: boolean;
+}
+
+/**
+ * Computes the exact synchronized financial breakdown for an order invoice (Bill of Cookware Sales Unit / Order Details)
+ * directly from the chronological master customer ledger.
+ *
+ * Guarantees:
+ * 1. Prior Advance Deposits (negative previousBalance) are subtracted from Current Bill instead of added.
+ * 2. Historical re-prints always reflect the exact balance at the order's chronological point in the ledger,
+ *    unaffected by later orders or unlinked collections.
+ * 3. Advance deposits already reflected in previousBalance are NEVER double-counted as Cash Paid on Invoice.
+ */
+export function getOrderLedgerBalanceSnapshot(
+  order: any,
+  options?: {
+    orders?: any[];
+    collections?: any[];
+    customers?: Customer[];
+  }
+): OrderInvoiceBalanceSnapshot {
+  if (!order) {
+    return {
+      subtotal: 0,
+      discount: 0,
+      currentBill: 0,
+      previousBalance: 0,
+      previousDue: 0,
+      previousAdvance: 0,
+      advanceAdjusted: 0,
+      cashPaidOnOrder: 0,
+      netBalance: 0,
+      netPayable: 0,
+      remainingAdvance: 0,
+      foundInLedger: false,
+    };
+  }
+
+  const rawItems: any[] = order.order_items ?? order.items ?? [];
+  const seenItems = new Set<string>();
+  const dedupedItems = (Array.isArray(rawItems) ? rawItems : []).filter((it: any) => {
+    if (!it) return false;
+    const key = it.product_id
+      ? `${it.product_id}-${it.unit_price}-${it.price_tier || "Custom"}`
+      : it.id
+      ? String(it.id)
+      : `${it.quantity}-${it.unit_price}`;
+    if (seenItems.has(key)) return false;
+    seenItems.add(key);
+    return true;
+  });
+
+  const lineItemTotal = r2(dedupedItems.reduce((s: number, it: any) => s + Number(it.subtotal || 0), 0));
+  const discount = Math.max(0, r2(Number(order.discount || 0)));
+  const explicitTotal = r2(Number(order.total_amount ?? order.total ?? 0));
+  const subtotal = lineItemTotal > 0 ? lineItemTotal : r2(Number(order.subtotal ?? (explicitTotal + discount)));
+  const currentBill =
+    explicitTotal > 0
+      ? explicitTotal
+      : Math.max(0, r2(subtotal - discount));
+
+  const targetCustomerId = String(order.customer_id || order.customer?.id || "").trim();
+  const targetCustomer = targetCustomerId || order.customer;
+
+  const allOrders = options?.orders !== undefined ? options.orders : getOrders();
+  const allCollections = options?.collections !== undefined ? options.collections : getCollections();
+
+  const ledger = getCustomerLedgerDetails(targetCustomer, allOrders, allCollections, {
+    persist: false,
+    customers: options?.customers,
+  });
+
+  const orderIdStr = String(order.id || "").trim();
+  const orderNumUpper = String(order.order_number || "").trim().toUpperCase();
+
+  const matchedEntry = ledger.entries.find(
+    (entry) =>
+      entry.type === "Order" &&
+      ((orderIdStr && String(entry.id || "").trim() === orderIdStr) ||
+        (orderNumUpper && String(entry.ref || "").trim().toUpperCase() === orderNumUpper))
+  );
+
+  let previousBalance = 0;
+  let cashPaidOnOrder = 0;
+  let foundInLedger = false;
+
+  if (matchedEntry) {
+    foundInLedger = true;
+    const entryOrderAmount = r2(matchedEntry.invoiceAmount ?? currentBill);
+    // Exact signed balance immediately BEFORE this order was posted to the ledger
+    previousBalance = r2(matchedEntry.runningBalance - entryOrderAmount);
+
+    // Sum ONLY genuine linked collections tied to this specific order_id (not prior unlinked advance deposits)
+    const deletedColIds = getDeletedIds(STORAGE_KEYS.DELETED_COLLECTIONS);
+    const validCols = deduplicateCollections(
+      (Array.isArray(allCollections) ? allCollections : []).filter((c: any) => c && !deletedColIds.has(c.id))
+    );
+    const linkedCols = validCols.filter((c: any) => {
+      const cOrderId = String(c.order_id || "").trim();
+      const cRef = String(c.reference || "").trim().toUpperCase();
+      return Boolean(
+        (orderIdStr && cOrderId && cOrderId === orderIdStr) ||
+          (orderNumUpper && cRef && cRef === orderNumUpper)
+      );
+    });
+    cashPaidOnOrder = r2(
+      linkedCols.reduce((sum: number, c: any) => sum + Number(c.amount || 0) + Number(c.settlement_discount || 0), 0)
+    );
+  } else {
+    // Draft / Cancelled / Unsaved Preview: use live signed closing balance from master ledger
+    previousBalance = r2(ledger.closingBalance);
+    if (order.status === "Cancelled") {
+      cashPaidOnOrder = 0;
+    } else if (order.additional_paid !== undefined && order.additional_paid !== null) {
+      cashPaidOnOrder = Math.max(0, r2(Number(order.additional_paid)));
+    } else {
+      const rawPaid = Math.max(0, r2(Number(order.paid_amount ?? order.paidAmount ?? 0)));
+      const priorAdv = previousBalance < 0 ? Math.abs(previousBalance) : 0;
+      const impliedAdvUsed = Math.min(currentBill, priorAdv);
+      // Avoid double-counting advance if order.paid_amount included applied advance
+      cashPaidOnOrder = Math.max(0, r2(rawPaid - impliedAdvUsed));
+    }
+  }
+
+  const effectiveBillImpact = order.status === "Cancelled" ? 0 : currentBill;
+  const netBalance = r2(previousBalance + effectiveBillImpact - cashPaidOnOrder);
+  const previousDue = previousBalance > 0 ? previousBalance : 0;
+  const previousAdvance = previousBalance < 0 ? Math.abs(previousBalance) : 0;
+  const advanceAdjusted = previousAdvance > 0 ? r2(Math.min(effectiveBillImpact, previousAdvance)) : 0;
+  const netPayable = netBalance > 0 ? netBalance : 0;
+  const remainingAdvance = netBalance < 0 ? Math.abs(netBalance) : 0;
+
+  return {
+    subtotal,
+    discount,
+    currentBill,
+    previousBalance,
+    previousDue,
+    previousAdvance,
+    advanceAdjusted,
+    cashPaidOnOrder,
+    netBalance,
+    netPayable,
+    remainingAdvance,
+    foundInLedger,
+  };
+}
+
+export interface CollectionLedgerBalanceSnapshot {
+  /** Signed balance immediately BEFORE this collection (< 0 = Previous Advance, > 0 = Previous Due) */
+  previousBalance: number;
+  amountPaid: number;
+  settlementDiscount: number;
+  /** Signed balance immediately AFTER this collection (< 0 = Advance Deposit, > 0 = Remaining Due, 0 = Clear) */
+  remainingBalance: number;
+  remainingDue: number;
+  advanceDeposit: number;
+  foundInLedger: boolean;
+}
+
+/**
+ * Computes the exact historical before/after signed running balance for a specific collection receipt
+ * directly from the master chronological customer ledger.
+ *
+ * Ensures that:
+ * - Advance deposits (e.g. COL-0003 of ৳20,000) accurately show Previous Balance: ৳0 -> Advance Deposit: ৳20,000.
+ * - Subsequent collections (e.g. COL-0004 of ৳5,000 after a ৳30,000 order) accurately show Previous Due: ৳10,000 -> Remaining Due: ৳5,000.
+ * - Re-printing older receipts after newer orders/payments NEVER corrupts the receipt's balances.
+ */
+export function getCollectionLedgerBalanceSnapshot(
+  collection: any,
+  options?: {
+    orders?: any[];
+    collections?: any[];
+    customers?: Customer[];
+  }
+): CollectionLedgerBalanceSnapshot {
+  if (!collection) {
+    return {
+      previousBalance: 0,
+      amountPaid: 0,
+      settlementDiscount: 0,
+      remainingBalance: 0,
+      remainingDue: 0,
+      advanceDeposit: 0,
+      foundInLedger: false,
+    };
+  }
+
+  const amountPaid = r2(Number(collection.amount || 0));
+  const settlementDiscount = r2(Number(collection.settlement_discount || 0));
+  const totalCredit = r2(amountPaid + settlementDiscount);
+
+  const targetCustomerId = String(collection.customer_id || collection.customer?.id || "").trim();
+  const targetCustomer = targetCustomerId || collection.customer;
+
+  const allOrders = options?.orders !== undefined ? options.orders : getOrders();
+  const allCollections = options?.collections !== undefined ? options.collections : getCollections();
+
+  const ledger = getCustomerLedgerDetails(targetCustomer, allOrders, allCollections, {
+    persist: false,
+    customers: options?.customers,
+  });
+
+  const colIdStr = String(collection.id || "").trim();
+  const colNumUpper = String(collection.collection_number || "").trim().toUpperCase();
+
+  const matchedEntry = ledger.entries.find(
+    (entry) =>
+      entry.type === "Collection" &&
+      ((colIdStr && String(entry.id || "").trim() === colIdStr) ||
+        (colNumUpper && String(entry.ref || "").trim().toUpperCase() === colNumUpper))
+  );
+
+  if (matchedEntry) {
+    const remainingBalance = r2(matchedEntry.runningBalance);
+    const entryCredit = r2(matchedEntry.paymentAmount ?? totalCredit);
+    const previousBalance = r2(remainingBalance + entryCredit);
+    return {
+      previousBalance,
+      amountPaid,
+      settlementDiscount,
+      remainingBalance,
+      remainingDue: Math.max(0, remainingBalance),
+      advanceDeposit: remainingBalance < 0 ? Math.abs(remainingBalance) : 0,
+      foundInLedger: true,
+    };
+  }
+
+  // Fallback for unsaved/preview collection not yet persisted in ledger
+  const snapPrev =
+    collection.previous_due !== undefined && collection.previous_due !== null
+      ? Number(collection.previous_due)
+      : collection.previousDue !== undefined && collection.previousDue !== null
+      ? Number(collection.previousDue)
+      : null;
+
+  const previousBalance = snapPrev !== null ? r2(snapPrev) : r2(ledger.closingBalance);
+  const remainingBalance = r2(previousBalance - totalCredit);
+
+  return {
+    previousBalance,
+    amountPaid,
+    settlementDiscount,
+    remainingBalance,
+    remainingDue: Math.max(0, remainingBalance),
+    advanceDeposit: remainingBalance < 0 ? Math.abs(remainingBalance) : 0,
+    foundInLedger: false,
+  };
+}
 
 /**
  * BUG-014: Deterministic multi-tier chronological sorting and sequential running balance calculation.

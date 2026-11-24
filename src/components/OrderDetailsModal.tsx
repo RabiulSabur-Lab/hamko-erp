@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { type Order, supabase } from "@/lib/supabase";
-import { getOrders, getProducts } from "@/utils/localStore";
+import { getOrders, getProducts, getOrderLedgerBalanceSnapshot } from "@/utils/localStore";
 import { formatDate, formatBDT } from "@/lib/utils";
 import { resolveOrderProduct, formatTierLabel } from "@/utils/productUtils";
 import { Dialog } from "@/components/ui/dialog";
@@ -118,6 +118,7 @@ export function OrderDetailsModal({ open, onClose, order: initialOrder }: OrderD
   }
 
   const orderItems = deduplicateItems(order.order_items || (order as any).items || []);
+  const balanceSnapshot = getOrderLedgerBalanceSnapshot(order);
 
   return (
     <>
@@ -278,28 +279,50 @@ export function OrderDetailsModal({ open, onClose, order: initialOrder }: OrderD
             </Table>
           </div>
 
-          {/* Financial Summary */}
-          <div className="flex flex-col gap-1 border-t pt-3 text-sm">
-            {Number(order.discount || 0) > 0 && (
-              <div className="flex justify-between text-muted-foreground text-xs">
-                <span>Discount / Adjustment:</span>
-                <span>-{formatBDT(order.discount)}</span>
-              </div>
+          {/* Financial Summary (Synchronized with Master Ledger) */}
+          <div className="flex flex-col gap-1.5 border-t pt-3 text-sm">
+            {balanceSnapshot.discount > 0 && (
+              <>
+                <div className="flex justify-between text-muted-foreground text-xs">
+                  <span>Sub Total (Items):</span>
+                  <span>{formatBDT(balanceSnapshot.subtotal)}</span>
+                </div>
+                <div className="flex justify-between text-muted-foreground text-xs">
+                  <span>Discount / Adjustment:</span>
+                  <span>-{formatBDT(balanceSnapshot.discount)}</span>
+                </div>
+              </>
             )}
             <div className="flex justify-between font-bold text-base">
-              <span>Total Bill:</span>
-              <span className="text-primary">{formatBDT(order.total_amount)}</span>
+              <span>Current Bill (Total):</span>
+              <span className="text-primary">{formatBDT(balanceSnapshot.currentBill)}</span>
             </div>
-            {order.paid_amount !== undefined && (
-              <div className="flex justify-between text-xs text-emerald-600 font-medium">
-                <span>Paid Amount:</span>
-                <span>{formatBDT(order.paid_amount)}</span>
+            {balanceSnapshot.previousBalance < 0 ? (
+              <div className="flex justify-between text-xs text-emerald-600 dark:text-emerald-400 font-medium">
+                <span>Less: Previous Advance Deposit:</span>
+                <span>-{formatBDT(balanceSnapshot.previousAdvance)}</span>
+              </div>
+            ) : balanceSnapshot.previousBalance > 0 ? (
+              <div className="flex justify-between text-xs text-amber-600 dark:text-amber-400 font-medium">
+                <span>Add: Previous Due:</span>
+                <span>+{formatBDT(balanceSnapshot.previousDue)}</span>
+              </div>
+            ) : null}
+            {balanceSnapshot.cashPaidOnOrder > 0 && (
+              <div className="flex justify-between text-xs text-emerald-600 dark:text-emerald-400 font-medium">
+                <span>Less: Cash Paid on Invoice:</span>
+                <span>-{formatBDT(balanceSnapshot.cashPaidOnOrder)}</span>
               </div>
             )}
-            {order.due_amount !== undefined && (
-              <div className="flex justify-between text-xs text-amber-600 font-medium">
-                <span>Due Amount:</span>
-                <span>{formatBDT(order.due_amount)}</span>
+            {balanceSnapshot.netBalance < 0 ? (
+              <div className="flex justify-between font-bold text-sm border-t border-dashed pt-1.5 text-emerald-600 dark:text-emerald-400">
+                <span>Remaining Advance Deposit:</span>
+                <span>{formatBDT(balanceSnapshot.remainingAdvance)}</span>
+              </div>
+            ) : (
+              <div className="flex justify-between font-bold text-sm border-t border-dashed pt-1.5 text-amber-600 dark:text-amber-400">
+                <span>Net Payable (Ledger Balance):</span>
+                <span>{formatBDT(balanceSnapshot.netPayable)}</span>
               </div>
             )}
           </div>

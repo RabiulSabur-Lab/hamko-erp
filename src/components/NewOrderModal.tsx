@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Plus, X, Loader2, HelpCircle } from "lucide-react";
 import { formatBDT, cn } from "@/lib/utils";
-import { r2, getProducts, getCustomerLedgerDetails, STORAGE_KEYS, getDeletedIds } from "@/utils/localStore";
+import { r2, getProducts, getCustomerCurrentBalance, STORAGE_KEYS, getDeletedIds } from "@/utils/localStore";
 import { pullFreshCloudStateToLocalStore } from "@/utils/cloudSync";
 import { sanitizeFormulaInput, formatTierLabel } from "@/utils/productUtils";
 import { useI18n } from "@/lib/i18n";
@@ -340,16 +340,32 @@ export function NewOrderModal({
     return (customers || []).find((c) => c?.id === customerId);
   }, [customers, customerId]);
 
-  // Fetch customer's current ledger details to detect advance deposits
-  const customerLedger = useMemo(() => {
-    if (!selectedCustomer) return null;
-    return getCustomerLedgerDetails(selectedCustomer, undefined, undefined, { persist: false });
-  }, [selectedCustomer]);
+  // Live ledger revision tracker so customer balance updates immediately on storage/ledger mutations
+  const [ledgerRevision, setLedgerRevision] = useState(0);
+  useEffect(() => {
+    if (!open) return;
+    const bump = () => setLedgerRevision((r) => r + 1);
+    window.addEventListener("sales_erp_storage_update", bump);
+    window.addEventListener("customer_ledger_updated", bump);
+    window.addEventListener("storage", bump);
+    return () => {
+      window.removeEventListener("sales_erp_storage_update", bump);
+      window.removeEventListener("customer_ledger_updated", bump);
+      window.removeEventListener("storage", bump);
+    };
+  }, [open]);
 
-  const availableAdvance = useMemo(() => {
-    if (!customerLedger) return 0;
-    return customerLedger.closingBalance < 0 ? Math.abs(customerLedger.closingBalance) : 0;
-  }, [customerLedger]);
+  // Fetch customer's live signed running balance (excluding current order when editing so advance isn't hidden)
+  const customerBalance = useMemo(() => {
+    if (!selectedCustomer) return null;
+    return getCustomerCurrentBalance(selectedCustomer, {
+      excludeOrderId: isEditing ? order?.id : undefined,
+    });
+  }, [selectedCustomer, isEditing, order?.id, ledgerRevision]);
+
+  const availableAdvance = customerBalance?.advanceDeposit ?? 0;
+  const previousDueBalance = customerBalance?.currentDue ?? 0;
+  const signedPreviousBalance = customerBalance?.balance ?? 0;
 
   const [useAdvance, setUseAdvance] = useState(true);
 
@@ -746,6 +762,18 @@ export function NewOrderModal({
             />
           </div>
 
+          {/* Previous Ledger Due Alert (when customer has existing due) */}
+          {selectedCustomer && previousDueBalance > 0 && (
+            <div className="sm:col-span-2 lg:col-span-4 flex items-center justify-between p-2 rounded-lg border border-amber-300/70 bg-amber-50/70 dark:bg-amber-950/30 dark:border-amber-800 text-xs">
+              <span className="font-semibold text-amber-900 dark:text-amber-200">
+                Previous Ledger Due: {formatBDT(previousDueBalance)}
+              </span>
+              <span className="text-[11px] text-amber-700 dark:text-amber-400">
+                Included in invoice Net Payable
+              </span>
+            </div>
+          )}
+
           {/* Available Advance Deposit Alert / Badge */}
           {selectedCustomer && availableAdvance > 0 && (
             <div className="sm:col-span-2 lg:col-span-4 flex items-center justify-between p-2.5 rounded-lg border border-emerald-300 bg-emerald-50/90 dark:bg-emerald-950/40 dark:border-emerald-800 text-xs transition-all">
@@ -1109,11 +1137,38 @@ export function NewOrderModal({
 
             {/* Net Due Amount */}
             <div className="flex justify-between font-bold text-sm pt-1 border-t border-dashed">
-              <span className="text-foreground">Net Due Amount</span>
+              <span className="text-foreground">Net Order Due</span>
               <span className={calculatedDue > 0 ? "text-amber-600 font-mono text-base font-bold" : "text-emerald-600 font-mono text-base font-bold"}>
                 {formatBDT(calculatedDue)}
               </span>
             </div>
+
+            {/* Projected Live Account Balance After Order */}
+            {selectedCustomer && (() => {
+              const projectedBalance = r2(
+                signedPreviousBalance + (status === "Draft" || status === "Cancelled" ? 0 : total) - additionalCashPaid
+              );
+              return (
+                <div className="flex justify-between items-center text-xs px-2 py-1 rounded border bg-background/80">
+                  <span className="text-muted-foreground font-medium">Projected Ledger Balance</span>
+                  <span
+                    className={`font-mono font-bold ${
+                      projectedBalance < 0
+                        ? "text-emerald-600 dark:text-emerald-400"
+                        : projectedBalance > 0
+                        ? "text-amber-600 dark:text-amber-400"
+                        : "text-foreground"
+                    }`}
+                  >
+                    {projectedBalance < 0
+                      ? `Advance: ${formatBDT(Math.abs(projectedBalance))}`
+                      : projectedBalance > 0
+                      ? `Due: ${formatBDT(projectedBalance)}`
+                      : "Clear / ৳0"}
+                  </span>
+                </div>
+              );
+            })()}
 
             {/* Payment Breakdown Section */}
             <div className="border-t pt-2.5 space-y-2">

@@ -674,6 +674,7 @@ export function CustomersPage() {
                 {filtered.map((c) => {
                   const dueInfo = customerDueMap.get(c.id);
                   const currentDue = dueInfo ? dueInfo.due : Number(c.current_due || 0);
+                  const advanceDeposit = dueInfo?.advanceDeposit ?? 0;
                   const dueStatus = dueInfo ? dueInfo.status : (c.due_status || "Clear");
 
                   const secStatus = ((c as any).security_cheque_status || (c as any).securityChequeStatus || "").toLowerCase();
@@ -743,15 +744,19 @@ export function CustomersPage() {
                         </span>
                       </div>
 
-                      {/* Due Info & Quick Phone Call */}
+                      {/* Due / Advance Info & Quick Phone Call */}
                       <div className="flex items-center justify-between pt-1 border-t border-border/40">
                         <div className="flex items-center gap-2">
                           <div>
-                            <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Current Due</p>
-                            <p className="text-sm font-bold text-foreground">{formatBDT(currentDue)}</p>
+                            <p className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                              {advanceDeposit > 0 ? "Advance Deposit" : "Current Due"}
+                            </p>
+                            <p className={`text-sm font-bold ${advanceDeposit > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-foreground"}`}>
+                              {advanceDeposit > 0 ? formatBDT(advanceDeposit) : formatBDT(currentDue)}
+                            </p>
                           </div>
-                          <Badge variant={dueStatus === "Overdue" ? "destructive" : dueStatus === "Partial" ? "warning" : "success"} className="text-[10px] h-5">
-                            {t(dueStatus.toLowerCase())}
+                          <Badge variant={advanceDeposit > 0 ? "success" : dueStatus === "Overdue" ? "destructive" : dueStatus === "Partial" ? "warning" : "success"} className="text-[10px] h-5">
+                            {advanceDeposit > 0 ? "Advance" : t(dueStatus.toLowerCase())}
                           </Badge>
                         </div>
 
@@ -852,6 +857,7 @@ export function CustomersPage() {
                     {filtered.map((c) => {
                       const dueInfo = customerDueMap.get(c.id);
                       const currentDue = dueInfo ? dueInfo.due : Number(c.current_due || 0);
+                      const advanceDeposit = dueInfo?.advanceDeposit ?? 0;
                       const dueStatus = dueInfo ? dueInfo.status : (c.due_status || "Clear");
 
                       const secStatus = ((c as any).security_cheque_status || (c as any).securityChequeStatus || "").toLowerCase();
@@ -926,10 +932,18 @@ export function CustomersPage() {
                           <TableCell className="text-sm py-2.5 whitespace-nowrap">
                             <span>{c.phone ?? "—"}</span>
                           </TableCell>
-                          <TableCell className="text-right font-medium py-2.5 whitespace-nowrap">{formatBDT(currentDue)}</TableCell>
+                          <TableCell className="text-right font-medium py-2.5 whitespace-nowrap">
+                            {advanceDeposit > 0 ? (
+                              <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
+                                Advance: {formatBDT(advanceDeposit)}
+                              </span>
+                            ) : (
+                              formatBDT(currentDue)
+                            )}
+                          </TableCell>
                           <TableCell className="py-2.5 whitespace-nowrap">
-                            <Badge variant={dueStatus === "Overdue" ? "destructive" : dueStatus === "Partial" ? "warning" : "success"} className="text-[10px]">
-                              {t(dueStatus.toLowerCase())}
+                            <Badge variant={advanceDeposit > 0 ? "success" : dueStatus === "Overdue" ? "destructive" : dueStatus === "Partial" ? "warning" : "success"} className="text-[10px]">
+                              {advanceDeposit > 0 ? "Advance" : t(dueStatus.toLowerCase())}
                             </Badge>
                           </TableCell>
                           <TableCell className="text-right py-2.5 whitespace-nowrap sticky right-0 z-10 bg-white dark:bg-gray-800 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.1)]">

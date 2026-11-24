@@ -77,6 +77,8 @@ import {
   type Area,
   mergeAndEnrichCustomers,
   getCustomerLedgerDetails,
+  getCustomerCurrentBalance,
+  getOrderLedgerBalanceSnapshot,
   recalculateCustomerLedger,
   r2,
   dispatchGlobalStateUpdate,
@@ -765,7 +767,19 @@ export function OrdersPage() {
         const oldDue = Number(editingOrder.due_amount ?? (Number(editingOrder.total_amount) - Number(editingOrder.paid_amount))) || 0;
         const dueDiff = r2(editDue - oldDue);
         const oldPaid = Number(editingOrder.paid_amount) || 0;
-        const paidDiff = r2(editPaid - oldPaid);
+        const newCashPortion =
+          (orderFormData as any).additional_paid !== undefined
+            ? Math.max(0, r2(Number((orderFormData as any).additional_paid)))
+            : Math.max(0, r2(editPaid - Number((orderFormData as any).advance_applied || 0)));
+        const existingLinkedOrderCols = getCollections().filter(
+          (c: any) => String(c.order_id || "").trim() === String(editingOrder.id).trim()
+        );
+        const existingCashForOrder =
+          existingLinkedOrderCols.length > 0
+            ? r2(existingLinkedOrderCols.reduce((s: number, c: any) => s + Number(c.amount || 0), 0))
+            : Math.max(0, r2(oldPaid - Number((editingOrder as any).advance_applied || 0)));
+        // Only record a new collection for genuine additional cash received (never double-count applied advance)
+        const paidDiff = r2(newCashPortion - existingCashForOrder);
 
         // 1. Await direct Supabase update before modifying local state or notifying
         const cleanOrderUpdate = sanitizeOrderPayload({
@@ -841,13 +855,16 @@ export function OrdersPage() {
           }
         }
 
-        // 3. Handle linked collection if additional payment was made
+        // 3. Handle linked collection if additional cash payment was made
+        let createdEditCollection: Collection | null = null;
         if (paidDiff > 0) {
           const colNumber = generateCollectionNumber(getCollections());
           const colId = generateUuid();
           const colCreatedIso = new Date().toISOString();
-          const prevDueCalc = Number(customer?.current_due ?? 0);
-          const remDueCalc = Math.max(0, r2(prevDueCalc - paidDiff));
+          const preEditBal = orderFormData.customer_id
+            ? getCustomerCurrentBalance(orderFormData.customer_id).balance
+            : 0;
+          const remBalAfterPay = r2(preEditBal - paidDiff);
           const cleanColPayload = sanitizeCollectionPayload({
             id: colId,
             collection_number: colNumber,
@@ -864,23 +881,31 @@ export function OrdersPage() {
           const { error: colErr } = await supabase.from("collections").insert(cleanColPayload);
           if (colErr) {
             toast.error(`Payment collection insert failed: ${colErr.message}`);
+          } else {
+            const collectorDisplay = profile?.full_name || user?.user_metadata?.full_name || "Sales Officer";
+            createdEditCollection = {
+              id: colId,
+              collection_number: colNumber,
+              customer_id: orderFormData.customer_id,
+              order_id: editingOrder.id,
+              amount: paidDiff,
+              payment_method: (orderFormData.payment_method as any) || "Cash",
+              collection_date: orderFormData.order_date || colCreatedIso,
+              collected_by: (isValidUuid(profile?.id) ? profile?.id : (isValidUuid(user?.id) ? user?.id : null)) ?? null,
+              collector_name: collectorDisplay,
+              collected_by_name: collectorDisplay,
+              notes: `Payment for order ${editingOrder.order_number} (${editPayStatus})`,
+              created_at: colCreatedIso,
+              customer: customer || editingOrder.customer,
+              previous_due: preEditBal,
+              remaining_due: remBalAfterPay,
+              previousDue: preEditBal,
+              remainingDue: remBalAfterPay,
+            };
           }
         }
 
-        // 4. Update customer dues in Supabase
-        if (orderFormData.customer_id) {
-          const ledgerRes = recalculateCustomerLedger(orderFormData.customer_id, undefined, undefined, { persist: true });
-          await supabase
-            .from("customers")
-            .update({
-              current_due: ledgerRes.currentDue,
-              due_status: ledgerRes.dueStatus,
-              updated_at: new Date().toISOString(),
-            })
-            .eq("id", orderFormData.customer_id);
-        }
-
-        // 5. Stock adjustments if delivered
+        // 4. Stock adjustments if delivered
         const wasDelivered = editingOrder.status === "Delivered";
         const isDelivered = orderFormData.status === "Delivered";
         if (wasDelivered || isDelivered) {
@@ -904,7 +929,7 @@ export function OrdersPage() {
           });
         }
 
-        // 6. Update local state only AFTER Supabase confirms
+        // 5. Update local state & storage FIRST so ledger recalculation includes the updated order & collection
         const currentOfficerName =
           (editingOrder.sales_rep_id ? getSalesOfficerById(editingOrder.sales_rep_id)?.full_name : null) ||
           (editingOrder.sales_rep_id ? getUserName(editingOrder.sales_rep_id) : null) ||
@@ -935,7 +960,32 @@ export function OrdersPage() {
 
         setOrders((prev) => prev.map((item) => (item.id === editingOrder.id ? updatedOrderRecord : item)));
         const storedOrders = getOrders();
-        saveOrders(storedOrders.map((item) => (item.id === editingOrder.id ? updatedOrderRecord : item)));
+        const nextStoredOrders = storedOrders.map((item) => (item.id === editingOrder.id ? updatedOrderRecord : item));
+        saveOrders(nextStoredOrders);
+
+        let nextStoredCols = getCollections();
+        if (createdEditCollection) {
+          nextStoredCols = deduplicateCollections([createdEditCollection, ...nextStoredCols]);
+          saveCollections(nextStoredCols);
+        }
+
+        // 6. Recalculate master customer ledger with updated orders & collections and persist to Supabase
+        if (orderFormData.customer_id) {
+          const ledgerRes = recalculateCustomerLedger(
+            orderFormData.customer_id,
+            nextStoredOrders,
+            nextStoredCols,
+            { persist: true }
+          );
+          await supabase
+            .from("customers")
+            .update({
+              current_due: ledgerRes.currentDue,
+              due_status: ledgerRes.dueStatus,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", orderFormData.customer_id);
+        }
 
         dispatchGlobalStateUpdate({ customerId: orderFormData.customer_id, type: "order_updated" });
         toast.success(t("updated") || "Order updated successfully");
@@ -1031,10 +1081,16 @@ export function OrdersPage() {
         }
 
         // 3. Record linked collection if cash was received
+        let createdOrderCollection: Collection | null = null;
         if (additionalCash > 0) {
           const colNumber = generateCollectionNumber(getCollections());
           const colId = generateUuid();
           const colCreatedIso = new Date().toISOString();
+          const preOrderBal = orderFormData.customer_id
+            ? getCustomerCurrentBalance(orderFormData.customer_id).balance
+            : 0;
+          const prevBeforePay = r2(preOrderBal + (effectiveStatus === "Draft" ? 0 : total));
+          const remAfterPay = r2(prevBeforePay - additionalCash);
 
           const cleanColPayload = sanitizeCollectionPayload({
             id: colId,
@@ -1053,23 +1109,31 @@ export function OrdersPage() {
           if (colErr) {
             console.warn("Notice inserting collection to Supabase:", colErr.message);
           }
+
+          createdOrderCollection = {
+            id: colId,
+            collection_number: colNumber,
+            customer_id: orderFormData.customer_id,
+            order_id: realOrderId,
+            amount: additionalCash,
+            payment_method: (orderFormData.payment_method as any) || "Cash",
+            collection_date: orderFormData.order_date || colCreatedIso,
+            collected_by: repId,
+            collector_name: currentOfficerName,
+            collected_by_name: currentOfficerName,
+            collector: profile ? ({ id: profile.id, full_name: profile.full_name, email: profile.email } as any) : undefined,
+            notes: `Order ${orderNumber} payment (${payStatus})`,
+            created_at: colCreatedIso,
+            customer: customer || undefined,
+            previous_due: prevBeforePay,
+            remaining_due: remAfterPay,
+            previousDue: prevBeforePay,
+            remainingDue: remAfterPay,
+          };
         }
 
-        // 4. Update customer current_due in Supabase
-        if (orderFormData.customer_id) {
-          const ledgerRes = recalculateCustomerLedger(orderFormData.customer_id, undefined, undefined, { persist: true });
-          await supabase
-            .from("customers")
-            .update({
-              current_due: ledgerRes.currentDue,
-              due_status: ledgerRes.dueStatus,
-              updated_at: new Date().toISOString(),
-            })
-            .eq("id", orderFormData.customer_id);
-        }
-
-        // 5. Stock reduction if delivered
-        if (orderFormData.status === "Delivered") {
+        // 4. Stock reduction if delivered
+        if (effectiveStatus === "Delivered") {
           orderFormData.items.forEach((it) => {
             const qty = Number(it.quantity || 0);
             if (qty > 0) {
@@ -1078,7 +1142,7 @@ export function OrdersPage() {
           });
         }
 
-        // 6. Update local state
+        // 5. Update local state & storage FIRST so ledger recalculation includes the new order & collection
         const newOrderRecord: Order = {
           id: realOrderId,
           order_number: orderNumber,
@@ -1108,7 +1172,32 @@ export function OrdersPage() {
 
         setOrders((prev) => [newOrderRecord, ...prev]);
         const currentOrders = getOrders();
-        saveOrders([newOrderRecord, ...currentOrders.filter((o) => o.id !== realOrderId)]);
+        const nextStoredOrders = [newOrderRecord, ...currentOrders.filter((o) => o.id !== realOrderId)];
+        saveOrders(nextStoredOrders);
+
+        let nextStoredCols = getCollections();
+        if (createdOrderCollection) {
+          nextStoredCols = deduplicateCollections([createdOrderCollection, ...nextStoredCols]);
+          saveCollections(nextStoredCols);
+        }
+
+        // 6. Recalculate master customer ledger using the new order & collection and persist to Supabase
+        if (orderFormData.customer_id) {
+          const ledgerRes = recalculateCustomerLedger(
+            orderFormData.customer_id,
+            nextStoredOrders,
+            nextStoredCols,
+            { persist: true }
+          );
+          await supabase
+            .from("customers")
+            .update({
+              current_due: ledgerRes.currentDue,
+              due_status: ledgerRes.dueStatus,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", orderFormData.customer_id);
+        }
 
         dispatchGlobalStateUpdate({ customerId: orderFormData.customer_id, type: "order_created" });
         toast.success(t("created") || "Order created successfully");
@@ -1848,7 +1937,57 @@ export function OrdersPage() {
                 </TableBody>
               </Table>
             </div>
-            <div className="flex justify-between font-bold border-t pt-3"><span>{t("total")}</span><span className="text-primary">{formatBDT(viewing.total_amount)}</span></div>
+            {(() => {
+              const snap = getOrderLedgerBalanceSnapshot(viewing);
+              return (
+                <div className="space-y-1.5 border-t pt-3 text-sm">
+                  {snap.discount > 0 && (
+                    <>
+                      <div className="flex justify-between text-xs text-muted-foreground">
+                        <span>Sub Total (Items)</span>
+                        <span>{formatBDT(snap.subtotal)}</span>
+                      </div>
+                      <div className="flex justify-between text-xs text-muted-foreground">
+                        <span>Discount / Adjustment</span>
+                        <span>-{formatBDT(snap.discount)}</span>
+                      </div>
+                    </>
+                  )}
+                  <div className="flex justify-between font-bold text-base">
+                    <span>{t("total")}</span>
+                    <span className="text-primary">{formatBDT(snap.currentBill)}</span>
+                  </div>
+                  {snap.previousBalance < 0 ? (
+                    <div className="flex justify-between text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                      <span>Less: Previous Advance Deposit</span>
+                      <span>-{formatBDT(snap.previousAdvance)}</span>
+                    </div>
+                  ) : snap.previousBalance > 0 ? (
+                    <div className="flex justify-between text-xs font-medium text-amber-600 dark:text-amber-400">
+                      <span>Add: Previous Due</span>
+                      <span>+{formatBDT(snap.previousDue)}</span>
+                    </div>
+                  ) : null}
+                  {snap.cashPaidOnOrder > 0 && (
+                    <div className="flex justify-between text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                      <span>Less: Paid on Invoice</span>
+                      <span>-{formatBDT(snap.cashPaidOnOrder)}</span>
+                    </div>
+                  )}
+                  {snap.netBalance < 0 ? (
+                    <div className="flex justify-between font-bold text-sm border-t border-dashed pt-1.5 text-emerald-600 dark:text-emerald-400">
+                      <span>Remaining Advance Credit</span>
+                      <span>{formatBDT(snap.remainingAdvance)}</span>
+                    </div>
+                  ) : (
+                    <div className="flex justify-between font-bold text-sm border-t border-dashed pt-1.5 text-amber-600 dark:text-amber-400">
+                      <span>Net Payable</span>
+                      <span>{formatBDT(snap.netPayable)}</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         )}
       </Dialog>

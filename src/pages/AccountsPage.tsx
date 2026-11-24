@@ -58,6 +58,7 @@ import {
   reconcileCollectionsWithRemote,
   calculateCustomerDues,
   getCustomerLedgerDetails,
+  getCustomerCurrentBalance,
   recalculateCustomerLedger,
   updateCustomerBalance,
   refreshCustomers,
@@ -742,13 +743,13 @@ export function AccountsPage() {
           finalNotes = finalNotes ? `${chequeTag} · ${finalNotes}` : chequeTag;
         }
 
-        // 1. Instant local mutation (BUG-019 snapshot)
+        // 1. Instant local mutation with exact signed master ledger snapshot (preserves negative Advance Deposits)
         let prevDueCalc = 0;
         let remDueCalc = 0;
         if (form.customer_id) {
-          const details = getCustomerLedgerDetails(form.customer_id, undefined, undefined, { persist: false });
-          prevDueCalc = details.currentDue;
-          remDueCalc = Math.max(0, r2(prevDueCalc - amt));
+          const bal = getCustomerCurrentBalance(form.customer_id, { orders, collections });
+          prevDueCalc = bal.balance;
+          remDueCalc = r2(prevDueCalc - amt);
         }
 
         const currentOfficerName = getUserName(profile?.id || user?.id, "Sales Officer");
@@ -1739,22 +1740,42 @@ export function AccountsPage() {
                 {(() => {
                   const selectedCustomer = customers.find((c) => c.id === form.customer_id);
                   if (!selectedCustomer) return null;
-                  const dueInfo = dueMap.get(form.customer_id);
-                  const selectedCustomerDue =
-                    dueInfo?.due !== undefined
-                      ? dueInfo.due
-                      : getCustomerLedgerDetails(form.customer_id, orders, collections, { persist: false }).currentDue;
+                  const bal = getCustomerCurrentBalance(form.customer_id, { orders, collections });
+                  const enteredAmt = Number(form.amount) || 0;
+                  const projected = r2(bal.balance - enteredAmt);
                   return (
-                    <div className="flex items-center justify-between rounded-md border border-border/60 bg-muted/40 px-3 py-1.5 text-xs">
-                      <span className="text-muted-foreground font-medium">
-                        {t("currentDue" as string) || "Current Due"}
-                      </span>
-                      <Badge
-                        variant={selectedCustomerDue > 0 ? "destructive" : "secondary"}
-                        className="font-semibold text-xs px-2 py-0.5"
-                      >
-                        {formatBDT(selectedCustomerDue)}
-                      </Badge>
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between rounded-md border border-border/60 bg-muted/40 px-3 py-1.5 text-xs">
+                        <span className="text-muted-foreground font-medium">
+                          {bal.balance < 0 ? "Current Advance Deposit" : (t("currentDue" as string) || "Current Due")}
+                        </span>
+                        <Badge
+                          variant={bal.balance > 0 ? "destructive" : bal.balance < 0 ? "success" : "secondary"}
+                          className="font-semibold text-xs px-2 py-0.5"
+                        >
+                          {bal.balance < 0 ? `Advance: ${formatBDT(bal.advanceDeposit)}` : formatBDT(bal.currentDue)}
+                        </Badge>
+                      </div>
+                      {enteredAmt > 0 && (
+                        <div className="flex items-center justify-between rounded-md border border-dashed border-border/60 bg-background px-3 py-1 text-[11px]">
+                          <span className="text-muted-foreground">Balance After Collection</span>
+                          <span
+                            className={`font-semibold ${
+                              projected < 0
+                                ? "text-emerald-600 dark:text-emerald-400"
+                                : projected > 0
+                                ? "text-amber-600 dark:text-amber-400"
+                                : "text-foreground"
+                            }`}
+                          >
+                            {projected < 0
+                              ? `Advance Deposit: ${formatBDT(Math.abs(projected))}`
+                              : projected > 0
+                              ? `Remaining Due: ${formatBDT(projected)}`
+                              : "Clear / ৳0"}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   );
                 })()}

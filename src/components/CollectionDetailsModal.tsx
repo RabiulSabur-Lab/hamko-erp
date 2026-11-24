@@ -11,6 +11,7 @@ import {
   getCustomers,
   parseCustomerNotes,
   calculateCustomerDues,
+  getCollectionLedgerBalanceSnapshot,
 } from "@/utils/localStore";
 import { Printer, CheckCircle2 } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
@@ -298,39 +299,15 @@ export function CollectionDetailsModal({
     ? "বকেয়া সমন্বয়"
     : "Due Settlement";
 
-  // 3. Balance Breakdown: Previous Due, Amount Paid, Remaining Due
-  // HISTORICAL SNAPSHOT (BUG-019): Strictly prioritize snapshotted historical previous_due and remaining_due
-  // so viewing or re-printing old receipts displays the exact balance snapshot recorded at collection time.
-  const amountPaid = Number(collection.amount || 0);
+  // 3. Synchronized Historical Balance Breakdown directly from Master Chronological Ledger
+  // Ensures exact before/after running balance (including negative Advance Deposits) across all devices & re-prints.
+  const ledgerSnap = getCollectionLedgerBalanceSnapshot(collection);
+  const amountPaid = ledgerSnap.amountPaid;
+  const previousBalance = ledgerSnap.previousBalance;
+  const remainingBalance = ledgerSnap.remainingBalance;
 
-  const snapshottedPrevDue =
-    collection.previous_due !== undefined && collection.previous_due !== null
-      ? Number(collection.previous_due)
-      : collection.previousDue !== undefined && collection.previousDue !== null
-      ? Number(collection.previousDue)
-      : null;
-
-  const snapshottedRemDue =
-    collection.remaining_due !== undefined && collection.remaining_due !== null
-      ? Number(collection.remaining_due)
-      : collection.remainingDue !== undefined && collection.remainingDue !== null
-      ? Number(collection.remainingDue)
-      : null;
-
-  // Fallback to customer's current balance only if historical collection record lacks a snapshot
-  const liveCustomerDue = Number(cust?.current_due ?? cust?.currentDue ?? 0);
-
-  const previousDue =
-    snapshottedPrevDue !== null
-      ? snapshottedPrevDue
-      : isAdvance && liveCustomerDue === 0
-      ? 0
-      : Math.max(0, liveCustomerDue + amountPaid);
-
-  const remainingDue =
-    snapshottedRemDue !== null
-      ? snapshottedRemDue
-      : Math.max(0, previousDue - amountPaid);
+  const previousDue = previousBalance;
+  const remainingDue = remainingBalance;
 
   // 4. Amount in Words (localized)
   const inWords = numberToWords(collection.amount, isBn ? "bn" : "en");
@@ -442,10 +419,18 @@ export function CollectionDetailsModal({
                 <div className="grid grid-cols-3 gap-2 bg-muted/40 p-2.5 rounded-lg border border-border/60 text-center">
                   <div className="px-1">
                     <p className="text-[11px] text-muted-foreground font-medium">
-                      {isBn ? "পূর্বের বকেয়া" : "Previous Due"}
+                      {previousDue < 0
+                        ? (isBn ? "পূর্বের অগ্রিম" : "Previous Advance")
+                        : (isBn ? "পূর্বের বকেয়া" : "Previous Due")}
                     </p>
-                    <p className="text-sm font-bold text-foreground mt-0.5">
-                      {formatBDT(previousDue)}
+                    <p
+                      className={`text-sm font-bold mt-0.5 ${
+                        previousDue < 0
+                          ? "text-emerald-600 dark:text-emerald-400"
+                          : "text-foreground"
+                      }`}
+                    >
+                      {formatBDT(Math.abs(previousDue))}
                     </p>
                   </div>
                   <div className="border-x border-border/60 px-1">
@@ -458,7 +443,11 @@ export function CollectionDetailsModal({
                   </div>
                   <div className="px-1">
                     <p className="text-[11px] text-muted-foreground font-medium">
-                      {isBn ? "বর্তমান অবশিষ্ট বকেয়া" : "Remaining Due"}
+                      {remainingDue < 0
+                        ? (isBn ? "অগ্রিম জমা" : "Advance Deposit")
+                        : remainingDue > 0
+                        ? (isBn ? "বর্তমান অবশিষ্ট বকেয়া" : "Remaining Due")
+                        : (isBn ? "পরিশোধিত" : "Balance Clear")}
                     </p>
                     <p
                       className={`text-sm font-black mt-0.5 ${
@@ -467,7 +456,7 @@ export function CollectionDetailsModal({
                           : "text-emerald-600 dark:text-emerald-400"
                       }`}
                     >
-                      {formatBDT(remainingDue)}
+                      {formatBDT(Math.abs(remainingDue))}
                     </p>
                   </div>
                 </div>
@@ -885,11 +874,11 @@ export function CollectionDetailsModal({
               marginBottom: "16px",
             }}
           >
-            {/* Card 1: Previous Due */}
+            {/* Card 1: Previous Due / Previous Advance */}
             <div
               style={{
-                backgroundColor: "#f9fafb",
-                border: "1px solid #e5e7eb",
+                backgroundColor: previousDue < 0 ? "#f0fdf4" : "#f9fafb",
+                border: previousDue < 0 ? "1px solid #bbf7d0" : "1px solid #e5e7eb",
                 borderRadius: "6px",
                 padding: "10px 12px",
                 textAlign: "center",
@@ -899,22 +888,24 @@ export function CollectionDetailsModal({
                 style={{
                   fontSize: "11px",
                   fontWeight: "600",
-                  color: "#6b7280",
+                  color: previousDue < 0 ? "#065f46" : "#6b7280",
                   textTransform: "uppercase",
                   letterSpacing: "0.3px",
                 }}
               >
-                {isBn ? "পূর্বের বকেয়া" : "Previous Due"}
+                {previousDue < 0
+                  ? (isBn ? "পূর্বের অগ্রিম" : "Previous Advance")
+                  : (isBn ? "পূর্বের বকেয়া" : "Previous Due")}
               </div>
               <div
                 style={{
                   fontSize: "15px",
                   fontWeight: "700",
-                  color: "#1f2937",
+                  color: previousDue < 0 ? "#047857" : "#1f2937",
                   marginTop: "4px",
                 }}
               >
-                {formatBDT(previousDue)}
+                {formatBDT(Math.abs(previousDue))}
               </div>
             </div>
 
@@ -951,7 +942,7 @@ export function CollectionDetailsModal({
               </div>
             </div>
 
-            {/* Card 3: Remaining Due */}
+            {/* Card 3: Remaining Due / Advance Deposit */}
             <div
               style={{
                 backgroundColor: remainingDue > 0 ? "#fffbeb" : "#f0fdf4",
@@ -970,7 +961,11 @@ export function CollectionDetailsModal({
                   letterSpacing: "0.3px",
                 }}
               >
-                {isBn ? "বর্তমান অবশিষ্ট বকেয়া" : "Remaining Due"}
+                {remainingDue < 0
+                  ? (isBn ? "অগ্রিম জমা" : "Advance Deposit")
+                  : remainingDue > 0
+                  ? (isBn ? "বর্তমান অবশিষ্ট বকেয়া" : "Remaining Due")
+                  : (isBn ? "পরিশোধিত" : "Balance Clear")}
               </div>
               <div
                 style={{
@@ -980,7 +975,7 @@ export function CollectionDetailsModal({
                   marginTop: "4px",
                 }}
               >
-                {formatBDT(remainingDue)}
+                {formatBDT(Math.abs(remainingDue))}
               </div>
             </div>
           </div>

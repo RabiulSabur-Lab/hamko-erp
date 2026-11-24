@@ -39,6 +39,7 @@ import {
   dispatchGlobalStateUpdate,
   deduplicateCollections,
   getCustomerLedgerDetails,
+  getCustomerCurrentBalance,
   adjustProductStock,
   generateOrderNumber,
   generateCollectionNumber,
@@ -326,16 +327,29 @@ export function OrderCreate() {
     return (customers || []).find((c) => c?.id === customerId);
   }, [customers, customerId]);
 
-  // Fetch customer's current ledger details to detect advance deposits
-  const customerLedger = useMemo(() => {
-    if (!selectedCustomer) return null;
-    return getCustomerLedgerDetails(selectedCustomer, undefined, undefined, { persist: false });
-  }, [selectedCustomer]);
+  // Track live ledger/storage mutations so customer balance is never stale
+  const [ledgerRevision, setLedgerRevision] = useState(0);
+  useEffect(() => {
+    const bump = () => setLedgerRevision((r) => r + 1);
+    window.addEventListener("sales_erp_storage_update", bump);
+    window.addEventListener("customer_ledger_updated", bump);
+    window.addEventListener("storage", bump);
+    return () => {
+      window.removeEventListener("sales_erp_storage_update", bump);
+      window.removeEventListener("customer_ledger_updated", bump);
+      window.removeEventListener("storage", bump);
+    };
+  }, []);
 
-  const availableAdvance = useMemo(() => {
-    if (!customerLedger) return 0;
-    return customerLedger.closingBalance < 0 ? Math.abs(customerLedger.closingBalance) : 0;
-  }, [customerLedger]);
+  // Fetch customer's live signed running balance from unified master ledger helper
+  const customerBalance = useMemo(() => {
+    if (!selectedCustomer) return null;
+    return getCustomerCurrentBalance(selectedCustomer);
+  }, [selectedCustomer, ledgerRevision]);
+
+  const availableAdvance = customerBalance?.advanceDeposit ?? 0;
+  const previousDueBalance = customerBalance?.currentDue ?? 0;
+  const signedPreviousBalance = customerBalance?.balance ?? 0;
 
   const [useAdvance, setUseAdvance] = useState(true);
   const userToggledAdvanceRef = useRef(false);
@@ -892,38 +906,13 @@ export function OrderCreate() {
         }
       }
 
-      // 4. Update customer dues in Supabase
-      const latestCustDetails = getCustomerLedgerDetails(customerId);
-      const nextDue = r2(latestCustDetails.currentDue);
-      const nextDueStatus = nextDue <= 0 ? "Clear" : "Partial";
-      const cleanCustUpdate = sanitizeCustomerPayload({
-        current_due: nextDue,
-        due_status: nextDueStatus,
-      });
-      await supabase
-        .from("customers")
-        .update({
-          ...cleanCustUpdate,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", customerId);
-
-      // 5. Stock reduction if delivered
-      if (status === "Delivered") {
-        for (const it of validItems) {
-          const qty = Number(it.quantity) || 0;
-          if (qty > 0) {
-            adjustProductStock(it.product_id, -qty, "Main Warehouse");
-          }
-        }
-      }
-
-      // 6. Update local storage caches after confirmed server persistence
+      // 4. Update local storage caches FIRST so master ledger recalculation includes the new order & collection
       const existingOrders = getOrders();
-      saveOrders([newOrderRecord, ...existingOrders]);
+      const updatedOrdersList = [newOrderRecord, ...existingOrders.filter((o) => o.id !== orderId)];
+      saveOrders(updatedOrdersList);
 
+      let updatedCollectionsList = getCollections();
       if (additionalCashPaid > 0) {
-        const nextCollections = getCollections();
         const newCollection: Collection = {
           id: colId,
           collection_number: colNumber,
@@ -939,8 +928,44 @@ export function OrderCreate() {
           notes: `Payment for order ${orderNumber} (${paymentStatusType})`,
           created_at: colCreatedIso,
           customer: selectedCustomer ? { ...selectedCustomer } : undefined,
+          previous_due: r2(signedPreviousBalance + (finalOrderStatus === "Draft" ? 0 : total)),
+          remaining_due: r2(signedPreviousBalance + (finalOrderStatus === "Draft" ? 0 : total) - additionalCashPaid),
+          previousDue: r2(signedPreviousBalance + (finalOrderStatus === "Draft" ? 0 : total)),
+          remainingDue: r2(signedPreviousBalance + (finalOrderStatus === "Draft" ? 0 : total) - additionalCashPaid),
         };
-        saveCollections(deduplicateCollections([newCollection, ...nextCollections]));
+        updatedCollectionsList = deduplicateCollections([newCollection, ...updatedCollectionsList]);
+        saveCollections(updatedCollectionsList);
+      }
+
+      // 5. Recalculate customer dues using the updated order & collection arrays and sync locally + Supabase
+      const latestCustDetails = recalculateCustomerLedger(
+        customerId,
+        updatedOrdersList,
+        updatedCollectionsList,
+        { persist: true }
+      );
+      const nextDue = r2(latestCustDetails.currentDue);
+      const nextDueStatus = latestCustDetails.dueStatus;
+      const cleanCustUpdate = sanitizeCustomerPayload({
+        current_due: nextDue,
+        due_status: nextDueStatus,
+      });
+      await supabase
+        .from("customers")
+        .update({
+          ...cleanCustUpdate,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", customerId);
+
+      // 6. Stock reduction if delivered
+      if (finalOrderStatus === "Delivered") {
+        for (const it of validItems) {
+          const qty = Number(it.quantity) || 0;
+          if (qty > 0) {
+            adjustProductStock(it.product_id, -qty, "Main Warehouse");
+          }
+        }
       }
 
       dispatchGlobalStateUpdate({ customerId, type: "order_created" });
@@ -1033,6 +1058,23 @@ export function OrderCreate() {
                 <option value="Delivered">Delivered</option>
               </Select>
             </div>
+
+            {/* Live Customer Previous Due Alert (when customer has existing due) */}
+            {selectedCustomer && previousDueBalance > 0 && (
+              <div className="sm:col-span-2 lg:col-span-4 flex items-center justify-between p-2.5 rounded-lg border border-amber-300/70 bg-amber-50/70 dark:bg-amber-950/30 dark:border-amber-800 text-xs">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-amber-200/80 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300 font-bold">
+                    ৳
+                  </span>
+                  <span className="font-semibold text-amber-900 dark:text-amber-200">
+                    Previous Ledger Due: {formatBDT(previousDueBalance)}
+                  </span>
+                </div>
+                <span className="text-[11px] text-amber-700 dark:text-amber-400">
+                  Will carry forward into Net Payable on invoice
+                </span>
+              </div>
+            )}
 
             {/* Available Advance Deposit Alert / Badge */}
             {selectedCustomer && availableAdvance > 0 && (
@@ -1417,11 +1459,38 @@ export function OrderCreate() {
 
             {/* Net Due Amount */}
             <div className="flex justify-between font-bold text-sm pt-1 border-t border-dashed">
-              <span className="text-foreground">Net Due Amount</span>
+              <span className="text-foreground">Net Order Due</span>
               <span className={calculatedDue > 0 ? "text-amber-600 font-mono text-base font-bold" : "text-emerald-600 font-mono text-base font-bold"}>
                 {formatBDT(calculatedDue)}
               </span>
             </div>
+
+            {/* Projected Live Account Balance After Order */}
+            {selectedCustomer && (() => {
+              const projectedBalance = r2(signedPreviousBalance + (status === "Draft" ? 0 : total) - additionalCashPaid);
+              return (
+                <div className="flex justify-between items-center text-xs px-2.5 py-1.5 rounded-md border bg-background/80">
+                  <span className="text-muted-foreground font-medium">
+                    Projected Ledger Balance
+                  </span>
+                  <span
+                    className={`font-mono font-bold ${
+                      projectedBalance < 0
+                        ? "text-emerald-600 dark:text-emerald-400"
+                        : projectedBalance > 0
+                        ? "text-amber-600 dark:text-amber-400"
+                        : "text-foreground"
+                    }`}
+                  >
+                    {projectedBalance < 0
+                      ? `Advance: ${formatBDT(Math.abs(projectedBalance))}`
+                      : projectedBalance > 0
+                      ? `Due: ${formatBDT(projectedBalance)}`
+                      : "Clear / ৳0"}
+                  </span>
+                </div>
+              );
+            })()}
 
             {/* Payment Section */}
             <div className="border-t pt-3 space-y-2.5">

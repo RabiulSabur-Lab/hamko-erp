@@ -1,6 +1,6 @@
 import { createPortal } from "react-dom";
 import { type Order } from "@/lib/supabase";
-import { STORAGE_KEYS, getLocalData, r2 } from "@/utils/localStore";
+import { STORAGE_KEYS, getLocalData, r2, getOrderLedgerBalanceSnapshot } from "@/utils/localStore";
 import { resolveOrderProduct, formatTierLabel } from "@/utils/productUtils";
 import { useUsers } from "@/context/UsersContext";
 
@@ -88,31 +88,21 @@ export function OrderPrintInvoice({ order }: { order: Order }) {
   });
   const totalQty = items.reduce((s: number, it: any) => s + (Number(it.quantity) || 0), 0);
 
-  const lineItemTotal = r2(items.reduce((s: number, it: any) => s + Number(it.subtotal || 0), 0));
-  const creditAdjust = r2(Number(order.discount || 0));
-  const currentBill = r2(lineItemTotal - creditAdjust);
-
   // Look up latest customer record from local cache or order.customer
   const customers = getLocalData<any>(STORAGE_KEYS.CUSTOMERS, []);
   const custRecord = (order.customer_id ? customers.find((c: any) => c.id === order.customer_id) : null) || order.customer;
-  const totalCustomerDue = r2(Number(custRecord?.current_due ?? order.customer?.current_due ?? 0));
 
-  // The order's due contribution
-  const orderDue = r2(Number(order.due_amount !== undefined ? order.due_amount : currentBill));
-
-  // 1. If customer.current_due already includes the current order (e.g. 6,000 BDT >= 5,000 BDT),
-  //    calculate previousDue = customer.current_due - orderDue = 1,000 BDT.
-  // 2. If customer.current_due < orderDue (e.g. 1,000 BDT < 5,000 BDT, customer.current_due was not yet updated),
-  //    then customer.current_due is already the previous balance before this order.
-  let previousDue = 0;
-  if (totalCustomerDue >= orderDue && orderDue > 0) {
-    previousDue = r2(totalCustomerDue - orderDue);
-  } else {
-    previousDue = totalCustomerDue;
-  }
-
-  const paidAmt = r2(Number(order.paid_amount ?? (order as any).paidAmount ?? 0));
-  const netPayable = r2(previousDue + (paidAmt > 0 ? orderDue : currentBill));
+  // Synchronize financial breakdown directly from the chronological master customer ledger.
+  // Guarantees prior Advance Deposits reduce Net Payable (never added or double-counted).
+  const ledgerSnapshot = getOrderLedgerBalanceSnapshot(order);
+  const lineItemTotal = ledgerSnapshot.subtotal;
+  const creditAdjust = ledgerSnapshot.discount;
+  const currentBill = ledgerSnapshot.currentBill;
+  const previousBalance = ledgerSnapshot.previousBalance;
+  const cashPaidOnOrder = ledgerSnapshot.cashPaidOnOrder;
+  const netBalance = ledgerSnapshot.netBalance;
+  const netPayable = ledgerSnapshot.netPayable;
+  const remainingAdvance = ledgerSnapshot.remainingAdvance;
 
   const invoiceElement = (
     <div
@@ -270,15 +260,17 @@ export function OrderPrintInvoice({ order }: { order: Order }) {
           </div>
           <div className="pi-meta-row" style={{ display: "flex", gap: "6px" }}>
             <span className="pi-meta-label" style={{ fontWeight: "bold", minWidth: "80px" }}>Address:</span>
-            <span className="pi-meta-value">{[order.customer?.address, order.customer?.city].filter(Boolean).join(", ") || "—"}</span>
+            <span className="pi-meta-value">
+              {[custRecord?.address || order.customer?.address, custRecord?.area || custRecord?.city || order.customer?.city].filter(Boolean).join(", ") || "—"}
+            </span>
           </div>
           <div className="pi-meta-row" style={{ display: "flex", gap: "6px" }}>
             <span className="pi-meta-label" style={{ fontWeight: "bold", minWidth: "80px" }}>Contact:</span>
-            <span className="pi-meta-value">{order.customer?.phone ?? "—"}</span>
+            <span className="pi-meta-value">{custRecord?.phone ?? order.customer?.phone ?? "—"}</span>
           </div>
           <div className="pi-meta-row" style={{ display: "flex", gap: "6px" }}>
             <span className="pi-meta-label" style={{ fontWeight: "bold", minWidth: "80px" }}>NID:</span>
-            <span className="pi-meta-value">{order.customer?.trade_license_number ?? "—"}</span>
+            <span className="pi-meta-value">{custRecord?.trade_license_number ?? order.customer?.trade_license_number ?? "—"}</span>
           </div>
         </div>
       </div>
@@ -334,30 +326,56 @@ export function OrderPrintInvoice({ order }: { order: Order }) {
           <p className="pi-summary-qty">Sub TOTAL: {totalQty} Pcs</p>
         </div>
         <div className="pi-summary-right">
+          {creditAdjust > 0 && (
+            <>
+              <div className="pi-sum-row">
+                <span>Sub Total (Items)</span>
+                <span>{formatBDT(lineItemTotal)}</span>
+              </div>
+              <div className="pi-sum-row">
+                <span>Less: Discount / Adjustment</span>
+                <span>- {formatBDT(creditAdjust)}</span>
+              </div>
+            </>
+          )}
           <div className="pi-sum-row pi-sum-grand">
             <span>Current Bill (Grand Total)</span>
             <span>{formatBDT(currentBill)}</span>
           </div>
-          {paidAmt > 0 && (
+          {previousBalance < 0 ? (
             <div className="pi-sum-row">
-              <span>Paid Amount</span>
-              <span>- {formatBDT(paidAmt)}</span>
+              <span>Less: Previous Advance Deposit</span>
+              <span>- {formatBDT(Math.abs(previousBalance))}</span>
+            </div>
+          ) : (
+            <div className="pi-sum-row">
+              <span>Previous Due</span>
+              <span>{formatBDT(previousBalance)}</span>
             </div>
           )}
-          {creditAdjust > 0 && (
+          {cashPaidOnOrder > 0 && (
             <div className="pi-sum-row">
-              <span>Credit / Adjustments</span>
-              <span>- {formatBDT(creditAdjust)}</span>
+              <span>Less: Paid on Invoice</span>
+              <span>- {formatBDT(cashPaidOnOrder)}</span>
             </div>
           )}
-          <div className="pi-sum-row">
-            <span>Previous Due</span>
-            <span>{formatBDT(previousDue)}</span>
-          </div>
-          <div className="pi-sum-row pi-sum-net">
-            <span>Net Payable</span>
-            <span>{formatBDT(netPayable)}</span>
-          </div>
+          {netBalance < 0 ? (
+            <>
+              <div className="pi-sum-row">
+                <span>Remaining Advance Credit</span>
+                <span>{formatBDT(remainingAdvance)}</span>
+              </div>
+              <div className="pi-sum-row pi-sum-net">
+                <span>Net Payable</span>
+                <span>{formatBDT(0)}</span>
+              </div>
+            </>
+          ) : (
+            <div className="pi-sum-row pi-sum-net">
+              <span>Net Payable</span>
+              <span>{formatBDT(netPayable)}</span>
+            </div>
+          )}
         </div>
       </div>
 

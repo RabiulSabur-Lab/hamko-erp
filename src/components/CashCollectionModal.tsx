@@ -23,6 +23,7 @@ import {
   getOrders,
   calculateCustomerDues,
   getCustomerLedgerDetails,
+  getCustomerCurrentBalance,
   recalculateCustomerLedger,
   updateCustomerBalance,
   refreshCustomers,
@@ -231,32 +232,42 @@ export function CashCollectionModal({
 
   const selectedCustomer: Customer | undefined = customers.find((c: Customer) => c.id === customerId);
 
-  // Dynamic Due Calculation: directly compute live from ledger (Opening Balance + Total Orders - Total Collections)
-  const selectedCustomerDue = React.useMemo(() => {
-    if (!customerId) return 0;
-    const ledger = getCustomerLedgerDetails(customerId, allOrders);
-    if (ledger && typeof ledger.currentDue === "number" && !isNaN(ledger.currentDue)) {
-      return ledger.currentDue;
-    }
-    return Number(
-      (selectedCustomer as any)?.currentDue !== undefined
-        ? (selectedCustomer as any).currentDue
-        : selectedCustomer?.current_due !== undefined
-        ? selectedCustomer.current_due
-        : (selectedCustomer as any)?.totalDue !== undefined
-        ? (selectedCustomer as any)?.totalDue
-        : 0
-    );
-  }, [customerId, selectedCustomer, allOrders]);
+  const [ledgerRevision, setLedgerRevision] = useState(0);
+  useEffect(() => {
+    const bump = () => setLedgerRevision((r) => r + 1);
+    window.addEventListener("sales_erp_storage_update", bump);
+    window.addEventListener("customer_ledger_updated", bump);
+    window.addEventListener("storage", bump);
+    return () => {
+      window.removeEventListener("sales_erp_storage_update", bump);
+      window.removeEventListener("customer_ledger_updated", bump);
+      window.removeEventListener("storage", bump);
+    };
+  }, []);
+
+  // Unified Signed Running Balance Calculation from Master Ledger
+  // Positive = Current Due, Negative = Advance Deposit
+  const selectedCustomerBalance = React.useMemo(() => {
+    if (!customerId) return null;
+    return getCustomerCurrentBalance(customerId, {
+      orders: allOrders,
+      excludeCollectionId: editingCollection?.id,
+    });
+  }, [customerId, selectedCustomer, allOrders, editingCollection?.id, ledgerRevision]);
+
+  const selectedCustomerSignedBalance = selectedCustomerBalance?.balance ?? 0;
+  const selectedCustomerDue = selectedCustomerBalance?.currentDue ?? 0;
+  const selectedCustomerAdvance = selectedCustomerBalance?.advanceDeposit ?? 0;
 
   const numericAmount = Number(amount) || 0;
+  const activeSettlementDisc = enableSettlementDiscount && isUserAdmin ? (Number(settlementDiscount) || 0) : 0;
+  const projectedBalanceAfter = r2(selectedCustomerSignedBalance - numericAmount - activeSettlementDisc);
   const isOverCollection = Boolean(
     customerId &&
     numericAmount > 0 &&
-    selectedCustomerDue >= 0 &&
-    numericAmount > selectedCustomerDue
+    projectedBalanceAfter < 0
   );
-  const excessAmount = Math.max(0, r2(numericAmount - selectedCustomerDue));
+  const resultingAdvanceAmount = projectedBalanceAfter < 0 ? Math.abs(projectedBalanceAfter) : 0;
 
   async function handleSave(e?: React.FormEvent | React.MouseEvent) {
     if (e && typeof e.preventDefault === "function") {
@@ -320,18 +331,15 @@ export function CashCollectionModal({
         finalNote = finalNote ? `${finalNote} · ${discTag}` : discTag;
       }
 
-      // Calculate balance snapshot for receipt (BUG-019 & BUG-015)
+      // Calculate exact signed balance snapshot for receipt from master ledger (preserves negative Advance Deposits)
       let prevDueCalc = 0;
       let remDueCalc = 0;
       if (targetCustomer?.id) {
-        if (isEditing && editingCollection?.previous_due !== undefined && editingCollection?.previous_due !== null) {
-          prevDueCalc = Number(editingCollection.previous_due);
-        } else if (isEditing && editingCollection?.previousDue !== undefined && editingCollection?.previousDue !== null) {
-          prevDueCalc = Number(editingCollection.previousDue);
-        } else {
-          const details = getCustomerLedgerDetails(targetCustomer.id);
-          prevDueCalc = details.currentDue;
-        }
+        const balanceBefore = getCustomerCurrentBalance(targetCustomer.id, {
+          orders: allOrders,
+          excludeCollectionId: isEditing ? editingCollection?.id : undefined,
+        });
+        prevDueCalc = balanceBefore.balance;
 
         if (discAmt > 0 && discAmt > Math.max(0, r2(prevDueCalc - amt))) {
           toast.error("Settlement discount cannot exceed the remaining balance");
@@ -339,8 +347,8 @@ export function CashCollectionModal({
           return;
         }
 
-        // Exact cash collection reduces customer balance, with any authorized settlement discount transparently factored in
-        remDueCalc = Math.max(0, r2(prevDueCalc - amt - discAmt));
+        // Exact signed post-collection balance (negative = Advance Deposit, positive = Remaining Due)
+        remDueCalc = r2(prevDueCalc - amt - discAmt);
       }
 
       const currentOfficerName = profile?.full_name || "Sales Officer";
@@ -614,17 +622,27 @@ export function CashCollectionModal({
             })}
           </Select>
 
-          {/* Clean info text / badge displaying customer.currentDue when selected */}
+          {/* Live Signed Account Status (Current Due or Advance Deposit) from Master Ledger */}
           {selectedCustomer && (
             <div className="flex items-center justify-between rounded-md border border-border/60 bg-muted/40 px-3 py-1.5 text-xs">
               <span className="text-muted-foreground font-medium">
-                {t("currentDue" as string) || "Current Due"}
+                {selectedCustomerSignedBalance < 0
+                  ? (isBengaliMode() ? "বর্তমান অগ্রিম জমা" : "Current Advance Deposit")
+                  : (t("currentDue" as string) || "Current Due")}
               </span>
               <Badge
-                variant={selectedCustomerDue > 0 ? "destructive" : "secondary"}
+                variant={
+                  selectedCustomerSignedBalance > 0
+                    ? "destructive"
+                    : selectedCustomerSignedBalance < 0
+                    ? "success"
+                    : "secondary"
+                }
                 className="font-semibold text-xs px-2 py-0.5"
               >
-                {formatBDT(selectedCustomerDue)}
+                {selectedCustomerSignedBalance < 0
+                  ? `Advance: ${formatBDT(selectedCustomerAdvance)}`
+                  : formatBDT(selectedCustomerDue)}
               </Badge>
             </div>
           )}
@@ -671,14 +689,18 @@ export function CashCollectionModal({
           </div>
         </div>
 
-        {/* Real-time Over-collection Warning Badge (LOW-002) */}
+        {/* Real-time Advance Deposit Credit Notice */}
         {isOverCollection && (
-          <div className="rounded-md border border-amber-500/30 bg-amber-50 dark:bg-amber-950/20 p-2.5 text-xs text-amber-800 dark:text-amber-300 flex items-start gap-2 animate-in fade-in">
-            <Info className="h-4 w-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+          <div className="rounded-md border border-emerald-500/30 bg-emerald-50 dark:bg-emerald-950/20 p-2.5 text-xs text-emerald-800 dark:text-emerald-300 flex items-start gap-2 animate-in fade-in">
+            <Info className="h-4 w-4 shrink-0 mt-0.5 text-emerald-600 dark:text-emerald-400" />
             <p>
-              {isBengaliMode()
-                ? `বিজ্ঞপ্তি: প্রবেশ করানো পরিমাণ মোট বকেয়ার (${formatBDT(selectedCustomerDue)}) চেয়ে বেশি। অবশিষ্ট ${formatBDT(excessAmount)} টাকা অগ্রিম জমা হিসেবে ক্রেডিট হবে।`
-                : `Note: Entered amount exceeds total due (${formatBDT(selectedCustomerDue)}). Remaining ${formatBDT(excessAmount)} will be credited as Advance Deposit.`}
+              {selectedCustomerSignedBalance < 0
+                ? isBengaliMode()
+                  ? `বিজ্ঞপ্তি: গ্রাহকের ইতিমধ্যে ${formatBDT(selectedCustomerAdvance)} অগ্রিম জমা রয়েছে। এই আদায়ের পর মোট অগ্রিম জমা হবে ${formatBDT(resultingAdvanceAmount)}।`
+                  : `Note: Customer already holds ${formatBDT(selectedCustomerAdvance)} Advance Deposit. Total Advance Deposit after this collection will be ${formatBDT(resultingAdvanceAmount)}.`
+                : isBengaliMode()
+                  ? `বিজ্ঞপ্তি: প্রবেশ করানো পরিমাণ মোট বকেয়ার (${formatBDT(selectedCustomerDue)}) চেয়ে বেশি। অবশিষ্ট ${formatBDT(resultingAdvanceAmount)} টাকা অগ্রিম জমা হিসেবে ক্রেডিট হবে।`
+                  : `Note: Entered amount exceeds total due (${formatBDT(selectedCustomerDue)}). Remaining ${formatBDT(resultingAdvanceAmount)} will be credited as Advance Deposit.`}
             </p>
           </div>
         )}
