@@ -211,11 +211,11 @@ export const AIInsightsWidget = memo(function AIInsightsWidget({
     : null;
 
   return (
-    <Card className="border border-border/80 shadow-sm bg-gradient-to-br from-card via-card to-primary/5 overflow-hidden">
-      <CardHeader className="pb-3 border-b border-border/40 bg-muted/20">
+    <Card className="bg-gradient-to-br from-white/80 via-white/75 to-sky-50/70 dark:from-slate-900/75 dark:via-slate-900/65 dark:to-primary/10 overflow-hidden">
+      <CardHeader className="pb-3 border-b border-slate-200/60 dark:border-slate-800/70 bg-white/40 dark:bg-slate-900/40">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="flex items-center gap-2.5">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary shadow-xs">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-sky-500/12 text-sky-600 dark:bg-sky-500/15 dark:text-sky-400 ring-1 ring-inset ring-sky-500/20">
               <Sparkles className="h-5 w-5" />
             </span>
             <div>

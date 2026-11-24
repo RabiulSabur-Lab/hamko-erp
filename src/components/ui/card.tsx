@@ -1,11 +1,20 @@
 import { type HTMLAttributes, forwardRef } from "react";
 import { cn } from "@/lib/utils";
 
-export const Card = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
-  ({ className, ...props }, ref) => (
+export interface CardProps extends HTMLAttributes<HTMLDivElement> {
+  interactive?: boolean;
+}
+
+export const Card = forwardRef<HTMLDivElement, CardProps>(
+  ({ className, interactive = false, ...props }, ref) => (
     <div
       ref={ref}
-      className={cn("rounded-xl border bg-card text-card-foreground shadow-sm", className)}
+      className={cn(
+        "rounded-2xl border border-white/60 bg-white/75 text-card-foreground backdrop-blur-xl shadow-lg shadow-slate-200/40 apple-glass-rim transition-all duration-300 dark:border-slate-800/80 dark:bg-slate-900/65 dark:shadow-none print:rounded-lg print:border-slate-300 print:bg-white print:shadow-none print:backdrop-blur-none",
+        interactive &&
+          "hover:-translate-y-0.5 hover:shadow-xl hover:shadow-slate-200/60 hover:border-white/90 dark:hover:border-slate-700 dark:hover:bg-slate-900/80",
+        className,
+      )}
       {...props}
     />
   ),

@@ -94,7 +94,7 @@ export const Sidebar: FC<SidebarProps> = ({ open, onClose, unreadCount = 0 }) =>
   return (
     <aside
       className={cn(
-        "fixed inset-y-0 left-0 z-40 w-64 transform border-r bg-sidebar text-sidebar-foreground transition-transform duration-300 ease-in-out lg:translate-x-0 shadow-lg lg:shadow-none",
+        "fixed inset-y-0 left-0 z-40 w-64 transform border-r border-white/60 dark:border-slate-800/80 bg-white/80 dark:bg-slate-950/85 backdrop-blur-xl text-sidebar-foreground transition-transform duration-300 ease-in-out lg:translate-x-0 shadow-xl shadow-slate-200/40 dark:shadow-none",
         open ? "translate-x-0" : "-translate-x-full",
       )}
     >

@@ -812,40 +812,48 @@ export function SfaPage() {
     <div className="space-y-4">
       {/* Summary Stats */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Card>
+        <Card interactive>
           <CardContent className="p-4">
-            <div className="flex items-center gap-2">
-              <MapPin className="h-4 w-4 text-sky-600" />
-              <p className="text-xs text-muted-foreground">{t("today")} {t("visitLog" as string) || "Visits"}</p>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs font-medium text-muted-foreground truncate">{t("today")} {t("visitLog" as string) || "Visits"}</p>
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-sky-500/12 text-sky-600 dark:bg-sky-500/15 dark:text-sky-400 ring-1 ring-inset ring-sky-500/20">
+                <MapPin className="h-4 w-4" />
+              </div>
             </div>
-            <p className="text-xl font-bold mt-2">{todayVisits.length}</p>
+            <p className="text-2xl font-bold tabular-nums tracking-tight mt-2 text-foreground">{todayVisits.length}</p>
           </CardContent>
         </Card>
-        <Card>
+        <Card interactive>
           <CardContent className="p-4">
-            <div className="flex items-center gap-2">
-              <Route className="h-4 w-4 text-blue-600" />
-              <p className="text-xs text-muted-foreground">{t("routePlan") || "Planned Routes"}</p>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs font-medium text-muted-foreground truncate">{t("routePlan") || "Planned Routes"}</p>
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-500/12 text-blue-600 dark:bg-blue-500/15 dark:text-blue-400 ring-1 ring-inset ring-blue-500/20">
+                <Route className="h-4 w-4" />
+              </div>
             </div>
-            <p className="text-xl font-bold mt-2">{routes.length}</p>
+            <p className="text-2xl font-bold tabular-nums tracking-tight mt-2 text-foreground">{routes.length}</p>
           </CardContent>
         </Card>
-        <Card>
+        <Card interactive>
           <CardContent className="p-4">
-            <div className="flex items-center gap-2">
-              <Target className="h-4 w-4 text-amber-600" />
-              <p className="text-xs text-muted-foreground">{t("salesTarget")}</p>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs font-medium text-muted-foreground truncate">{t("salesTarget")}</p>
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-500/12 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400 ring-1 ring-inset ring-amber-500/20">
+                <Target className="h-4 w-4" />
+              </div>
             </div>
-            <p className="text-xl font-bold mt-2">{targets.length}</p>
+            <p className="text-2xl font-bold tabular-nums tracking-tight mt-2 text-foreground">{targets.length}</p>
           </CardContent>
         </Card>
-        <Card>
+        <Card interactive>
           <CardContent className="p-4">
-            <div className="flex items-center gap-2">
-              <TrendingUp className="h-4 w-4 text-emerald-600" />
-              <p className="text-xs text-muted-foreground">{t("activeCustomers")}</p>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs font-medium text-muted-foreground truncate">{t("activeCustomers")}</p>
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-500/12 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400 ring-1 ring-inset ring-emerald-500/20">
+                <TrendingUp className="h-4 w-4" />
+              </div>
             </div>
-            <p className="text-xl font-bold mt-2">
+            <p className="text-2xl font-bold tabular-nums tracking-tight mt-2 text-foreground">
               {customers.filter((c: any) => (c.status === "Active" || !c.status) && c.status !== "Inactive" && c.is_active !== false).length}
             </p>
           </CardContent>

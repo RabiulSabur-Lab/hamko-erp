@@ -884,22 +884,37 @@ export function ReportsPage() {
 
       {/* Summary KPI Cards Bar */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <Card>
+        <Card interactive>
           <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">{summaryMetrics.title1}</p>
-            <p className="text-xl font-bold mt-1 text-sky-600">{summaryMetrics.val1}</p>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs font-medium text-muted-foreground truncate">{summaryMetrics.title1}</p>
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-sky-500/12 text-sky-600 dark:bg-sky-500/15 dark:text-sky-400 ring-1 ring-inset ring-sky-500/20">
+                <BarChart3 className="h-4 w-4" />
+              </div>
+            </div>
+            <p className="text-xl font-bold tabular-nums tracking-tight mt-2 text-sky-600 dark:text-sky-400">{summaryMetrics.val1}</p>
           </CardContent>
         </Card>
-        <Card>
+        <Card interactive>
           <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">{summaryMetrics.title2}</p>
-            <p className="text-xl font-bold mt-1 text-emerald-600">{summaryMetrics.val2}</p>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs font-medium text-muted-foreground truncate">{summaryMetrics.title2}</p>
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-500/12 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400 ring-1 ring-inset ring-emerald-500/20">
+                <CheckCircle2 className="h-4 w-4" />
+              </div>
+            </div>
+            <p className="text-xl font-bold tabular-nums tracking-tight mt-2 text-emerald-600 dark:text-emerald-400">{summaryMetrics.val2}</p>
           </CardContent>
         </Card>
-        <Card>
+        <Card interactive>
           <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">{summaryMetrics.title3}</p>
-            <p className="text-xl font-bold mt-1 text-amber-600">{summaryMetrics.val3}</p>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs font-medium text-muted-foreground truncate">{summaryMetrics.title3}</p>
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-500/12 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400 ring-1 ring-inset ring-amber-500/20">
+                <AlertCircle className="h-4 w-4" />
+              </div>
+            </div>
+            <p className="text-xl font-bold tabular-nums tracking-tight mt-2 text-amber-600 dark:text-amber-400">{summaryMetrics.val3}</p>
           </CardContent>
         </Card>
       </div>

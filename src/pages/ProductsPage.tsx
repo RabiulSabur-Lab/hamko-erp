@@ -13,7 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { EmptyState } from "@/components/ui/empty";
 import { formatBDT, toBnDigit } from "@/lib/utils";
 import { exportToExcel } from "@/lib/export";
-import { Plus, Search, Pencil, Trash2, Download, Package, Loader2, ExternalLink, HelpCircle, Info, X } from "lucide-react";
+import { Plus, Search, Pencil, Trash2, Download, Package, Layers, Loader2, ExternalLink, HelpCircle, Info, X } from "lucide-react";
 import { useRouter } from "@/router";
 import { toast } from "sonner";
 import { useAutoSync } from "@/hooks/useAutoSync";
@@ -877,8 +877,28 @@ export function ProductsPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">{t("products")}</p><p className="text-xl font-bold mt-1">{lang === "bn" ? toBnDigit(products.length) : products.length}</p></CardContent></Card>
-        <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">{t("allCategories")}</p><p className="text-xl font-bold mt-1">{lang === "bn" ? toBnDigit(categories.length) : categories.length}</p></CardContent></Card>
+        <Card interactive>
+          <CardContent className="p-4 flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-medium text-muted-foreground">{t("products")}</p>
+              <p className="text-2xl font-bold tabular-nums tracking-tight mt-1 text-foreground">{lang === "bn" ? toBnDigit(products.length) : products.length}</p>
+            </div>
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sky-500/12 text-sky-600 dark:bg-sky-500/15 dark:text-sky-400 ring-1 ring-inset ring-sky-500/20">
+              <Package className="h-5 w-5" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card interactive>
+          <CardContent className="p-4 flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-medium text-muted-foreground">{t("allCategories")}</p>
+              <p className="text-2xl font-bold tabular-nums tracking-tight mt-1 text-foreground">{lang === "bn" ? toBnDigit(categories.length) : categories.length}</p>
+            </div>
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-500/12 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-400 ring-1 ring-inset ring-indigo-500/20">
+              <Layers className="h-5 w-5" />
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       <Card className="overflow-hidden">

@@ -14,7 +14,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { EmptyState } from "@/components/ui/empty";
 import { formatBDT, toBnDigit } from "@/lib/utils";
 import { exportToExcel } from "@/lib/export";
-import { Search, Download, Warehouse, Loader2, RefreshCw } from "lucide-react";
+import { Search, Download, Warehouse, Loader2, RefreshCw, AlertTriangle, PackageX, DollarSign, PackageCheck } from "lucide-react";
 import { useRouter } from "@/router";
 import { toast } from "sonner";
 import { useAutoSync } from "@/hooks/useAutoSync";
@@ -369,47 +369,75 @@ export function InventoryPage() {
       {/* Metric Summary Cards */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <Card
-          className={`cursor-pointer transition-all hover:shadow-sm ${statusFilter === "all" ? "ring-2 ring-primary/40 bg-primary/5" : ""}`}
+          interactive
+          className={`cursor-pointer ${statusFilter === "all" ? "ring-2 ring-primary/40 bg-sky-50/75 dark:bg-sky-950/30" : ""}`}
           onClick={() => setStatusFilter("all")}
         >
           <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground font-medium">{t("products")}</p>
-            <p className="text-2xl font-bold mt-1 text-foreground">{lang === "bn" ? toBnDigit(products.length) : products.length}</p>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs text-muted-foreground font-medium truncate">{t("products")}</p>
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-sky-500/12 text-sky-600 dark:bg-sky-500/15 dark:text-sky-400 ring-1 ring-inset ring-sky-500/20">
+                <Warehouse className="h-4 w-4" />
+              </div>
+            </div>
+            <p className="text-2xl font-bold tabular-nums tracking-tight mt-2 text-foreground">{lang === "bn" ? toBnDigit(products.length) : products.length}</p>
           </CardContent>
         </Card>
 
         <Card
-          className={`cursor-pointer transition-all hover:shadow-sm ${statusFilter === "low" ? "ring-2 ring-amber-500/40 bg-amber-50/50 dark:bg-amber-950/20" : ""}`}
+          interactive
+          className={`cursor-pointer ${statusFilter === "low" ? "ring-2 ring-amber-500/40 bg-amber-50/75 dark:bg-amber-950/30" : ""}`}
           onClick={() => setStatusFilter(statusFilter === "low" ? "all" : "low")}
         >
           <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground font-medium">{t("lowStockAlert")}</p>
-            <p className="text-2xl font-bold mt-1 text-amber-600">{lang === "bn" ? toBnDigit(lowStock.length) : lowStock.length}</p>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs text-muted-foreground font-medium truncate">{t("lowStockAlert")}</p>
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-500/12 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400 ring-1 ring-inset ring-amber-500/20">
+                <AlertTriangle className="h-4 w-4" />
+              </div>
+            </div>
+            <p className="text-2xl font-bold tabular-nums tracking-tight mt-2 text-amber-600 dark:text-amber-400">{lang === "bn" ? toBnDigit(lowStock.length) : lowStock.length}</p>
           </CardContent>
         </Card>
 
         <Card
-          className={`cursor-pointer transition-all hover:shadow-sm ${statusFilter === "out" ? "ring-2 ring-rose-500/40 bg-rose-50/50 dark:bg-rose-950/20" : ""}`}
+          interactive
+          className={`cursor-pointer ${statusFilter === "out" ? "ring-2 ring-rose-500/40 bg-rose-50/75 dark:bg-rose-950/30" : ""}`}
           onClick={() => setStatusFilter(statusFilter === "out" ? "all" : "out")}
         >
           <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground font-medium">{t("outOfStock")}</p>
-            <p className="text-2xl font-bold mt-1 text-rose-600">{lang === "bn" ? toBnDigit(outOfStock.length) : outOfStock.length}</p>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs text-muted-foreground font-medium truncate">{t("outOfStock")}</p>
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-rose-500/12 text-rose-600 dark:bg-rose-500/15 dark:text-rose-400 ring-1 ring-inset ring-rose-500/20">
+                <PackageX className="h-4 w-4" />
+              </div>
+            </div>
+            <p className="text-2xl font-bold tabular-nums tracking-tight mt-2 text-rose-600 dark:text-rose-400">{lang === "bn" ? toBnDigit(outOfStock.length) : outOfStock.length}</p>
           </CardContent>
         </Card>
 
         {isSuperAdmin ? (
-          <Card className="transition-all">
+          <Card interactive>
             <CardContent className="p-4">
-              <p className="text-xs text-muted-foreground font-medium">{t("totalStockValue")}</p>
-              <p className="text-2xl font-bold mt-1 text-foreground">{formatBDT(calculateInventoryStockValue(products))}</p>
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs text-muted-foreground font-medium truncate">{t("totalStockValue")}</p>
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-500/12 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400 ring-1 ring-inset ring-emerald-500/20">
+                  <DollarSign className="h-4 w-4" />
+                </div>
+              </div>
+              <p className="text-2xl font-bold tabular-nums tracking-tight mt-2 text-foreground">{formatBDT(calculateInventoryStockValue(products))}</p>
             </CardContent>
           </Card>
         ) : (
-          <Card className="transition-all">
+          <Card interactive>
             <CardContent className="p-4">
-              <p className="text-xs text-muted-foreground font-medium">{t("availableSkus")}</p>
-              <p className="text-2xl font-bold mt-1 text-primary">{lang === "bn" ? toBnDigit(availableSkusCount) : availableSkusCount}</p>
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs text-muted-foreground font-medium truncate">{t("availableSkus")}</p>
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-500/12 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400 ring-1 ring-inset ring-emerald-500/20">
+                  <PackageCheck className="h-4 w-4" />
+                </div>
+              </div>
+              <p className="text-2xl font-bold tabular-nums tracking-tight mt-2 text-primary">{lang === "bn" ? toBnDigit(availableSkusCount) : availableSkusCount}</p>
             </CardContent>
           </Card>
         )}

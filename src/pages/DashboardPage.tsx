@@ -139,14 +139,14 @@ function KpiSkeleton() {
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-7">
       {Array.from({ length: 7 }).map((_, i) => (
-        <Card key={i} className="overflow-hidden rounded-lg border-border">
+        <Card key={i} className="overflow-hidden">
           <CardContent className="p-4 space-y-3">
             <div className="flex items-start justify-between">
-              <div className="h-9 w-9 rounded-lg bg-muted animate-pulse" />
-              <div className="h-5 w-12 rounded bg-muted animate-pulse" />
+              <div className="h-9 w-9 rounded-xl bg-muted/70 animate-pulse" />
+              <div className="h-5 w-12 rounded-full bg-muted/70 animate-pulse" />
             </div>
-            <div className="h-3 w-24 rounded bg-muted animate-pulse mt-3" />
-            <div className="h-6 w-20 rounded bg-muted animate-pulse" />
+            <div className="h-3 w-24 rounded bg-muted/70 animate-pulse mt-3" />
+            <div className="h-6 w-20 rounded bg-muted/70 animate-pulse" />
           </CardContent>
         </Card>
       ))}
@@ -710,7 +710,7 @@ export function DashboardPage() {
         {/* 2A. Mobile Tab 1: 3-Column Rounded Icon Card Grid + Corporate Summary Cards */}
         {mobileTab === "dashboard" ? (
           <>
-            <div className="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-card p-3.5 shadow-xs space-y-3">
+            <div className="rounded-2xl apple-glass-card p-3.5 space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-extrabold text-[#0a2540] dark:text-sky-300 uppercase tracking-wide">
                   {lang === "bn" ? "কর্পোরেট মডিউল ও সেবা (Quick Modules)" : "Enterprise Modules"}
@@ -729,7 +729,7 @@ export function DashboardPage() {
                       key={mod.key}
                       type="button"
                       onClick={mod.onClick}
-                      className="group flex flex-col items-center justify-center rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/60 hover:bg-blue-50/60 dark:hover:bg-slate-800/80 p-3 text-center shadow-2xs transition-all active:scale-95 focus:outline-none"
+                      className="group flex flex-col items-center justify-center rounded-2xl border border-white/70 dark:border-slate-800/80 bg-white/60 dark:bg-slate-900/55 backdrop-blur-md hover:bg-white/90 dark:hover:bg-slate-800/80 p-3 text-center shadow-xs transition-all active:scale-95 focus:outline-none"
                     >
                       <div
                         className={`flex h-11 w-11 items-center justify-center rounded-2xl border shadow-2xs ${mod.iconStyle}`}
@@ -756,18 +756,18 @@ export function DashboardPage() {
                   <div
                     key={card.label}
                     onClick={() => navigate(card.route)}
-                    className="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-card p-3.5 shadow-2xs cursor-pointer active:scale-[0.99] transition-transform"
+                    className="rounded-2xl apple-glass-card p-3.5 cursor-pointer hover:-translate-y-0.5 hover:shadow-xl dark:hover:border-slate-700 active:scale-[0.99] transition-all duration-300"
                   >
                     <div className="flex items-center justify-between">
-                      <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#0f3460]/10 dark:bg-sky-500/15 text-[#0f3460] dark:text-sky-300">
-                        <Icon className="h-4 w-4" />
+                      <div className={`flex h-8 w-8 items-center justify-center rounded-xl ${card.bg} ring-1 ring-inset ring-black/[0.04] dark:ring-white/[0.08]`}>
+                        <Icon className={`h-4 w-4 ${card.color}`} />
                       </div>
                       <Badge variant={card.up ? "success" : "secondary"} className="text-[9.5px] px-1.5 py-0">
                         {card.trend}
                       </Badge>
                     </div>
                     <p className="text-[11px] font-medium text-muted-foreground mt-2 truncate">{card.label}</p>
-                    <p className="text-sm font-extrabold text-foreground mt-0.5 truncate">{card.value}</p>
+                    <p className="text-sm font-extrabold tabular-nums text-foreground mt-0.5 truncate">{card.value}</p>
                   </div>
                 );
               })}
@@ -776,7 +776,7 @@ export function DashboardPage() {
         ) : (
           /* 2B. Mobile Tab 2: Timeline & Card-Based List Modules (Recent Orders & Top Products) */
           <div className="space-y-3.5">
-            <div className="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-card p-3.5 shadow-xs space-y-2.5">
+            <div className="rounded-2xl apple-glass-card p-3.5 space-y-2.5">
               <div className="flex items-center justify-between border-b border-border/60 pb-2">
                 <div className="flex items-center gap-1.5">
                   <Clock className="h-4 w-4 text-[#0f3460] dark:text-sky-400" />
@@ -911,16 +911,17 @@ export function DashboardPage() {
               return (
                 <Card
                   key={card.label}
-                  className="overflow-hidden rounded-lg border-border cursor-pointer transition-all hover:border-primary/40 hover:shadow-sm flex flex-col justify-between"
+                  interactive
+                  className="overflow-hidden cursor-pointer flex flex-col justify-between"
                   onClick={() => navigate(card.route)}
                 >
                   <CardContent className="p-4 flex flex-col justify-between h-full">
                     <div>
-                      <div className="flex items-start justify-between">
-                        <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${card.bg}`}>
+                      <div className="flex items-start justify-between gap-1.5">
+                        <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${card.bg} ring-1 ring-inset ring-black/[0.04] dark:ring-white/[0.08]`}>
                           <Icon className={`h-4 w-4 ${card.color}`} />
                         </div>
-                        <Badge variant={card.up ? "success" : "secondary"} className="text-[10px]">
+                        <Badge variant={card.up ? "success" : "secondary"} className="text-[10px] shrink-0">
                           {card.up ? (
                             <ArrowUpRight className="h-2.5 w-2.5 mr-0.5" />
                           ) : (
@@ -929,10 +930,10 @@ export function DashboardPage() {
                           {card.trend}
                         </Badge>
                       </div>
-                      <p className="text-xs text-muted-foreground mt-3">{card.label}</p>
-                      <p className="text-base md:text-lg font-bold mt-0.5 truncate">{card.value}</p>
+                      <p className="text-xs font-medium text-muted-foreground mt-3 truncate">{card.label}</p>
+                      <p className="text-base md:text-lg font-bold tabular-nums tracking-tight mt-0.5 truncate">{card.value}</p>
                       {card.subtitle && (
-                        <p className="text-[10px] text-muted-foreground/80 mt-0.5 font-medium truncate">
+                        <p className="text-[10px] text-muted-foreground/85 mt-0.5 font-medium truncate">
                           {card.subtitle}
                         </p>
                       )}
@@ -998,7 +999,7 @@ export function DashboardPage() {
             </div>
           )}
         >
-          <Card className="lg:col-span-2 min-w-0 min-h-[320px] overflow-hidden rounded-lg border-border shadow-2xs">
+          <Card className="lg:col-span-2 min-w-0 min-h-[320px] overflow-hidden">
             <CardHeader className="pb-2">
               <CardTitle className="text-base font-bold">{t("salesTrend")}</CardTitle>
             </CardHeader>
@@ -1054,7 +1055,7 @@ export function DashboardPage() {
             />
           )}
         >
-          <Card className="min-w-0 min-h-[320px] overflow-hidden rounded-lg border-border shadow-2xs">
+          <Card className="min-w-0 min-h-[320px] overflow-hidden">
             <CardHeader className="pb-2">
               <CardTitle className="text-base font-bold">{t("salesByStatus")}</CardTitle>
             </CardHeader>
@@ -1099,7 +1100,7 @@ export function DashboardPage() {
             />
           )}
         >
-          <Card className="overflow-hidden rounded-lg border-border shadow-2xs">
+          <Card className="overflow-hidden">
             <CardHeader className="pb-2 flex flex-row items-center justify-between">
               <CardTitle className="text-base font-bold">{t("topSellingProducts")}</CardTitle>
               <Badge variant="outline" className="rounded-md px-2 text-[11px] font-medium text-muted-foreground">Top 5</Badge>
@@ -1116,7 +1117,7 @@ export function DashboardPage() {
               ) : (
                 <div className="space-y-2">
                   {topProducts.map((p, idx) => (
-                    <div key={p.id || p.name} className="flex items-center justify-between rounded-lg border border-border p-3 hover:bg-muted/30 transition-colors">
+                    <div key={p.id || p.name} className="flex items-center justify-between rounded-xl border border-white/60 dark:border-slate-800/70 bg-white/55 dark:bg-slate-800/40 p-3 hover:bg-white/85 dark:hover:bg-slate-800/70 transition-colors">
                       <div className="flex items-center gap-3 min-w-0 flex-1">
                         <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary/10 text-xs font-bold text-primary">
                           {idx + 1}
@@ -1152,7 +1153,7 @@ export function DashboardPage() {
             />
           )}
         >
-          <Card className="overflow-hidden rounded-lg border-border shadow-2xs">
+          <Card className="overflow-hidden">
             <CardHeader className="pb-2 flex flex-row items-center justify-between">
               <CardTitle className="text-base font-bold">{t("recentOrders")}</CardTitle>
               <Button variant="ghost" size="sm" onClick={() => navigate("orders")} className="rounded-md text-xs gap-1">
@@ -1173,7 +1174,7 @@ export function DashboardPage() {
                   {recentOrders.map((o, idx) => {
                     const statusLabel = String(o?.status || "Pending");
                     return (
-                      <div key={o?.id || o?.order_number || idx} className="flex items-center justify-between rounded-lg border border-border p-3 hover:bg-muted/30 transition-colors">
+                      <div key={o?.id || o?.order_number || idx} className="flex items-center justify-between rounded-xl border border-white/60 dark:border-slate-800/70 bg-white/55 dark:bg-slate-800/40 p-3 hover:bg-white/85 dark:hover:bg-slate-800/70 transition-colors">
                         <div className="min-w-0 flex-1">
                           <p className="text-sm font-semibold truncate">{o?.order_number || "—"}</p>
                           <p className="text-xs text-muted-foreground truncate">{o?.customer?.name ?? "—"}</p>

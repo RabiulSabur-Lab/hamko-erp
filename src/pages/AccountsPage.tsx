@@ -1143,45 +1143,87 @@ export function AccountsPage() {
     <div className="space-y-4">
       {/* KPI cards */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
-        <Card className="border-teal-200/80 dark:border-teal-800/60 bg-teal-50/30 dark:bg-teal-950/20"><CardContent className="p-4">
-          <div className="flex items-center gap-2"><Wallet className="h-4 w-4 text-teal-600" /><p className="text-xs font-medium text-teal-800 dark:text-teal-300">{t("todaysCollection") || (lang === "bn" ? "আজকের কালেকশন" : "Today's Collection")}</p></div>
-          <p className="text-xl font-bold mt-2 text-teal-700 dark:text-teal-400">{formatBDT(todayCollection, lang)}</p>
-          <p className="text-[11px] text-muted-foreground mt-1">
-            {lang === "bn"
-              ? `আজ ${toBnDigit(todayCollectionCount)}টি রিসিট আদায়`
-              : `${todayCollectionCount} ${todayCollectionCount === 1 ? "receipt" : "receipts"} today`}
-          </p>
-        </CardContent></Card>
-        <Card><CardContent className="p-4">
-          <div className="flex items-center gap-2"><DollarSign className="h-4 w-4 text-emerald-600" /><p className="text-xs text-muted-foreground">{t("totalCollection")}</p></div>
-          <p className="text-xl font-bold mt-2 text-emerald-600">{formatBDT(totalCollection)}</p>
-        </CardContent></Card>
-        {isManagerOrAdmin ? (
-          <Card><CardContent className="p-4">
-            <div className="flex items-center gap-2"><TrendingDown className="h-4 w-4 text-rose-600" /><p className="text-xs text-muted-foreground">{t("totalExpenses")}</p></div>
-            <p className="text-xl font-bold mt-2 text-rose-600">{formatBDT(totalExpense)}</p>
-            <div className="flex items-center gap-1.5 mt-1 text-[11px] text-muted-foreground">
-              <span>OPEX: {formatBDT(opexExpense)}</span>
-              <span>•</span>
-              <span>Supplier: {formatBDT(supplierExpense)}</span>
+        <Card interactive className="bg-gradient-to-br from-teal-50/85 via-white/80 to-white/70 border-teal-200/75 dark:from-teal-950/40 dark:via-slate-900/70 dark:to-slate-900/65 dark:border-teal-800/60">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs font-semibold text-teal-800 dark:text-teal-300 truncate">{t("todaysCollection") || (lang === "bn" ? "আজকের কালেকশন" : "Today's Collection")}</p>
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-teal-500/12 text-teal-600 dark:bg-teal-500/15 dark:text-teal-400 ring-1 ring-inset ring-teal-500/20">
+                <Wallet className="h-4 w-4" />
+              </div>
             </div>
-          </CardContent></Card>
+            <p className="text-xl font-bold tabular-nums tracking-tight mt-2 text-teal-700 dark:text-teal-400">{formatBDT(todayCollection, lang)}</p>
+            <p className="text-[11px] text-muted-foreground mt-1">
+              {lang === "bn"
+                ? `আজ ${toBnDigit(todayCollectionCount)}টি রিসিট আদায়`
+                : `${todayCollectionCount} ${todayCollectionCount === 1 ? "receipt" : "receipts"} today`}
+            </p>
+          </CardContent>
+        </Card>
+        <Card interactive>
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs font-medium text-muted-foreground truncate">{t("totalCollection")}</p>
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-500/12 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400 ring-1 ring-inset ring-emerald-500/20">
+                <DollarSign className="h-4 w-4" />
+              </div>
+            </div>
+            <p className="text-xl font-bold tabular-nums tracking-tight mt-2 text-emerald-600 dark:text-emerald-400">{formatBDT(totalCollection)}</p>
+          </CardContent>
+        </Card>
+        {isManagerOrAdmin ? (
+          <Card interactive>
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs font-medium text-muted-foreground truncate">{t("totalExpenses")}</p>
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-rose-500/12 text-rose-600 dark:bg-rose-500/15 dark:text-rose-400 ring-1 ring-inset ring-rose-500/20">
+                  <TrendingDown className="h-4 w-4" />
+                </div>
+              </div>
+              <p className="text-xl font-bold tabular-nums tracking-tight mt-2 text-rose-600 dark:text-rose-400">{formatBDT(totalExpense)}</p>
+              <div className="flex items-center gap-1.5 mt-1 text-[11px] text-muted-foreground flex-wrap">
+                <span>OPEX: {formatBDT(opexExpense)}</span>
+                <span>•</span>
+                <span>Supplier: {formatBDT(supplierExpense)}</span>
+              </div>
+            </CardContent>
+          </Card>
         ) : (
-          <Card><CardContent className="p-4">
-            <div className="flex items-center gap-2"><DollarSign className="h-4 w-4 text-emerald-700" /><p className="text-xs text-muted-foreground">{t("myTotalCollections")}</p></div>
-            <p className="text-xl font-bold mt-2 text-emerald-700">{formatBDT(myCollectionTotal)}</p>
-            <p className="text-[11px] text-muted-foreground mt-1">{t("loggedByYou")}</p>
-          </CardContent></Card>
+          <Card interactive>
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs font-medium text-muted-foreground truncate">{t("myTotalCollections")}</p>
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-500/12 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400 ring-1 ring-inset ring-emerald-500/20">
+                  <DollarSign className="h-4 w-4" />
+                </div>
+              </div>
+              <p className="text-xl font-bold tabular-nums tracking-tight mt-2 text-emerald-700 dark:text-emerald-400">{formatBDT(myCollectionTotal)}</p>
+              <p className="text-[11px] text-muted-foreground mt-1">{t("loggedByYou")}</p>
+            </CardContent>
+          </Card>
         )}
-        <Card><CardContent className="p-4">
-          <div className="flex items-center gap-2"><Wallet className="h-4 w-4 text-blue-600" /><p className="text-xs text-muted-foreground">{t("netCashFlow")}</p></div>
-          <p className={`text-xl font-bold mt-2 ${netCash >= 0 ? "text-blue-600" : "text-rose-600"}`}>{formatBDT(netCash)}</p>
-          <p className="text-[11px] text-muted-foreground mt-1">{t("collectionsMinusOutflows")}</p>
-        </CardContent></Card>
-        <Card><CardContent className="p-4">
-          <div className="flex items-center gap-2"><BookOpen className="h-4 w-4 text-amber-600" /><p className="text-xs text-muted-foreground">{t("totalDue")}</p></div>
-          <p className="text-xl font-bold mt-2 text-amber-600">{formatBDT(totalDue)}</p>
-        </CardContent></Card>
+        <Card interactive>
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs font-medium text-muted-foreground truncate">{t("netCashFlow")}</p>
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-500/12 text-blue-600 dark:bg-blue-500/15 dark:text-blue-400 ring-1 ring-inset ring-blue-500/20">
+                <Wallet className="h-4 w-4" />
+              </div>
+            </div>
+            <p className={`text-xl font-bold tabular-nums tracking-tight mt-2 ${netCash >= 0 ? "text-blue-600 dark:text-blue-400" : "text-rose-600 dark:text-rose-400"}`}>{formatBDT(netCash)}</p>
+            <p className="text-[11px] text-muted-foreground mt-1">{t("collectionsMinusOutflows")}</p>
+          </CardContent>
+        </Card>
+        <Card interactive>
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs font-medium text-muted-foreground truncate">{t("totalDue")}</p>
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-500/12 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400 ring-1 ring-inset ring-amber-500/20">
+                <BookOpen className="h-4 w-4" />
+              </div>
+            </div>
+            <p className="text-xl font-bold tabular-nums tracking-tight mt-2 text-amber-600 dark:text-amber-400">{formatBDT(totalDue)}</p>
+          </CardContent>
+        </Card>
       </div>
 
       <div className="flex flex-col gap-2 sm:flex-row sm:justify-end sm:items-center">

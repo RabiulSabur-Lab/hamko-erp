@@ -232,7 +232,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
   const activeRoute = path === "/" ? "dashboard" : path.replace(/^\//, "").split("/")[0];
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen erp-glass-canvas">
       {/* Mobile overlay */}
       {sidebarOpen && (
         <div
@@ -360,7 +360,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
           </header>
         ) : (
           /* Desktop-Only Classic Enterprise Web ERP Header (>=768px) */
-          <header className="hidden md:flex sticky top-0 z-20 h-16 items-center gap-3 border-b bg-background/80 px-4 backdrop-blur-md lg:px-6">
+          <header className="hidden md:flex sticky top-0 z-20 h-16 items-center gap-3 border-b border-white/60 dark:border-slate-800/80 bg-white/75 dark:bg-slate-950/75 px-4 backdrop-blur-xl shadow-xs shadow-slate-200/30 dark:shadow-none lg:px-6">
             <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setSidebarOpen(true)}>
               <Menu className="h-5 w-5" />
             </Button>

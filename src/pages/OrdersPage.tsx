@@ -1504,10 +1504,11 @@ export function OrdersPage() {
           return (
             <Card
               key={s}
+              interactive
               className={cn(
-                "transition-all duration-200 border cursor-pointer hover:shadow-sm",
+                "cursor-pointer",
                 config.border,
-                isSelected ? `${config.activeBorder} ring-2 ring-primary/40 shadow-sm` : "hover:border-primary/30"
+                isSelected ? `${config.activeBorder} ring-2 ring-primary/40` : "hover:border-primary/30"
               )}
               onClick={() => setStatusFilter(statusFilter === s ? "" : s)}
               title={`Click to filter by ${s}`}
@@ -1523,9 +1524,9 @@ export function OrdersPage() {
                     <span className={cn("w-1.5 h-1.5 rounded-full", config.dot)} />
                     {t(s.toLowerCase()) || s}
                   </span>
-                  <p className="text-2xl font-bold mt-2 font-mono tracking-tight">{count}</p>
+                  <p className="text-2xl font-bold mt-2 font-mono tabular-nums tracking-tight">{count}</p>
                 </div>
-                <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center transition-colors", config.iconBg)}>
+                <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center ring-1 ring-inset ring-black/[0.04] dark:ring-white/[0.08] transition-colors", config.iconBg)}>
                   <Icon className={cn("h-5 w-5", config.iconColor)} />
                 </div>
               </CardContent>

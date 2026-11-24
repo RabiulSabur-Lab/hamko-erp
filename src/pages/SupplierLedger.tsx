@@ -735,15 +735,17 @@ export function SupplierLedger() {
           {/* Financial Metrics Overview Cards */}
           {supplier && (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              <Card className="border-l-4 border-l-purple-500">
+              <Card interactive className="border-l-4 border-l-purple-500">
                 <CardContent className="p-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium text-muted-foreground">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-medium text-muted-foreground truncate">
                       {startDate ? "Opening Balance" : "Initial Balance"}
                     </span>
-                    <Receipt className="h-4 w-4 text-purple-500" />
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-purple-500/12 text-purple-600 dark:bg-purple-500/15 dark:text-purple-400 ring-1 ring-inset ring-purple-500/20">
+                      <Receipt className="h-4 w-4" />
+                    </div>
                   </div>
-                  <p className={`text-xl font-bold font-mono mt-1 ${procurementLedger.openingBalance > 0
+                  <p className={`text-xl font-bold font-mono tabular-nums tracking-tight mt-2 ${procurementLedger.openingBalance > 0
                     ? "text-purple-600 dark:text-purple-400"
                     : procurementLedger.openingBalance === 0
                       ? "text-foreground"
@@ -751,55 +753,61 @@ export function SupplierLedger() {
                     }`}>
                     {formatBDT(procurementLedger.openingBalance)}
                   </p>
-                  <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
+                  <p className="text-[11px] text-muted-foreground mt-1 truncate">
                     {startDate ? `Cumulative balance prior to ${startDate}` : "Opening balance brought forward"}
                   </p>
                 </CardContent>
               </Card>
 
-              <Card className="border-l-4 border-l-blue-500">
+              <Card interactive className="border-l-4 border-l-blue-500">
                 <CardContent className="p-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium text-muted-foreground">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-medium text-muted-foreground truncate">
                       {startDate || endDate ? "Period Purchases (+৳)" : "Total Purchases (+৳)"}
                     </span>
-                    <Truck className="h-4 w-4 text-blue-500" />
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-500/12 text-blue-600 dark:bg-blue-500/15 dark:text-blue-400 ring-1 ring-inset ring-blue-500/20">
+                      <Truck className="h-4 w-4" />
+                    </div>
                   </div>
-                  <p className="text-xl font-bold font-mono mt-1 text-foreground">
+                  <p className="text-xl font-bold font-mono tabular-nums tracking-tight mt-2 text-foreground">
                     {formatBDT(procurementLedger.totalPurchases)}
                   </p>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                  <p className="text-[11px] text-muted-foreground mt-1">
                     {startDate || endDate ? "Chalan value in selected period" : "Total incoming inventory value"}
                   </p>
                 </CardContent>
               </Card>
 
-              <Card className="border-l-4 border-l-emerald-500">
+              <Card interactive className="border-l-4 border-l-emerald-500">
                 <CardContent className="p-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium text-muted-foreground">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-medium text-muted-foreground truncate">
                       {startDate || endDate ? "Period Payments (-৳)" : "Total Payments Made (-৳)"}
                     </span>
-                    <DollarSign className="h-4 w-4 text-emerald-500" />
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-500/12 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400 ring-1 ring-inset ring-emerald-500/20">
+                      <DollarSign className="h-4 w-4" />
+                    </div>
                   </div>
-                  <p className="text-xl font-bold font-mono mt-1 text-emerald-600 dark:text-emerald-400">
+                  <p className="text-xl font-bold font-mono tabular-nums tracking-tight mt-2 text-emerald-600 dark:text-emerald-400">
                     {formatBDT(procurementLedger.totalPayments)}
                   </p>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                  <p className="text-[11px] text-muted-foreground mt-1">
                     {startDate || endDate ? "Paid in selected period" : "Bank, cash & cheque vouchers"}
                   </p>
                 </CardContent>
               </Card>
 
-              <Card className="border-l-4 border-l-amber-500">
+              <Card interactive className="border-l-4 border-l-amber-500">
                 <CardContent className="p-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium text-muted-foreground">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-medium text-muted-foreground truncate">
                       {startDate || endDate ? "Closing Payable Balance" : "Current Payable Balance"}
                     </span>
-                    <TrendingDown className="h-4 w-4 text-amber-500" />
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-500/12 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400 ring-1 ring-inset ring-amber-500/20">
+                      <TrendingDown className="h-4 w-4" />
+                    </div>
                   </div>
-                  <p className={`text-xl font-bold font-mono mt-1 ${procurementLedger.closingBalance > 0
+                  <p className={`text-xl font-bold font-mono tabular-nums tracking-tight mt-2 ${procurementLedger.closingBalance > 0
                     ? "text-amber-600 dark:text-amber-400"
                     : procurementLedger.closingBalance === 0
                       ? "text-emerald-600 dark:text-emerald-400"
@@ -807,7 +815,7 @@ export function SupplierLedger() {
                     }`}>
                     {formatBDT(procurementLedger.closingBalance)}
                   </p>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                  <p className="text-[11px] text-muted-foreground mt-1">
                     {startDate || endDate ? "Opening + Purchases - Payments" : "Outstanding liability to supplier"}
                   </p>
                 </CardContent>

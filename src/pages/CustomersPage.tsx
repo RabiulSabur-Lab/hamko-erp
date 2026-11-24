@@ -11,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { EmptyState } from "@/components/ui/empty";
 import { formatBDT, formatDate, toBnDigit } from "@/lib/utils";
 import { exportToExcel } from "@/lib/export";
-import { Plus, Search, Pencil, Trash2, Download, Users, Phone, Loader2, BookOpen, ShieldCheck, Sparkles, User, X, RefreshCw } from "lucide-react";
+import { Plus, Search, Pencil, Trash2, Download, Users, Phone, Loader2, BookOpen, ShieldCheck, Sparkles, User, X, RefreshCw, Wallet, Building2, AlertTriangle } from "lucide-react";
 import { useUsers } from "@/context/UsersContext";
 import { toast } from "sonner";
 import { useAutoSync } from "@/hooks/useAutoSync";
@@ -618,19 +618,21 @@ export function CustomersPage() {
 
       {/* Summary */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Card>
+        <Card interactive>
           <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <p className="text-xs text-muted-foreground">{t("totalCustomers") || "Total Customers"}</p>
-              <Users className="h-4 w-4 text-primary" />
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs font-medium text-muted-foreground truncate">{t("totalCustomers") || "Total Customers"}</p>
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-sky-500/12 text-sky-600 dark:bg-sky-500/15 dark:text-sky-400 ring-1 ring-inset ring-sky-500/20">
+                <Users className="h-4 w-4" />
+              </div>
             </div>
-            <p className="text-xl font-bold mt-1 text-foreground">{lang === "bn" ? toBnDigit(totalCustomersCount) : totalCustomersCount}</p>
-            <div className="flex items-center gap-1.5 mt-2 pt-1 border-t border-border/40 text-[11px] font-medium">
-              <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-1.5 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
+            <p className="text-xl font-bold tabular-nums tracking-tight mt-2 text-foreground">{lang === "bn" ? toBnDigit(totalCustomersCount) : totalCustomersCount}</p>
+            <div className="flex items-center gap-1.5 mt-2 pt-1.5 border-t border-border/40 text-[11px] font-medium flex-wrap">
+              <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400 bg-emerald-50/80 dark:bg-emerald-950/50 px-1.5 py-0.5 rounded-md border border-emerald-200/80 dark:border-emerald-800">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
                 {lang === "bn" ? `সক্রিয়: ${toBnDigit(activeCustomersCount)}` : `Active: ${activeCustomersCount}`}
               </span>
-              <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-800">
+              <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-400 bg-amber-50/80 dark:bg-amber-950/50 px-1.5 py-0.5 rounded-md border border-amber-200/80 dark:border-amber-800">
                 <span className="h-1.5 w-1.5 rounded-full bg-amber-500"></span>
                 {lang === "bn" ? `নিষ্ক্রিয়: ${toBnDigit(inactiveCustomersCount)}` : `Inactive: ${inactiveCustomersCount}`}
               </span>
@@ -638,24 +640,39 @@ export function CustomersPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card interactive>
           <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">{t("totalDue")}</p>
-            <p className="text-xl font-bold mt-1 text-amber-600">{formatBDT(totalDue)}</p>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs font-medium text-muted-foreground truncate">{t("totalDue")}</p>
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-500/12 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400 ring-1 ring-inset ring-amber-500/20">
+                <Wallet className="h-4 w-4" />
+              </div>
+            </div>
+            <p className="text-xl font-bold tabular-nums tracking-tight mt-2 text-amber-600 dark:text-amber-400">{formatBDT(totalDue)}</p>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card interactive>
           <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">{t("dealer")}</p>
-            <p className="text-xl font-bold mt-1">{lang === "bn" ? toBnDigit(dealersCount) : dealersCount}</p>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs font-medium text-muted-foreground truncate">{t("dealer")}</p>
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-500/12 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-400 ring-1 ring-inset ring-indigo-500/20">
+                <Building2 className="h-4 w-4" />
+              </div>
+            </div>
+            <p className="text-xl font-bold tabular-nums tracking-tight mt-2 text-foreground">{lang === "bn" ? toBnDigit(dealersCount) : dealersCount}</p>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card interactive>
           <CardContent className="p-4">
-            <p className="text-xs text-muted-foreground">{t("overdue")}</p>
-            <p className="text-xl font-bold mt-1 text-rose-600">{lang === "bn" ? toBnDigit(overdueCount) : overdueCount}</p>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs font-medium text-muted-foreground truncate">{t("overdue")}</p>
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-rose-500/12 text-rose-600 dark:bg-rose-500/15 dark:text-rose-400 ring-1 ring-inset ring-rose-500/20">
+                <AlertTriangle className="h-4 w-4" />
+              </div>
+            </div>
+            <p className="text-xl font-bold tabular-nums tracking-tight mt-2 text-rose-600 dark:text-rose-400">{lang === "bn" ? toBnDigit(overdueCount) : overdueCount}</p>
           </CardContent>
         </Card>
       </div>
