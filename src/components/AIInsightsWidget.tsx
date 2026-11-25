@@ -1,8 +1,19 @@
 import { useState, useEffect, useCallback, useRef, memo } from "react";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Sparkles, Loader2, TrendingUp, RefreshCw, Copy, Check, AlertCircle, Zap } from "lucide-react";
+import {
+  Sparkles,
+  Loader2,
+  TrendingUp,
+  RefreshCw,
+  Copy,
+  Check,
+  AlertCircle,
+  Zap,
+  ChevronDown,
+  ChevronUp,
+} from "lucide-react";
 import {
   analyzeSalesDataWithMeta,
   getCachedSalesInsights,
@@ -91,10 +102,11 @@ export const AIInsightsWidget = memo(function AIInsightsWidget({
   });
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isExpanded, setIsExpanded] = useState(false);
 
   const requestSeqRef = useRef(0);
-  const hasVisibleInsightsRef = useRef(Boolean(insights));
-  hasVisibleInsightsRef.current = Boolean(insights);
+  const hasVisibleInsightsRef = useRef(Boolean(insights && isExpanded));
+  hasVisibleInsightsRef.current = Boolean(insights && isExpanded);
 
   const runAnalysis = useCallback(
     async (opts?: { forceRefresh?: boolean; silentToast?: boolean }) => {
@@ -102,6 +114,7 @@ export const AIInsightsWidget = memo(function AIInsightsWidget({
       const forceRefresh = opts?.forceRefresh === true;
       const targetLang = activeLang;
 
+      setIsExpanded(true);
       setError(null);
 
       // Instant zero-latency cache hit when not forcing regeneration
@@ -212,63 +225,100 @@ export const AIInsightsWidget = memo(function AIInsightsWidget({
 
   return (
     <Card className="bg-gradient-to-br from-white/50 via-white/35 to-sky-100/40 dark:from-slate-900/50 dark:via-slate-900/38 dark:to-sky-950/40 overflow-hidden">
-      <CardHeader className="pb-3 border-b border-white/60 dark:border-white/10 bg-white/25 dark:bg-white/[0.03]">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div className="flex items-center gap-2.5">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-sky-500/12 text-sky-600 dark:bg-sky-500/15 dark:text-sky-400 ring-1 ring-inset ring-sky-500/20">
-              <Sparkles className="h-5 w-5" />
-            </span>
-            <div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <CardTitle className="text-base font-semibold">
-                  {isBn
-                    ? "এক্সিকিউটিভ এআই ইন্টেলিজেন্স ও অ্যানালিটিক্স"
-                    : "Executive AI Intelligence & Analytics"}
-                </CardTitle>
-                <Badge
-                  variant="outline"
-                  className="text-[10px] text-emerald-600 bg-emerald-500/10 border-emerald-500/30 font-medium py-0 h-4 flex items-center gap-1"
-                >
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  {insights
-                    ? isCachedResult
-                      ? isBn
-                        ? `তাৎক্ষণিক ক্যাশ${formattedGenTime ? ` · ${formattedGenTime}` : ""}`
-                        : `Instant Cache${formattedGenTime ? ` · ${formattedGenTime}` : ""}`
-                      : isBn
-                        ? "লাইভ ক্লাউড সিঙ্ক"
-                        : "Live Cloud Sync"
+      {/* Compact Collapsible Frosted Glass Header Bar */}
+      <div
+        role="button"
+        tabIndex={0}
+        aria-expanded={isExpanded}
+        onClick={() => setIsExpanded((prev) => !prev)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setIsExpanded((prev) => !prev);
+          }
+        }}
+        className={`flex flex-wrap items-center justify-between gap-2.5 px-4 py-2.5 cursor-pointer select-none transition-colors hover:bg-white/30 dark:hover:bg-white/[0.04] ${
+          isExpanded ? "border-b border-white/60 dark:border-white/10 bg-white/25 dark:bg-white/[0.03]" : ""
+        }`}
+      >
+        <div className="flex items-center gap-2.5 min-w-0">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-sky-500/12 text-sky-600 dark:bg-sky-500/15 dark:text-sky-400 ring-1 ring-inset ring-sky-500/20">
+            <Sparkles className="h-4 w-4" />
+          </span>
+          <div className="flex items-center gap-2 flex-wrap min-w-0">
+            <h3 className="text-sm font-semibold tracking-tight text-foreground truncate">
+              {isBn
+                ? "এক্সিকিউটিভ এআই ইন্টেলিজেন্স ও অ্যানালিটিক্স"
+                : "Executive AI Intelligence & Analytics"}
+            </h3>
+            <Badge
+              variant="outline"
+              className="text-[10px] text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border-emerald-500/30 font-medium py-0 h-4 flex items-center gap-1 shrink-0"
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              {loading
+                ? isBn
+                  ? "বিশ্লেষণ হচ্ছে..."
+                  : "Analyzing..."
+                : insights
+                  ? isCachedResult
+                    ? isBn
+                      ? `ক্যাশড রিপোর্ট${formattedGenTime ? ` · ${formattedGenTime}` : ""}`
+                      : `Cached Ready${formattedGenTime ? ` · ${formattedGenTime}` : ""}`
                     : isBn
-                      ? "রিয়েল-টাইম অনলাইন অ্যানালিটিক্স"
-                      : "Real-Time Online Analytics"}
-                </Badge>
-              </div>
-              <CardDescription className="text-xs mt-0.5">
-                {isBn
-                  ? "অ্যাডভান্সড এআই প্রযুক্তি দ্বারা চালিত — স্বয়ংক্রিয় চাহিদা পূর্বাভাস, কালেকশন গতি এবং ডিস্ট্রিবিউশন স্বাস্থ্য বিশ্লেষণ।"
-                  : "Powered by Advanced AI Technology — automated demand forecasting, collection velocity, and distribution health auditing."}
-              </CardDescription>
-            </div>
+                      ? "লাইভ রিপোর্ট প্রস্তুত"
+                      : "Live Ready"
+                  : isBn
+                    ? "এআই প্রস্তুত"
+                    : "AI Ready"}
+            </Badge>
           </div>
+        </div>
 
-          <div className="flex items-center gap-2">
-            {insights && (
+        <div
+          className="flex items-center gap-1.5 shrink-0"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {insights && isExpanded && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleCopy}
+              className="h-7 px-2.5 text-xs gap-1 rounded-lg bg-white/50 dark:bg-slate-900/50"
+              title={isBn ? "রিপোর্ট কপি করুন" : "Copy markdown text"}
+            >
+              {copied ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
+              <span className="hidden sm:inline">{copied ? (isBn ? "কপি হয়েছে" : "Copied") : (isBn ? "কপি" : "Copy")}</span>
+            </Button>
+          )}
+
+          {insights && !isExpanded ? (
+            <>
+              <Button
+                size="sm"
+                onClick={() => setIsExpanded(true)}
+                className="h-7 px-3 text-xs gap-1.5 rounded-lg shadow-xs"
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+                {isBn ? "রিপোর্ট দেখুন" : "View Insights"}
+              </Button>
               <Button
                 variant="outline"
-                size="sm"
-                onClick={handleCopy}
-                className="h-8 text-xs gap-1.5"
-                title={isBn ? "রিপোর্ট কপি করুন" : "Copy markdown text"}
+                size="icon"
+                onClick={() => void runAnalysis({ forceRefresh: true })}
+                disabled={loading}
+                className="h-7 w-7 rounded-lg bg-white/50 dark:bg-slate-900/50"
+                title={isBn ? "নতুন করে বিশ্লেষণ করুন" : "Regenerate AI Insights"}
               >
-                {copied ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
-                {copied ? (isBn ? "কপি হয়েছে" : "Copied") : (isBn ? "কপি" : "Copy")}
+                <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
               </Button>
-            )}
+            </>
+          ) : (
             <Button
               size="sm"
               onClick={() => void runAnalysis({ forceRefresh: Boolean(insights) })}
               disabled={loading}
-              className="h-8 text-xs gap-1.5 shadow-sm"
+              className="h-7 px-3 text-xs gap-1.5 rounded-lg shadow-xs"
             >
               {loading ? (
                 <>
@@ -288,133 +338,161 @@ export const AIInsightsWidget = memo(function AIInsightsWidget({
                 </>
               )}
             </Button>
-          </div>
-        </div>
-      </CardHeader>
+          )}
 
-      <CardContent className="pt-4">
-        {loading ? (
-          <InsightsSkeleton isBn={isBn} />
-        ) : error ? (
-          <div className="p-3.5 rounded-lg border border-destructive/20 bg-destructive/5 text-xs text-destructive flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <AlertCircle className="h-4 w-4 shrink-0" />
-              <span>{error}</span>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void runAnalysis({ forceRefresh: true })}
-              className="h-7 text-[11px] shrink-0"
-            >
-              {isBn ? "আবার চেষ্টা করুন" : "Try Again"}
-            </Button>
-          </div>
-        ) : insights ? (
-          <div className="text-xs sm:text-sm text-foreground/90 space-y-3 leading-relaxed">
-            {isCachedResult && (
-              <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground bg-muted/30 border border-border/50 rounded-md px-2.5 py-1 w-fit">
-                <Zap className="h-3 w-3 text-amber-500 shrink-0" />
-                <span>
-                  {isBn
-                    ? "সর্বশেষ অর্ডার/কালেকশন ডেটা অপরিবর্তিত থাকায় তাৎক্ষণিক ক্যাশড রিপোর্ট প্রদর্শিত হচ্ছে।"
-                    : "Showing instant cached report — auto-refreshes whenever orders, collections, or stock change."}
-                </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setIsExpanded((prev) => !prev)}
+            className="h-7 px-2 text-xs gap-1 rounded-lg text-muted-foreground hover:text-foreground"
+            aria-label={isExpanded ? (isBn ? "সংকুচিত করুন" : "Minimize") : (isBn ? "বিস্তারিত দেখুন" : "Expand")}
+          >
+            <span className="hidden sm:inline">
+              {isExpanded ? (isBn ? "সংকুচিত" : "Minimize") : (isBn ? "বিস্তারিত" : "Expand")}
+            </span>
+            {isExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+          </Button>
+        </div>
+      </div>
+
+      {/* Collapsible Accordion Body — Hidden by Default to Keep Dashboard Above the Fold */}
+      <div
+        className={`grid transition-[grid-template-rows,opacity] duration-300 ease-out ${
+          isExpanded ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0 pointer-events-none"
+        }`}
+      >
+        <div className="overflow-hidden">
+          <CardContent className="pt-3.5 pb-4 px-4 sm:px-5 space-y-3">
+            <p className="text-xs text-muted-foreground">
+              {isBn
+                ? "অ্যাডভান্সড এআই প্রযুক্তি দ্বারা চালিত — স্বয়ংক্রিয় চাহিদা পূর্বাভাস, কালেকশন গতি এবং ডিস্ট্রিবিউশন স্বাস্থ্য বিশ্লেষণ।"
+                : "Powered by Advanced AI Technology — automated demand forecasting, collection velocity, and distribution health auditing."}
+            </p>
+
+            {loading ? (
+              <InsightsSkeleton isBn={isBn} />
+            ) : error ? (
+              <div className="p-3.5 rounded-lg border border-destructive/20 bg-destructive/5 text-xs text-destructive flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  <span>{error}</span>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void runAnalysis({ forceRefresh: true })}
+                  className="h-7 text-[11px] shrink-0"
+                >
+                  {isBn ? "আবার চেষ্টা করুন" : "Try Again"}
+                </Button>
+              </div>
+            ) : insights ? (
+              <div className="text-xs sm:text-sm text-foreground/90 space-y-3 leading-relaxed">
+                {isCachedResult && (
+                  <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground bg-muted/30 border border-border/50 rounded-md px-2.5 py-1 w-fit">
+                    <Zap className="h-3 w-3 text-amber-500 shrink-0" />
+                    <span>
+                      {isBn
+                        ? "সর্বশেষ অর্ডার/কালেকশন ডেটা অপরিবর্তিত থাকায় তাৎক্ষণিক ক্যাশড রিপোর্ট প্রদর্শিত হচ্ছে।"
+                        : "Showing instant cached report — auto-refreshes whenever orders, collections, or stock change."}
+                    </span>
+                  </div>
+                )}
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={{
+                    h1: ({ node, ...props }) => (
+                      <h1 className="text-base sm:text-lg font-bold text-foreground mt-4 mb-2 pb-1.5 border-b border-border/60 flex items-center gap-2" {...props} />
+                    ),
+                    h2: ({ node, ...props }) => (
+                      <h2 className="text-sm sm:text-base font-semibold text-foreground mt-4 mb-2 flex items-center gap-2" {...props} />
+                    ),
+                    h3: ({ node, ...props }) => (
+                      <h3 className="text-xs sm:text-sm font-semibold text-foreground/95 mt-3 mb-1.5" {...props} />
+                    ),
+                    h4: ({ node, ...props }) => (
+                      <h4 className="text-xs font-semibold text-foreground/90 mt-2 mb-1" {...props} />
+                    ),
+                    p: ({ node, ...props }) => (
+                      <p className="my-1.5 text-xs sm:text-sm leading-relaxed text-foreground/85" {...props} />
+                    ),
+                    ul: ({ node, ...props }) => (
+                      <ul className="list-disc list-outside ml-5 my-2 space-y-1 text-xs sm:text-sm text-foreground/85" {...props} />
+                    ),
+                    ol: ({ node, ...props }) => (
+                      <ol className="list-decimal list-outside ml-5 my-2 space-y-1 text-xs sm:text-sm text-foreground/85" {...props} />
+                    ),
+                    li: ({ node, ...props }) => (
+                      <li className="leading-relaxed" {...props} />
+                    ),
+                    strong: ({ node, ...props }) => (
+                      <strong className="font-semibold text-foreground" {...props} />
+                    ),
+                    table: ({ node, ...props }) => (
+                      <div className="overflow-auto max-h-[420px] my-3 rounded-lg border border-border/80 shadow-xs">
+                        <table className="w-full text-xs text-left border-collapse" {...props} />
+                      </div>
+                    ),
+                    thead: ({ node, ...props }) => (
+                      <thead className="sticky top-0 z-10 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md text-foreground font-semibold border-b border-border/80" {...props} />
+                    ),
+                    tbody: ({ node, ...props }) => (
+                      <tbody className="divide-y divide-border/40 bg-white/30 dark:bg-white/[0.03]" {...props} />
+                    ),
+                    tr: ({ node, ...props }) => (
+                      <tr className="hover:bg-muted/30 transition-colors" {...props} />
+                    ),
+                    th: ({ node, ...props }) => (
+                      <th className="py-2.5 px-3 font-semibold text-foreground whitespace-nowrap" {...props} />
+                    ),
+                    td: ({ node, ...props }) => (
+                      <td className="py-2 px-3 text-foreground/85 whitespace-normal" {...props} />
+                    ),
+                    blockquote: ({ node, ...props }) => (
+                      <blockquote className="border-l-3 border-primary/60 bg-primary/5 pl-3 py-1.5 my-2.5 rounded-r text-xs italic text-muted-foreground" {...props} />
+                    ),
+                    code: ({ node, className, ...props }) => (
+                      <code className="bg-muted px-1.5 py-0.5 rounded text-[11px] font-mono text-primary border border-border/50" {...props} />
+                    ),
+                    hr: ({ node, ...props }) => (
+                      <hr className="my-3 border-border/60" {...props} />
+                    ),
+                  }}
+                >
+                  {insights}
+                </ReactMarkdown>
+              </div>
+            ) : (
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-xl border border-dashed border-border/80 bg-white/35 dark:bg-white/[0.03] text-xs text-muted-foreground">
+                <div className="flex items-center gap-2.5">
+                  <TrendingUp className="h-4 w-4 text-primary shrink-0" />
+                  <span>
+                    {isBn ? (
+                      <>
+                        সর্বাধিক বিক্রিত কুকওয়্যার, গ্রাহকের বকেয়া স্থিতি এবং আগামী ৭ দিনের পূর্বাভাস জানতে{" "}
+                        <strong>এআই ইনসাইট তৈরি করুন</strong> বাটনে ক্লিক করুন।
+                      </>
+                    ) : (
+                      <>
+                        Click <strong>Generate AI Insights</strong> to run an instant diagnostic on top-selling cookware,
+                        customer balances, and 7-day forecasts.
+                      </>
+                    )}
+                  </span>
+                </div>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => void runAnalysis({ forceRefresh: false })}
+                  className="text-xs h-7 shrink-0 font-medium self-end sm:self-auto"
+                >
+                  {isBn ? "এখনই বিশ্লেষণ করুন" : "Analyze Now"}
+                </Button>
               </div>
             )}
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              components={{
-                h1: ({ node, ...props }) => (
-                  <h1 className="text-base sm:text-lg font-bold text-foreground mt-4 mb-2 pb-1.5 border-b border-border/60 flex items-center gap-2" {...props} />
-                ),
-                h2: ({ node, ...props }) => (
-                  <h2 className="text-sm sm:text-base font-semibold text-foreground mt-4 mb-2 flex items-center gap-2" {...props} />
-                ),
-                h3: ({ node, ...props }) => (
-                  <h3 className="text-xs sm:text-sm font-semibold text-foreground/95 mt-3 mb-1.5" {...props} />
-                ),
-                h4: ({ node, ...props }) => (
-                  <h4 className="text-xs font-semibold text-foreground/90 mt-2 mb-1" {...props} />
-                ),
-                p: ({ node, ...props }) => (
-                  <p className="my-1.5 text-xs sm:text-sm leading-relaxed text-foreground/85" {...props} />
-                ),
-                ul: ({ node, ...props }) => (
-                  <ul className="list-disc list-outside ml-5 my-2 space-y-1 text-xs sm:text-sm text-foreground/85" {...props} />
-                ),
-                ol: ({ node, ...props }) => (
-                  <ol className="list-decimal list-outside ml-5 my-2 space-y-1 text-xs sm:text-sm text-foreground/85" {...props} />
-                ),
-                li: ({ node, ...props }) => (
-                  <li className="leading-relaxed" {...props} />
-                ),
-                strong: ({ node, ...props }) => (
-                  <strong className="font-semibold text-foreground" {...props} />
-                ),
-                table: ({ node, ...props }) => (
-                  <div className="overflow-auto max-h-[420px] my-3 rounded-lg border border-border/80 shadow-xs">
-                    <table className="w-full text-xs text-left border-collapse" {...props} />
-                  </div>
-                ),
-                thead: ({ node, ...props }) => (
-                  <thead className="sticky top-0 z-10 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md text-foreground font-semibold border-b border-border/80" {...props} />
-                ),
-                tbody: ({ node, ...props }) => (
-                  <tbody className="divide-y divide-border/40 bg-white/30 dark:bg-white/[0.03]" {...props} />
-                ),
-                tr: ({ node, ...props }) => (
-                  <tr className="hover:bg-muted/30 transition-colors" {...props} />
-                ),
-                th: ({ node, ...props }) => (
-                  <th className="py-2.5 px-3 font-semibold text-foreground whitespace-nowrap" {...props} />
-                ),
-                td: ({ node, ...props }) => (
-                  <td className="py-2 px-3 text-foreground/85 whitespace-normal" {...props} />
-                ),
-                blockquote: ({ node, ...props }) => (
-                  <blockquote className="border-l-3 border-primary/60 bg-primary/5 pl-3 py-1.5 my-2.5 rounded-r text-xs italic text-muted-foreground" {...props} />
-                ),
-                code: ({ node, className, ...props }) => (
-                  <code className="bg-muted px-1.5 py-0.5 rounded text-[11px] font-mono text-primary border border-border/50" {...props} />
-                ),
-                hr: ({ node, ...props }) => (
-                  <hr className="my-3 border-border/60" {...props} />
-                ),
-              }}
-            >
-              {insights}
-            </ReactMarkdown>
-          </div>
-        ) : (
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-lg border border-dashed border-border/80 bg-muted/20 text-xs text-muted-foreground">
-            <div className="flex items-center gap-2.5">
-              <TrendingUp className="h-4 w-4 text-primary shrink-0" />
-              <span>
-                {isBn ? (
-                  <>
-                    সর্বাধিক বিক্রিত কুকওয়্যার, গ্রাহকের বকেয়া স্থিতি এবং আগামী ৭ দিনের পূর্বাভাস জানতে{" "}
-                    <strong>এআই ইনসাইট তৈরি করুন</strong> বাটনে ক্লিক করুন।
-                  </>
-                ) : (
-                  <>
-                    Click <strong>Generate AI Insights</strong> to run an instant diagnostic on top-selling cookware,
-                    customer balances, and 7-day forecasts.
-                  </>
-                )}
-              </span>
-            </div>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => void runAnalysis({ forceRefresh: false })}
-              className="text-xs h-7 shrink-0 font-medium self-end sm:self-auto"
-            >
-              {isBn ? "এখনই বিশ্লেষণ করুন" : "Analyze Now"}
-            </Button>
-          </div>
-        )}
-      </CardContent>
+          </CardContent>
+        </div>
+      </div>
     </Card>
   );
 });
