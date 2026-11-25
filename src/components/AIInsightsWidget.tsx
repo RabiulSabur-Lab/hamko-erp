@@ -353,12 +353,12 @@ export const AIInsightsWidget = memo(function AIInsightsWidget({
                   <strong className="font-semibold text-foreground" {...props} />
                 ),
                 table: ({ node, ...props }) => (
-                  <div className="overflow-x-auto my-3 rounded-lg border border-border/80 shadow-xs">
+                  <div className="overflow-auto max-h-[420px] my-3 rounded-lg border border-border/80 shadow-xs">
                     <table className="w-full text-xs text-left border-collapse" {...props} />
                   </div>
                 ),
                 thead: ({ node, ...props }) => (
-                  <thead className="bg-muted/70 text-foreground font-semibold border-b border-border/80" {...props} />
+                  <thead className="sticky top-0 z-10 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md text-foreground font-semibold border-b border-border/80" {...props} />
                 ),
                 tbody: ({ node, ...props }) => (
                   <tbody className="divide-y divide-border/40 bg-white/30 dark:bg-white/[0.03]" {...props} />

@@ -1,9 +1,18 @@
 import { type HTMLAttributes, type TdHTMLAttributes, type ThHTMLAttributes, forwardRef } from "react";
 import { cn } from "@/lib/utils";
 
-export const Table = forwardRef<HTMLTableElement, HTMLAttributes<HTMLTableElement>>(
-  ({ className, ...props }, ref) => (
-    <div className="relative w-full overflow-x-auto max-w-full">
+export interface TableProps extends HTMLAttributes<HTMLTableElement> {
+  containerClassName?: string;
+}
+
+export const Table = forwardRef<HTMLTableElement, TableProps>(
+  ({ className, containerClassName, ...props }, ref) => (
+    <div
+      className={cn(
+        "relative w-full max-w-full overflow-auto max-h-[calc(100vh-260px)] min-h-0 print:max-h-none print:overflow-visible",
+        containerClassName,
+      )}
+    >
       <table ref={ref} className={cn("w-full caption-bottom text-sm", className)} {...props} />
     </div>
   ),
@@ -11,7 +20,16 @@ export const Table = forwardRef<HTMLTableElement, HTMLAttributes<HTMLTableElemen
 Table.displayName = "Table";
 
 export const TableHeader = forwardRef<HTMLTableSectionElement, HTMLAttributes<HTMLTableSectionElement>>(
-  ({ className, ...props }, ref) => <thead ref={ref} className={cn("[&_tr]:border-b", className)} {...props} />,
+  ({ className, ...props }, ref) => (
+    <thead
+      ref={ref}
+      className={cn(
+        "sticky top-0 z-20 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md shadow-[inset_0_-1px_0_0_rgba(148,163,184,0.35)] dark:shadow-[inset_0_-1px_0_0_rgba(255,255,255,0.12)] [&_tr]:border-b [&_tr]:border-slate-200/70 dark:[&_tr]:border-white/10 [&_th]:bg-white/90 dark:[&_th]:bg-slate-900/90 [&_th]:backdrop-blur-md print:static print:bg-white print:shadow-none",
+        className,
+      )}
+      {...props}
+    />
+  ),
 );
 TableHeader.displayName = "TableHeader";
 

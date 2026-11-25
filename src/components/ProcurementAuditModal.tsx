@@ -197,9 +197,9 @@ export function ProcurementAuditModal({ open, onClose, supplierId }: Procurement
         </div>
 
         {/* Audit Log Table */}
-        <div className="border rounded-lg overflow-hidden max-h-[380px] overflow-y-auto">
-          <Table>
-            <TableHeader className="bg-muted/40 sticky top-0 z-10">
+        <div className="border rounded-lg">
+          <Table containerClassName="max-h-[380px] rounded-lg">
+            <TableHeader className="sticky top-0 z-20 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md">
               <TableRow>
                 <TableHead className="w-36 text-xs">Timestamp</TableHead>
                 <TableHead className="w-32 text-xs">Action</TableHead>

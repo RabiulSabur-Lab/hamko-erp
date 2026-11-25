@@ -205,10 +205,10 @@ export function OrderDetailsModal({ open, onClose, order: initialOrder }: OrderD
           </div>
 
           {/* Product Items Table */}
-          <div className="rounded-lg border overflow-hidden">
-            <Table>
+          <div className="rounded-lg border">
+            <Table containerClassName="max-h-[45vh] rounded-lg">
               <TableHeader>
-                <TableRow>
+                <TableRow className="hover:bg-transparent">
                   <TableHead>Product</TableHead>
                   <TableHead className="text-right">Quantity</TableHead>
                   <TableHead>Price Tier</TableHead>

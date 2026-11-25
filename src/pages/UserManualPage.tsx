@@ -3528,10 +3528,10 @@ export function UserManualPage() {
                           : "ফিল্ড ও বাটন রেফারেন্স টেবিল (Line-by-Line UI Field & Button Mapping):"}
                       </span>
                     </p>
-                    <div className="w-full overflow-x-auto rounded-xl border border-border/80 bg-card shadow-2xs">
+                    <div className="w-full overflow-auto max-h-[520px] rounded-xl border border-border/80 bg-card shadow-2xs print:max-h-none print:overflow-visible">
                       <table className="w-full min-w-[680px] text-left border-collapse text-xs sm:text-sm">
-                        <thead>
-                          <tr className="border-b border-border bg-muted/60 text-foreground">
+                        <thead className="sticky top-0 z-10 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md print:static">
+                          <tr className="border-b border-border text-foreground">
                             <th className="p-3 font-extrabold w-[26%]">
                               {langMode === "en"
                                 ? "UI Button / Input Field"

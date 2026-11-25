@@ -1158,17 +1158,17 @@ export function SupplierLedger() {
                   </div>
 
                   {/* Desktop Table (screens md+ >= 768px) */}
-                  <div className="hidden md:block relative overflow-y-auto max-h-[500px] xl:max-h-[calc(100vh-380px)] border-t">
-                    <Table>
-                      <TableHeader className="sticky top-0 z-20 shadow-xs">
-                        <TableRow className="border-b shadow-[0_1px_2px_rgba(0,0,0,0.05)] bg-background">
-                          <TableHead className="w-28 sticky top-0 z-20 bg-background font-semibold text-foreground">Date</TableHead>
-                          <TableHead className="w-36 sticky top-0 z-20 bg-background font-semibold text-foreground">Ref / Voucher No</TableHead>
-                          <TableHead className="sticky top-0 z-20 bg-background font-semibold text-foreground">Particulars / Description</TableHead>
-                          <TableHead className="text-right w-36 sticky top-0 z-20 bg-background font-semibold text-foreground">Purchase / Bill (+৳)</TableHead>
-                          <TableHead className="text-right w-36 sticky top-0 z-20 bg-background font-semibold text-foreground">Payment Made (-৳)</TableHead>
-                          <TableHead className="text-right w-40 sticky top-0 z-20 bg-background font-semibold text-foreground">Running Balance (৳)</TableHead>
-                          <TableHead className="text-right w-44 sticky top-0 z-20 bg-background font-semibold text-foreground">Action</TableHead>
+                  <div className="hidden md:block border-t">
+                    <Table containerClassName="max-h-[540px] xl:max-h-[calc(100vh-340px)]">
+                      <TableHeader className="sticky top-0 z-20 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md">
+                        <TableRow className="border-b hover:bg-transparent">
+                          <TableHead className="w-28 font-semibold text-foreground">Date</TableHead>
+                          <TableHead className="w-36 font-semibold text-foreground">Ref / Voucher No</TableHead>
+                          <TableHead className="font-semibold text-foreground">Particulars / Description</TableHead>
+                          <TableHead className="text-right w-36 font-semibold text-foreground">Purchase / Bill (+৳)</TableHead>
+                          <TableHead className="text-right w-36 font-semibold text-foreground">Payment Made (-৳)</TableHead>
+                          <TableHead className="text-right w-40 font-semibold text-foreground">Running Balance (৳)</TableHead>
+                          <TableHead className="text-right w-44 font-semibold text-foreground">Action</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -1578,10 +1578,10 @@ export function SupplierLedger() {
               )}
 
               {/* Preserved line items */}
-              <div className="border rounded-md overflow-hidden">
-                <Table>
+              <div className="border rounded-md">
+                <Table containerClassName="max-h-[45vh] rounded-md">
                   <TableHeader>
-                    <TableRow className="bg-muted/30">
+                    <TableRow className="hover:bg-transparent">
                       <TableHead>Product Name</TableHead>
                       <TableHead>SKU</TableHead>
                       <TableHead className="text-center">Quantity (Pcs)</TableHead>

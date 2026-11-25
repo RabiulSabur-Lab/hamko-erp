@@ -525,8 +525,8 @@ export function CustomerLedgerModal({ open, onClose, customer }: CustomerLedgerM
             </div>
           </div>
 
-          {/* ── Scrollable Table Area: flex-1 overflow-y-auto max-h-[60vh] ─────────────────── */}
-          <div className="flex-1 overflow-y-auto max-h-[60vh] min-h-0 w-full">
+          {/* ── Scrollable Table Area (Single scroll context inside <Table> for reliable sticky headers) ─── */}
+          <div className="flex-1 min-h-0 w-full">
             <div className="p-3 sm:p-4">
               {displayEntries.length === 0 ? (
                 <EmptyState
@@ -535,11 +535,11 @@ export function CustomerLedgerModal({ open, onClose, customer }: CustomerLedgerM
                   description="No transactions found for this customer."
                 />
               ) : (
-                <div className="rounded-lg border shadow-xs overflow-hidden">
-                  <Table>
+                <div className="rounded-lg border shadow-xs">
+                  <Table containerClassName="max-h-[55vh] rounded-lg">
                     {/* Simplified 5 Column Headers: Date | Particulars/Note | Invoice (+৳) | Payment (-৳) | Current Status */}
-                    <TableHeader className="sticky top-0 bg-background/95 backdrop-blur z-10 border-b">
-                      <TableRow className="bg-muted/70 text-xs hover:bg-muted/70">
+                    <TableHeader className="sticky top-0 z-20 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b">
+                      <TableRow className="text-xs hover:bg-transparent">
                         <TableHead className="w-[95px] py-2 px-3 font-semibold whitespace-nowrap">Date</TableHead>
                         <TableHead className="min-w-[210px] py-2 px-3 font-semibold">Particulars/Note</TableHead>
                         <TableHead className="w-[125px] py-2 px-3 text-right font-semibold text-foreground">Invoice (+৳)</TableHead>

@@ -1065,9 +1065,9 @@ export function ReportsPage() {
             {data.length === 0 ? (
               <EmptyState icon={<FileText className="h-10 w-10" />} title={t("noData")} description={t("noResults")} />
             ) : (
-              <Table>
+              <Table containerClassName="max-h-[calc(100vh-300px)]">
                 <TableHeader>
-                  <TableRow>
+                  <TableRow className="hover:bg-transparent">
                     {Object.keys(data[0]).map((k) => (
                       <TableHead key={k} className="capitalize">
                         {k.replace(/([A-Z])/g, " $1")}

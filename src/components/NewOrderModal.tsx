@@ -845,10 +845,10 @@ export function NewOrderModal({
             </Badge>
           </div>
 
-          <div className="rounded-lg border overflow-visible">
-            <Table>
+          <div className="rounded-lg border">
+            <Table containerClassName="max-h-[45vh] rounded-lg">
               <TableHeader>
-                <TableRow className="bg-muted/40">
+                <TableRow className="hover:bg-transparent">
                   <TableHead className="min-w-[240px]">{t("product")}</TableHead>
                   <TableHead className="w-16 text-center">{t("quantity")}</TableHead>
                   <TableHead className="w-32">

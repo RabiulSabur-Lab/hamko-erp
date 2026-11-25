@@ -971,17 +971,17 @@ export function SfaPage() {
                   </div>
 
                   {/* Desktop Table (screens md+ >= 768px) */}
-                  <div className="hidden md:block overflow-x-auto relative rounded-md border">
-                    <Table>
+                  <div className="hidden md:block rounded-md border">
+                    <Table containerClassName="max-h-[calc(100vh-310px)] rounded-md">
                       <TableHeader>
-                        <TableRow>
+                        <TableRow className="hover:bg-transparent">
                           <TableHead>{t("customer")}</TableHead>
                           <TableHead>Sales Officer</TableHead>
                           <TableHead>{t("date")}</TableHead>
                           <TableHead>{t("purpose" as string) || "Purpose"}</TableHead>
                           <TableHead>{t("outcome" as string) || "Outcome"}</TableHead>
                           <TableHead>{t("warehouse" as string) || "Location"}</TableHead>
-                          <TableHead className="text-right sticky right-0 z-10 bg-white dark:bg-gray-800 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.1)]">{t("actions")}</TableHead>
+                          <TableHead className="text-right sticky right-0 top-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.08)]">{t("actions")}</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -1109,17 +1109,17 @@ export function SfaPage() {
                   </div>
 
                   {/* Desktop Table (screens md+ >= 768px) */}
-                  <div className="hidden md:block overflow-x-auto relative rounded-md border">
-                    <Table>
+                  <div className="hidden md:block rounded-md border">
+                    <Table containerClassName="max-h-[calc(100vh-310px)] rounded-md">
                       <TableHeader>
-                        <TableRow>
+                        <TableRow className="hover:bg-transparent">
                           <TableHead>{t("period")}</TableHead>
                           <TableHead>{t("startDate")}</TableHead>
                           <TableHead>{t("endDate")}</TableHead>
                           <TableHead className="text-right">{t("targetAmount")}</TableHead>
                           <TableHead className="text-right">{t("achieved")}</TableHead>
                           <TableHead>{t("progress")}</TableHead>
-                          <TableHead className="text-right sticky right-0 z-10 bg-white dark:bg-gray-800 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.1)]">{t("actions")}</TableHead>
+                          <TableHead className="text-right sticky right-0 top-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.08)]">{t("actions")}</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -1419,10 +1419,10 @@ export function SfaPage() {
                   </div>
 
                   {/* Desktop Table (screens md+ >= 768px) */}
-                  <div className="hidden md:block overflow-x-auto relative rounded-md border">
-                    <Table>
+                  <div className="hidden md:block rounded-md border">
+                    <Table containerClassName="max-h-[calc(100vh-310px)] rounded-md">
                       <TableHeader>
-                        <TableRow>
+                        <TableRow className="hover:bg-transparent">
                           <TableHead className="w-12 text-center">#</TableHead>
                           <TableHead className="w-16 text-center">Order</TableHead>
                           <TableHead>{t("customer")}</TableHead>
@@ -1430,7 +1430,7 @@ export function SfaPage() {
                           <TableHead>Location</TableHead>
                           <TableHead>Contact</TableHead>
                           <TableHead>Notes</TableHead>
-                          <TableHead className="text-right sticky right-0 z-10 bg-white dark:bg-gray-800 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.1)]">{t("actions")}</TableHead>
+                          <TableHead className="text-right sticky right-0 top-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.08)]">{t("actions")}</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>

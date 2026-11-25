@@ -1680,10 +1680,10 @@ export function OrdersPage() {
               </div>
 
               {/* Desktop Table (screens md+ >= 768px) */}
-              <div className="hidden md:block overflow-x-auto">
-                <Table>
+              <div className="hidden md:block">
+                <Table containerClassName="max-h-[calc(100vh-300px)]">
                   <TableHeader>
-                    <TableRow>
+                    <TableRow className="hover:bg-transparent">
                       <TableHead>{t("orderNumber")}</TableHead>
                       <TableHead>{t("customer")}</TableHead>
                       <TableHead>Sales Officer</TableHead>
@@ -1691,7 +1691,7 @@ export function OrdersPage() {
                       <TableHead>{t("status")}</TableHead>
                       <TableHead className="text-right">{t("total")}</TableHead>
                       <TableHead className="text-right">{t("dueAmount")}</TableHead>
-                      <TableHead className="text-right sticky right-0 z-10 bg-white dark:bg-gray-800 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.1)]">{t("actions")}</TableHead>
+                      <TableHead className="text-right sticky right-0 top-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.08)]">{t("actions")}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1875,8 +1875,8 @@ export function OrdersPage() {
               <div><p className="text-xs text-muted-foreground">{t("paymentStatus")}</p><Badge variant="secondary" className="text-[10px]">{t(viewing.payment_status.toLowerCase())}</Badge></div>
             </div>
             <div className="rounded-lg border">
-              <Table>
-                <TableHeader><TableRow><TableHead>{t("product")}</TableHead><TableHead className="text-right">{t("quantity")}</TableHead><TableHead>{t("priceTier")}</TableHead><TableHead className="text-right">{t("unitPrice")}</TableHead><TableHead className="text-right">{t("subtotal")}</TableHead></TableRow></TableHeader>
+              <Table containerClassName="max-h-[45vh]">
+                <TableHeader><TableRow className="hover:bg-transparent"><TableHead>{t("product")}</TableHead><TableHead className="text-right">{t("quantity")}</TableHead><TableHead>{t("priceTier")}</TableHead><TableHead className="text-right">{t("unitPrice")}</TableHead><TableHead className="text-right">{t("subtotal")}</TableHead></TableRow></TableHeader>
                 <TableBody>
                   {deduplicateOrderItems(viewing.order_items || (viewing as any).items || []).map((it: any) => {
                     const prodInfo = resolveOrderProduct(it.product, it.product_id, products);

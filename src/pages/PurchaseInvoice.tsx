@@ -494,10 +494,10 @@ export function PurchaseInvoice() {
               </Button>
             </CardHeader>
             <CardContent className="p-0 overflow-visible">
-              <div className="overflow-x-auto min-h-[350px] pb-10">
-                <Table>
+              <div className="min-h-[350px] pb-10">
+                <Table containerClassName="max-h-[55vh]">
                   <TableHeader>
-                    <TableRow>
+                    <TableRow className="hover:bg-transparent">
                       <TableHead className="min-w-[360px] sm:min-w-[420px]">Product</TableHead>
                       <TableHead className="w-24 text-center">Qty (Pcs)</TableHead>
                       <TableHead className="w-32 text-right">Purchase Rate (৳)</TableHead>

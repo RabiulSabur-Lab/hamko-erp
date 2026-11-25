@@ -712,10 +712,10 @@ export function UserManagement() {
               </div>
 
               {/* Desktop Table (screens md+ >= 768px) */}
-              <div className="hidden md:block overflow-x-auto">
-                <Table>
+              <div className="hidden md:block">
+                <Table containerClassName="max-h-[calc(100vh-310px)]">
                   <TableHeader>
-                    <TableRow className="bg-muted/40">
+                    <TableRow className="hover:bg-transparent">
                       <TableHead className="min-w-[180px]">Full Name</TableHead>
                       <TableHead className="min-w-[200px]">Email</TableHead>
                       <TableHead className="min-w-[140px]">Phone Number</TableHead>

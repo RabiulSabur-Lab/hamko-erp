@@ -572,20 +572,20 @@ export function InventoryPage() {
               </div>
 
               {/* Desktop Table (screens md+ >= 768px) */}
-              <div className="hidden md:block overflow-x-auto overflow-y-auto max-h-[calc(100vh-280px)] border rounded-lg">
-                <Table>
-                  <TableHeader className="sticky top-0 bg-white dark:bg-card z-10 shadow-sm">
-                    <TableRow className="bg-white dark:bg-card border-b">
-                      <TableHead className="bg-white dark:bg-card sticky top-0 z-10">{t("productName")}</TableHead>
-                      <TableHead className="bg-white dark:bg-card sticky top-0 z-10">{t("category")}</TableHead>
-                      <TableHead className="text-right bg-white dark:bg-card sticky top-0 z-10">{t("stockQty")}</TableHead>
+              <div className="hidden md:block border rounded-lg">
+                <Table containerClassName="max-h-[calc(100vh-280px)] rounded-lg">
+                  <TableHeader className="sticky top-0 z-20 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md shadow-xs">
+                    <TableRow className="border-b hover:bg-transparent">
+                      <TableHead>{t("productName")}</TableHead>
+                      <TableHead>{t("category")}</TableHead>
+                      <TableHead className="text-right">{t("stockQty")}</TableHead>
                       {isSuperAdmin && (
                         <>
-                          <TableHead className="text-right bg-white dark:bg-card sticky top-0 z-10">{t("purchaseCost")}</TableHead>
-                          <TableHead className="text-right bg-white dark:bg-card sticky top-0 z-10">{t("totalValue")}</TableHead>
+                          <TableHead className="text-right">{t("purchaseCost")}</TableHead>
+                          <TableHead className="text-right">{t("totalValue")}</TableHead>
                         </>
                       )}
-                      <TableHead className="bg-white dark:bg-card sticky top-0 z-10">{t("status")}</TableHead>
+                      <TableHead>{t("status")}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>

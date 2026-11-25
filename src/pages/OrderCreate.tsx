@@ -1143,10 +1143,10 @@ export function OrderCreate() {
           </div>
         </CardHeader>
         <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <Table>
+          <div>
+            <Table containerClassName="max-h-[55vh]">
               <TableHeader>
-                <TableRow>
+                <TableRow className="hover:bg-transparent">
                   <TableHead className="min-w-[260px]">Product</TableHead>
                   <TableHead className="w-24 text-center">Qty</TableHead>
                   <TableHead className="w-36">

@@ -1365,17 +1365,17 @@ export function AccountsPage() {
                   </div>
 
                   {/* Desktop Table (screens md+ >= 768px) */}
-                  <div className="hidden md:block overflow-x-auto">
-                    <Table>
+                  <div className="hidden md:block">
+                    <Table containerClassName="max-h-[calc(100vh-310px)]">
                       <TableHeader>
-                        <TableRow>
+                        <TableRow className="hover:bg-transparent">
                           <TableHead>{t("collectionNumber")}</TableHead>
                           <TableHead>{t("customer")}</TableHead>
                           <TableHead>{t("salesOfficer")}</TableHead>
                           <TableHead>{t("date")}</TableHead>
                           <TableHead className="text-right">{t("amount")}</TableHead>
                           <TableHead>{t("paymentMethod")}</TableHead>
-                          <TableHead className="text-right sticky right-0 z-10 bg-white dark:bg-gray-800 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.1)]">{t("actions")}</TableHead>
+                          <TableHead className="text-right sticky right-0 top-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.08)]">{t("actions")}</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -1521,16 +1521,16 @@ export function AccountsPage() {
                     </div>
 
                     {/* Desktop Table (screens md+ >= 768px) */}
-                    <div className="hidden md:block overflow-x-auto">
-                      <Table>
+                    <div className="hidden md:block">
+                      <Table containerClassName="max-h-[calc(100vh-310px)]">
                         <TableHeader>
-                          <TableRow>
+                          <TableRow className="hover:bg-transparent">
                             <TableHead>{t("expenseCategory")}</TableHead>
                             <TableHead>{t("description")}</TableHead>
                             <TableHead>Recorded By</TableHead>
                             <TableHead>{t("date")}</TableHead>
                             <TableHead className="text-right">{t("amount")}</TableHead>
-                            <TableHead className="text-right sticky right-0 z-10 bg-white dark:bg-gray-800 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.1)]">{t("actions")}</TableHead>
+                            <TableHead className="text-right sticky right-0 top-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.08)]">{t("actions")}</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -1632,10 +1632,10 @@ export function AccountsPage() {
                   </div>
 
                   {/* Desktop Table (screens md+ >= 768px) */}
-                  <div className="hidden md:block overflow-x-auto">
-                    <Table>
+                  <div className="hidden md:block">
+                    <Table containerClassName="max-h-[calc(100vh-310px)]">
                       <TableHeader>
-                        <TableRow>
+                        <TableRow className="hover:bg-transparent">
                           <TableHead>{t("date")}</TableHead>
                           <TableHead>{t("description" as string) || "Type"}</TableHead>
                           <TableHead>{t("reference" as string) || "Reference"}</TableHead>
@@ -1753,16 +1753,16 @@ export function AccountsPage() {
                   </div>
 
                   {/* Desktop Table (screens md+ >= 768px) */}
-                  <div className="hidden md:block overflow-x-auto">
-                    <Table>
+                  <div className="hidden md:block">
+                    <Table containerClassName="max-h-[calc(100vh-310px)]">
                       <TableHeader>
-                        <TableRow>
+                        <TableRow className="hover:bg-transparent">
                           <TableHead>{t("customer")}</TableHead>
                           <TableHead>{t("customerType")}</TableHead>
                           <TableHead>{t("phone")}</TableHead>
                           <TableHead className="text-right">{t("currentDue" as string) || "Due"}</TableHead>
                           <TableHead>{t("dueStatus")}</TableHead>
-                          <TableHead className="text-right sticky right-0 z-10 bg-white dark:bg-gray-800 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.1)]">{t("actions")}</TableHead>
+                          <TableHead className="text-right sticky right-0 top-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.08)]">{t("actions")}</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>

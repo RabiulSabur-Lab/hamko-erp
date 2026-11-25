@@ -855,10 +855,10 @@ export function CustomersPage() {
               </div>
 
               {/* Desktop Table (shown on screens md+ >= 768px) */}
-              <div className="hidden md:block overflow-x-auto">
-                <Table>
+              <div className="hidden md:block">
+                <Table containerClassName="max-h-[calc(100vh-300px)]">
                   <TableHeader>
-                    <TableRow>
+                    <TableRow className="hover:bg-transparent">
                       <TableHead>Outlet Name</TableHead>
                       <TableHead className="w-28">Status</TableHead>
                       <TableHead>{t("customerType")}</TableHead>
@@ -867,7 +867,7 @@ export function CustomersPage() {
                       <TableHead>{t("phone")}</TableHead>
                       <TableHead className="text-right">{t("currentDue" as string) || "Due"}</TableHead>
                       <TableHead>{t("dueStatus")}</TableHead>
-                      <TableHead className="text-right sticky right-0 z-10 bg-white dark:bg-gray-800 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.1)]">{t("actions")}</TableHead>
+                      <TableHead className="text-right sticky right-0 top-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.08)]">{t("actions")}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>

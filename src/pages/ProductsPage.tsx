@@ -991,14 +991,14 @@ export function ProductsPage() {
               </div>
 
               {/* Desktop Table (screens md+ >= 768px) */}
-              <div className="hidden md:block overflow-x-auto overflow-y-auto max-h-[calc(100vh-280px)] border rounded-lg max-w-full">
-                <Table>
-                  <TableHeader className="sticky top-0 bg-white dark:bg-card z-10 shadow-sm">
-                    <TableRow className="bg-white dark:bg-card border-b">
-                      <TableHead className="w-28 min-w-[100px] bg-white dark:bg-card sticky top-0 z-10">{t("skuCode")}</TableHead>
-                      <TableHead className="min-w-[200px] bg-white dark:bg-card sticky top-0 z-10">{t("productName")}</TableHead>
-                      <TableHead className="min-w-[120px] bg-white dark:bg-card sticky top-0 z-10">{t("category")}</TableHead>
-                      <TableHead className="text-right min-w-[150px] bg-white dark:bg-card sticky top-0 z-10">
+              <div className="hidden md:block border rounded-lg max-w-full">
+                <Table containerClassName="max-h-[calc(100vh-280px)] rounded-lg">
+                  <TableHeader className="sticky top-0 z-20 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md shadow-xs">
+                    <TableRow className="border-b hover:bg-transparent">
+                      <TableHead className="w-28 min-w-[100px]">{t("skuCode")}</TableHead>
+                      <TableHead className="min-w-[200px]">{t("productName")}</TableHead>
+                      <TableHead className="min-w-[120px]">{t("category")}</TableHead>
+                      <TableHead className="text-right min-w-[150px]">
                         <div className="flex items-center justify-end gap-1.5">
                           <span>{lang === "bn" ? "ডিলার মূল্য (DP)" : "DP (Dealer Price)"}</span>
                           <span
@@ -1014,7 +1014,7 @@ export function ProductsPage() {
                         </div>
                       </TableHead>
                       {canManageProducts && (
-                        <TableHead className="text-right w-24 min-w-[90px] bg-white dark:bg-card sticky top-0 z-10">{t("actions")}</TableHead>
+                        <TableHead className="text-right w-24 min-w-[90px]">{t("actions")}</TableHead>
                       )}
                     </TableRow>
                   </TableHeader>
