@@ -4,19 +4,68 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
-import { Plus, Loader2, Trash2, Sparkles, HelpCircle } from "lucide-react";
+import { Plus, Loader2, Trash2, Sparkles, HelpCircle, Calculator, RotateCcw } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import { r2, getProducts } from "@/utils/localStore";
-import { sanitizeFormulaInput, formatTierLabel, productSchema, DEFAULT_TIER_FORMULAS, DEFAULT_TIER_NAMES, calculateDefaultPriceTiers } from "@/utils/productUtils";
+import {
+  sanitizeFormulaInput,
+  formatTierLabel,
+  productSchema,
+  calculateDefaultPriceTiers,
+  calculateChainedTierPrice,
+  parseTierPercent,
+} from "@/utils/productUtils";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
 import type { Product, Category } from "@/lib/supabase";
 
 export interface PriceTierItem {
   name: string;
+  tier1: number | string;
+  tier2: number | string;
+  tier3: number | string;
   price: number | string;
   rate?: number | string;
+  /** True only for pre-existing saved tiers that stored a fixed price without tier1/2/3 percentages */
+  isLegacyFixed?: boolean;
 }
+
+const INITIAL_BLANK_TIER_ROWS = 10;
+
+const createEmptyTierRow = (): PriceTierItem => ({
+  name: "",
+  tier1: "",
+  tier2: "",
+  tier3: "",
+  price: "",
+  rate: "",
+  isLegacyFixed: false,
+});
+
+const padTierRows = (existing: PriceTierItem[], minRows = INITIAL_BLANK_TIER_ROWS): PriceTierItem[] => {
+  const rows = [...existing];
+  while (rows.length < minRows) {
+    rows.push(createEmptyTierRow());
+  }
+  return rows;
+};
+
+const hasTierDiscount = (tier: PriceTierItem): boolean =>
+  tier.tier1 !== "" || tier.tier2 !== "" || tier.tier3 !== "";
+
+const computeRowPreviewPrice = (tier: PriceTierItem, baseDp: number): number | "" => {
+  const dp = Math.max(0, Number(baseDp) || 0);
+  if (hasTierDiscount(tier)) {
+    return dp > 0 ? calculateChainedTierPrice(dp, tier.tier1, tier.tier2, tier.tier3) : 0;
+  }
+  if (tier.isLegacyFixed && tier.price !== "" && Number(tier.price) > 0) {
+    return r2(Number(tier.price));
+  }
+  if (tier.name.trim().length > 0 && dp > 0) {
+    return calculateChainedTierPrice(dp, tier.tier1, tier.tier2, tier.tier3);
+  }
+  return "";
+};
 
 export interface ProductFormData {
   id?: string;
@@ -38,7 +87,14 @@ export interface ProductFormData {
   reorder_level?: number | string;
   unit?: string;
   is_active?: boolean;
-  price_tiers?: { name: string; price: number }[];
+  price_tiers?: {
+    name: string;
+    tier1?: number | null;
+    tier2?: number | null;
+    tier3?: number | null;
+    price: number;
+    rate?: number;
+  }[];
 }
 
 export interface ProductEditModalProps {
@@ -101,7 +157,7 @@ export function ProductEditModal({
     return null;
   }
 
-  const [priceTiers, setPriceTiers] = useState<PriceTierItem[]>([]);
+  const [priceTiers, setPriceTiers] = useState<PriceTierItem[]>(() => padTierRows([], INITIAL_BLANK_TIER_ROWS));
 
   const [form, setForm] = useState<ProductFormData>({
     sku_code: "",
@@ -121,6 +177,19 @@ export function ProductEditModal({
   const isDirtyRef = useRef(false);
   const prevOpenRef = useRef(false);
   const prevProductIdRef = useRef<string | null | undefined>(undefined);
+
+  const getCurrentBaseDp = (): number => {
+    const rawDp =
+      form.unit_price ??
+      form.dp_price ??
+      form.selling_price ??
+      form.price ??
+      (activeProduct as any)?.unit_price ??
+      (activeProduct as any)?.dp_price ??
+      (formProp as any)?.unit_price ??
+      0;
+    return Math.max(0, parseFloat(String(rawDp || 0)) || 0);
+  };
 
   const updateForm = (updater: Partial<ProductFormData> | ((prev: ProductFormData) => ProductFormData)) => {
     isDirtyRef.current = true;
@@ -149,194 +218,165 @@ export function ProductEditModal({
       isDirtyRef.current = false;
 
       if (activeProduct) {
-      const catId =
-        activeProduct.category_id ||
-        (typeof activeProduct.category === "object" ? (activeProduct.category as any)?.id : null) ||
-        "";
-      const purchaseCost = (activeProduct as any).purchase_cost ?? activeProduct.distributor_price ?? (activeProduct as any).distributorPrice ?? (activeProduct as any).purchase_price ?? (activeProduct as any).purchasePrice ?? 0;
+        const catId =
+          activeProduct.category_id ||
+          (typeof activeProduct.category === "object" ? (activeProduct.category as any)?.id : null) ||
+          "";
+        const purchaseCost =
+          (activeProduct as any).purchase_cost ??
+          activeProduct.distributor_price ??
+          (activeProduct as any).distributorPrice ??
+          (activeProduct as any).purchase_price ??
+          (activeProduct as any).purchasePrice ??
+          0;
 
-      // Load price_tiers with comprehensive parsing (array, JSON string, or object map)
-      let initialTiers: PriceTierItem[] = [];
-      const locProd = activeProduct?.id ? getProducts().find((p: any) => p.id === activeProduct.id) : null;
-      let rawTiers = (activeProduct as any)?.price_tiers;
-      if ((!rawTiers || (Array.isArray(rawTiers) && rawTiers.length === 0)) && (locProd as any)?.price_tiers) {
-        rawTiers = (locProd as any).price_tiers;
-      }
-      if ((!rawTiers || (Array.isArray(rawTiers) && rawTiers.length === 0)) && (formProp as any)?.price_tiers) {
-        rawTiers = (formProp as any).price_tiers;
-      }
-      if (typeof rawTiers === "string") {
-        try {
-          rawTiers = JSON.parse(rawTiers);
-        } catch {
-          rawTiers = [];
+        const dpValue = Math.max(
+          0,
+          parseFloat(
+            String(
+              activeProduct.unit_price ??
+              (activeProduct as any).dp_price ??
+              (activeProduct as any).selling_price ??
+              (activeProduct as any).unitPrice ??
+              (activeProduct as any).base_price ??
+              (activeProduct as any).price ??
+              (activeProduct as any).dealer_price ??
+              (formProp as any)?.unit_price ??
+              (formProp as any)?.dp_price ??
+              0
+            )
+          ) || 0
+        );
+
+        // Load saved price_tiers (array, JSON string, or object map) without injecting hardcoded defaults
+        let initialTiers: PriceTierItem[] = [];
+        const locProd = activeProduct?.id ? getProducts().find((p: any) => p.id === activeProduct.id) : null;
+        let rawTiers = (activeProduct as any)?.price_tiers;
+        if ((!rawTiers || (Array.isArray(rawTiers) && rawTiers.length === 0)) && (locProd as any)?.price_tiers) {
+          rawTiers = (locProd as any).price_tiers;
         }
-      }
-      if (Array.isArray(rawTiers) && rawTiers.length > 0) {
-        initialTiers = rawTiers
-          .filter((t: any) => t && (t.name != null || t.tier_name != null))
-          .map((t: any) => ({
-            name: formatTierLabel(String(t.name ?? t.tier_name ?? t.title ?? "").trim()),
-            price: t.price != null && t.price !== "" ? t.price : (t.rate != null && t.rate !== "" ? t.rate : ""),
-          }))
-          .filter((t: any) => t.name.length > 0);
-      } else if (rawTiers && typeof rawTiers === "object" && !Array.isArray(rawTiers)) {
-        initialTiers = Object.entries(rawTiers).map(([name, price]) => ({
-          name: formatTierLabel(String(name).trim()),
-          price: (price != null ? price : "") as number | string,
-          rate: (price != null ? price : "") as number | string,
-        }));
+        if ((!rawTiers || (Array.isArray(rawTiers) && rawTiers.length === 0)) && (formProp as any)?.price_tiers) {
+          rawTiers = (formProp as any).price_tiers;
+        }
+        if (typeof rawTiers === "string") {
+          try {
+            rawTiers = JSON.parse(rawTiers);
+          } catch {
+            rawTiers = [];
+          }
+        }
+        if (Array.isArray(rawTiers) && rawTiers.length > 0) {
+          initialTiers = rawTiers
+            .filter((t: any) => t && (t.name != null || t.tier_name != null))
+            .map((t: any): PriceTierItem => {
+              const t1 = t.tier1 != null && t.tier1 !== "" ? t.tier1 : "";
+              const t2 = t.tier2 != null && t.tier2 !== "" ? t.tier2 : "";
+              const t3 = t.tier3 != null && t.tier3 !== "" ? t.tier3 : "";
+              const hasChain = t1 !== "" || t2 !== "" || t3 !== "";
+              const rawPrice = t.price != null && t.price !== "" ? t.price : (t.rate != null && t.rate !== "" ? t.rate : "");
+              const computedPrice = hasChain && dpValue > 0
+                ? calculateChainedTierPrice(dpValue, t1, t2, t3)
+                : rawPrice;
+              return {
+                name: formatTierLabel(String(t.name ?? t.tier_name ?? t.title ?? "").trim()),
+                tier1: t1,
+                tier2: t2,
+                tier3: t3,
+                price: computedPrice,
+                rate: computedPrice,
+                isLegacyFixed: !hasChain && rawPrice !== "" && Number(rawPrice) > 0,
+              };
+            })
+            .filter((t) => t.name.length > 0);
+        } else if (rawTiers && typeof rawTiers === "object" && !Array.isArray(rawTiers)) {
+          initialTiers = Object.entries(rawTiers)
+            .map(([name, price]): PriceTierItem => {
+              const cleaned = formatTierLabel(String(name).trim());
+              const numVal = price != null && price !== "" ? Number(price) : "";
+              return {
+                name: cleaned,
+                tier1: "",
+                tier2: "",
+                tier3: "",
+                price: numVal,
+                rate: numVal,
+                isLegacyFixed: numVal !== "" && Number(numVal) > 0,
+              };
+            })
+            .filter((t) => t.name.length > 0);
+        }
+
+        // Pad with blank rows up to 10 so users can type manually without hardcoded defaults
+        const paddedTiers = padTierRows(initialTiers, INITIAL_BLANK_TIER_ROWS);
+        setPriceTiers(paddedTiers);
+
+        setForm({
+          id: activeProduct.id,
+          sku_code: activeProduct.sku_code || "",
+          name: activeProduct.name || "",
+          brand: activeProduct.brand || "",
+          category_id: catId,
+          unit_price: dpValue,
+          dp_price: dpValue,
+          selling_price: dpValue,
+          price: dpValue,
+          dealer_price: dpValue,
+          base_price: dpValue,
+          distributor_price: purchaseCost,
+          purchase_cost: purchaseCost,
+          cost_price: purchaseCost,
+          purchase_price: purchaseCost,
+          stock_quantity: activeProduct.stock_quantity ?? 0,
+          reorder_level: activeProduct.reorder_level ?? 10,
+          unit: activeProduct.unit || "pcs",
+          is_active: activeProduct.is_active ?? true,
+          price_tiers: paddedTiers as any,
+        });
       } else {
-        if ((activeProduct as any).d10_price != null && Number((activeProduct as any).d10_price) > 0) {
-          initialTiers.push({ name: "D10", price: Number((activeProduct as any).d10_price), rate: Number((activeProduct as any).d10_price) });
-        }
-        if ((activeProduct as any).b12_price != null && Number((activeProduct as any).b12_price) > 0) {
-          initialTiers.push({ name: "B12", price: Number((activeProduct as any).b12_price), rate: Number((activeProduct as any).b12_price) });
-        }
-        if ((activeProduct as any).d12_price != null && Number((activeProduct as any).d12_price) > 0) {
-          initialTiers.push({ name: "D12", price: Number((activeProduct as any).d12_price), rate: Number((activeProduct as any).d12_price) });
-        }
-        if ((activeProduct as any).b14_price != null && Number((activeProduct as any).b14_price) > 0) {
-          initialTiers.push({ name: "B14", price: Number((activeProduct as any).b14_price), rate: Number((activeProduct as any).b14_price) });
-        }
-      }
-
-      const dpValue = Math.max(
-        0,
-        parseFloat(
-          String(
-            activeProduct.unit_price ??
-            (activeProduct as any).dp_price ??
-            (activeProduct as any).selling_price ??
-            (activeProduct as any).unitPrice ??
-            (activeProduct as any).base_price ??
-            (activeProduct as any).price ??
-            (activeProduct as any).dealer_price ??
-            (formProp as any)?.unit_price ??
-            (formProp as any)?.dp_price ??
-            0
-          )
-        ) || 0
-      );
-
-      // If initialTiers has fewer than 7 tiers and contains only default tier names (e.g. only D10, B12),
-      // restore the complete set of all 7 tiers (D6, B8, D8, D10, B12, D12, B14)!
-      const isSubsetOfDefaults =
-        initialTiers.length > 0 &&
-        initialTiers.every((t) => DEFAULT_TIER_NAMES.includes(formatTierLabel(t.name).toUpperCase() as any)) &&
-        initialTiers.length < 7;
-
-      if ((initialTiers.length === 0 || isSubsetOfDefaults) && dpValue > 0) {
-        const fullDefaultTiers = calculateDefaultPriceTiers(dpValue);
-        const existingPrices = new Map(initialTiers.map((t) => [formatTierLabel(t.name).toUpperCase(), t.price]));
-        initialTiers = fullDefaultTiers.map((dt) => {
-          const existing = existingPrices.get(dt.name);
-          return existing !== undefined && existing !== "" && Number(existing) > 0
-            ? { name: dt.name, price: Number(existing), rate: Number(existing) }
-            : dt;
+        const blankRows = padTierRows([], INITIAL_BLANK_TIER_ROWS);
+        setPriceTiers(blankRows);
+        setForm({
+          sku_code: "",
+          name: "",
+          brand: "",
+          category_id: "",
+          unit_price: 0,
+          dp_price: 0,
+          selling_price: 0,
+          price: 0,
+          dealer_price: 0,
+          base_price: 0,
+          distributor_price: 0,
+          purchase_cost: 0,
+          cost_price: 0,
+          purchase_price: 0,
+          stock_quantity: 0,
+          reorder_level: 10,
+          unit: "pcs",
+          is_active: true,
+          price_tiers: blankRows as any,
         });
       }
-      setPriceTiers(initialTiers);
-
-      setForm({
-        id: activeProduct.id,
-        sku_code: activeProduct.sku_code || "",
-        name: activeProduct.name || "",
-        brand: activeProduct.brand || "",
-        category_id: catId,
-        unit_price: dpValue,
-        dp_price: dpValue,
-        selling_price: dpValue,
-        price: dpValue,
-        dealer_price: dpValue,
-        base_price: dpValue,
-        distributor_price: purchaseCost,
-        purchase_cost: purchaseCost,
-        cost_price: purchaseCost,
-        purchase_price: purchaseCost,
-        stock_quantity: activeProduct.stock_quantity ?? 0,
-        reorder_level: activeProduct.reorder_level ?? 10,
-        unit: activeProduct.unit || "pcs",
-        is_active: activeProduct.is_active ?? true,
-        price_tiers: initialTiers as any,
-      });
-    } else {
-      setPriceTiers([]);
-      setForm({
-        sku_code: "",
-        name: "",
-        brand: "",
-        category_id: "",
-        unit_price: 0,
-        dp_price: 0,
-        selling_price: 0,
-        price: 0,
-        dealer_price: 0,
-        base_price: 0,
-        distributor_price: 0,
-        purchase_cost: 0,
-        cost_price: 0,
-        purchase_price: 0,
-        stock_quantity: 0,
-        reorder_level: 10,
-        unit: "pcs",
-        is_active: true,
-        price_tiers: [],
-      });
     }
-  }
   }, [isModalOpen, activeProduct?.id]);
 
-  // Watch for DP (Selling Base Rate) changes to automatically recalculate dynamic price tiers in real time
+  // Recalculate chained 3-tier prices live whenever Base DP changes (never injects hardcoded defaults)
   useEffect(() => {
     if (!isModalOpen) return;
     const rawDp = form.unit_price ?? form.dp_price ?? 0;
     const numDp = Math.max(0, parseFloat(String(rawDp || 0)) || 0);
 
     setPriceTiers((currentTiers) => {
-      if (currentTiers.length === 0) {
-        if (numDp > 0) {
-          const recalculated = calculateDefaultPriceTiers(numDp);
-          setForm((prev) => ({ ...prev, price_tiers: recalculated as any }));
-          if (setFormProp) {
-            setFormProp((prev: any) => ({ ...prev, price_tiers: recalculated }));
-          }
-          return recalculated;
-        }
-        return currentTiers;
-      }
-
-      const hasDefaultTiers = currentTiers.some((t) => {
-        const clean = formatTierLabel(t.name).toUpperCase();
-        return clean in DEFAULT_TIER_FORMULAS;
-      });
-
-      if (!hasDefaultTiers) return currentTiers;
-
-      const isOnlyDefaultTiers = currentTiers.every((t) => {
-        const clean = formatTierLabel(t.name).toUpperCase();
-        return clean in DEFAULT_TIER_FORMULAS;
-      });
-
       let changed = false;
-      let recalculated: PriceTierItem[];
-
-      if (isOnlyDefaultTiers && currentTiers.length < 7 && numDp > 0) {
-        recalculated = calculateDefaultPriceTiers(numDp);
-        changed = true;
-      } else {
-        recalculated = currentTiers.map((t) => {
-          const clean = formatTierLabel(t.name).toUpperCase();
-          if (clean in DEFAULT_TIER_FORMULAS) {
-            const expected = numDp > 0 ? DEFAULT_TIER_FORMULAS[clean](numDp) : 0;
-            if (t.price !== expected || (t as any).rate !== expected) {
-              changed = true;
-              return { ...t, price: expected, rate: expected };
-            }
-          }
-          return t;
-        });
-      }
+      const recalculated = currentTiers.map((t) => {
+        if (t.isLegacyFixed && !hasTierDiscount(t)) return t;
+        const expected = computeRowPreviewPrice(t, numDp);
+        if (t.price !== expected || t.rate !== expected) {
+          changed = true;
+          return { ...t, price: expected, rate: expected };
+        }
+        return t;
+      });
 
       if (!changed) return currentTiers;
 
@@ -353,10 +393,23 @@ export function ProductEditModal({
       e.preventDefault();
       e.stopPropagation();
     }
-    const nextTiers = [...priceTiers, { name: "", price: "" }];
+    isDirtyRef.current = true;
+    const nextTiers = [...priceTiers, createEmptyTierRow()];
     setPriceTiers(nextTiers);
     setForm((prev) => ({ ...prev, price_tiers: nextTiers as any }));
     if (setFormProp) setFormProp((prev: any) => ({ ...prev, price_tiers: nextTiers }));
+  };
+
+  const handleResetBlankTiers = (e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    isDirtyRef.current = true;
+    const blankRows = padTierRows([], INITIAL_BLANK_TIER_ROWS);
+    setPriceTiers(blankRows);
+    setForm((prev) => ({ ...prev, price_tiers: blankRows as any }));
+    if (setFormProp) setFormProp((prev: any) => ({ ...prev, price_tiers: blankRows }));
   };
 
   const handleLoadDefaultTiers = (e?: React.MouseEvent) => {
@@ -364,76 +417,54 @@ export function ProductEditModal({
       e.preventDefault();
       e.stopPropagation();
     }
-    const rawDp =
-      form.unit_price ??
-      form.dp_price ??
-      form.selling_price ??
-      form.price ??
-      (activeProduct as any)?.unit_price ??
-      (activeProduct as any)?.dp_price ??
-      (formProp as any)?.unit_price ??
-      0;
-    const dp = Math.max(0, parseFloat(String(rawDp || 0)) || 0);
+    const dp = getCurrentBaseDp();
     if (dp <= 0) {
-      toast.error("Please enter a valid DP (Selling Base Rate) first to calculate default tiers.");
+      toast.error(
+        lang === "bn"
+          ? "ডিফল্ট টায়ার গণনার জন্য অনুগ্রহ করে আগে একটি সঠিক ডিলার মূল্য (DP) দিন।"
+          : "Please enter a valid DP (Selling Base Rate) first to calculate default tiers."
+      );
       return;
     }
-    // Completely reset and replace price_tiers state array with all 7 default tiers regardless of existing tiers
-    const all7Tiers: PriceTierItem[] = [
-      { name: "D6", price: r2(dp * 0.94), rate: r2(dp * 0.94) },
-      { name: "B8", price: r2(dp * (4744.18 / 5150)), rate: r2(dp * (4744.18 / 5150)) },
-      { name: "D8", price: r2(dp * 0.92), rate: r2(dp * 0.92) },
-      { name: "D10", price: r2(dp * 0.90), rate: r2(dp * 0.90) },
-      { name: "B12", price: r2(dp * (4542.3 / 5150)), rate: r2(dp * (4542.3 / 5150)) },
-      { name: "D12", price: r2(dp * 0.88), rate: r2(dp * 0.88) },
-      { name: "B14", price: r2(dp * (4441.36 / 5150)), rate: r2(dp * (4441.36 / 5150)) },
-    ];
-    setPriceTiers([...all7Tiers]);
-    setForm((prev) => ({ ...prev, price_tiers: [...all7Tiers] as any }));
+    isDirtyRef.current = true;
+    const presetTiers: PriceTierItem[] = calculateDefaultPriceTiers(dp).map((dt) => ({
+      name: dt.name,
+      tier1: dt.tier1,
+      tier2: dt.tier2 ?? "",
+      tier3: dt.tier3 ?? "",
+      price: dt.price,
+      rate: dt.rate,
+      isLegacyFixed: false,
+    }));
+    const paddedDefaults = padTierRows(presetTiers, INITIAL_BLANK_TIER_ROWS);
+    setPriceTiers(paddedDefaults);
+    setForm((prev) => ({ ...prev, price_tiers: paddedDefaults as any }));
     if (setFormProp) {
-      setFormProp((prev: any) => ({ ...prev, price_tiers: [...all7Tiers] }));
+      setFormProp((prev: any) => ({ ...prev, price_tiers: paddedDefaults }));
     }
-    toast.success(`Loaded all 7 default price tiers based on DP (৳ ${dp})`);
+    toast.success(
+      lang === "bn"
+        ? `DP (৳ ${dp}) অনুযায়ী ৭টি ডিফল্ট প্রাইস টায়ার লোড হয়েছে`
+        : `Loaded 7 default chain-discount tiers based on DP (৳ ${dp})`
+    );
   };
 
   const handleDpChange = (rawVal: string) => {
+    isDirtyRef.current = true;
     const numericVal = rawVal === "" ? "" : (parseFloat(rawVal) || 0);
     const numDp = typeof numericVal === "number" ? Math.max(0, numericVal) : 0;
 
-    let updatedTiers = priceTiers;
-    const hasDefaultTiers = priceTiers.some((t) => {
-      const clean = formatTierLabel(t.name).toUpperCase();
-      return clean in DEFAULT_TIER_FORMULAS;
+    const updatedTiers = priceTiers.map((t) => {
+      if (t.isLegacyFixed && !hasTierDiscount(t)) return t;
+      const newPrice = computeRowPreviewPrice(t, numDp);
+      return {
+        ...t,
+        price: newPrice,
+        rate: newPrice,
+      };
     });
 
-    if (hasDefaultTiers || (priceTiers.length === 0 && numDp > 0)) {
-      if (priceTiers.length === 0 && numDp > 0) {
-        updatedTiers = calculateDefaultPriceTiers(numDp);
-      } else {
-        const isOnlyDefaultTiers = priceTiers.every((t) => {
-          const clean = formatTierLabel(t.name).toUpperCase();
-          return clean in DEFAULT_TIER_FORMULAS;
-        });
-
-        if (isOnlyDefaultTiers && priceTiers.length < 7 && numDp > 0) {
-          updatedTiers = calculateDefaultPriceTiers(numDp);
-        } else {
-          updatedTiers = priceTiers.map((t) => {
-            const clean = formatTierLabel(t.name).toUpperCase();
-            if (clean in DEFAULT_TIER_FORMULAS) {
-              const newPrice = DEFAULT_TIER_FORMULAS[clean](numDp);
-              return {
-                ...t,
-                price: newPrice,
-                rate: newPrice,
-              };
-            }
-            return t;
-          });
-        }
-      }
-      setPriceTiers(updatedTiers);
-    }
+    setPriceTiers(updatedTiers);
 
     setForm((prev) => ({
       ...prev,
@@ -465,21 +496,45 @@ export function ProductEditModal({
       e.preventDefault();
       e.stopPropagation();
     }
+    isDirtyRef.current = true;
     const nextTiers = priceTiers.filter((_, i) => i !== index);
     setPriceTiers(nextTiers);
     setForm((prev) => ({ ...prev, price_tiers: nextTiers as any }));
     if (setFormProp) setFormProp((prev: any) => ({ ...prev, price_tiers: nextTiers }));
   };
 
-  const handleTierChange = (index: number, field: "name" | "price", val: any) => {
+  const handleTierChange = (index: number, field: "name" | "tier1" | "tier2" | "tier3", val: string) => {
+    isDirtyRef.current = true;
+    const dp = getCurrentBaseDp();
     const next = [...priceTiers];
     if (!next[index]) return;
+
+    const current = { ...next[index] };
     if (field === "name") {
-      next[index] = { ...next[index], name: String(val) };
+      current.name = val;
+      if (val.trim() === "" && !hasTierDiscount(current)) {
+        current.isLegacyFixed = false;
+      }
     } else {
-      const numVal = val === "" ? "" : (parseFloat(val) || 0);
-      next[index] = { ...next[index], price: numVal, rate: numVal };
+      // Allow blank input or valid numeric percentage (0-100) while typing cleanly
+      if (val === "") {
+        current[field] = "";
+      } else {
+        const parsed = parseFloat(val);
+        if (Number.isFinite(parsed)) {
+          current[field] = parsed > 100 ? "100" : parsed < 0 ? "0" : val;
+        } else {
+          current[field] = val;
+        }
+      }
+      current.isLegacyFixed = false;
     }
+
+    const livePrice = computeRowPreviewPrice(current, dp);
+    current.price = livePrice;
+    current.rate = livePrice;
+    next[index] = current;
+
     setPriceTiers(next);
     setForm((prev) => ({ ...prev, price_tiers: next as any }));
     if (setFormProp) setFormProp((prev: any) => ({ ...prev, price_tiers: next }));
@@ -503,13 +558,25 @@ export function ProductEditModal({
       return;
     }
 
-    // Clean price tiers - ensure array with valid types: { name: string, price: number, rate: number }
+    // Clean price tiers — ignore empty rows, preserve 3-tier chain percentages + final rate
     const cleanedTiers = priceTiers
       .filter((t) => t && typeof t.name === "string" && sanitizeFormulaInput(t.name).length > 0)
       .map((t) => {
-        const val = Math.max(0, r2(parseFloat(String(t.price != null && t.price !== "" ? t.price : (t as any).rate)) || 0));
+        const t1 = parseTierPercent(t.tier1);
+        const t2 = parseTierPercent(t.tier2);
+        const t3 = parseTierPercent(t.tier3);
+        const hasChain = t1 !== null || t2 !== null || t3 !== null;
+        const legacyRaw = parseFloat(String(t.price != null && t.price !== "" ? t.price : (t as any).rate));
+        const val = hasChain
+          ? calculateChainedTierPrice(finalDp, t1, t2, t3)
+          : t.isLegacyFixed && Number.isFinite(legacyRaw) && legacyRaw > 0
+            ? r2(legacyRaw)
+            : finalDp;
         return {
           name: formatTierLabel(sanitizeFormulaInput(t.name)),
+          ...(t1 !== null ? { tier1: t1 } : {}),
+          ...(t2 !== null ? { tier2: t2 } : {}),
+          ...(t3 !== null ? { tier3: t3 } : {}),
           price: val,
           rate: val,
         };
@@ -557,12 +624,15 @@ export function ProductEditModal({
     });
   };
 
+  const liveBaseDp = getCurrentBaseDp();
+  const configuredTierCount = priceTiers.filter((t) => t.name.trim().length > 0).length;
+
   return (
     <Dialog
       open={isModalOpen}
       onClose={onClose}
       title={activeProduct ? t("edit") : t("addProduct")}
-      size="lg"
+      size="xl"
     >
       <form onSubmit={handleSubmit}>
         <div className="grid gap-4 sm:grid-cols-2">
@@ -735,116 +805,237 @@ export function ProductEditModal({
             </Select>
           </div>
 
-          {/* Dynamic 2-Box Key-Value Price Tiers */}
-          <div className="sm:col-span-2 space-y-3 pt-3 border-t">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+          {/* Dynamic 3-Tier Multi-Discount Price Tiers (5-Column Excel-Style Grid) */}
+          <div className="sm:col-span-2 space-y-3 pt-4 border-t border-slate-200/70 dark:border-slate-800/70">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5">
               <div>
-                <Label className="text-sm font-semibold flex items-center gap-1.5">
-                  Dynamic Price Tiers
-                  <span className="text-xs font-normal text-muted-foreground">({priceTiers.length})</span>
+                <Label className="text-sm font-semibold flex items-center gap-2">
+                  <span>{lang === "bn" ? "ডায়নামিক প্রাইস টায়ার (৩-স্তর চেইন ডিসকাউন্ট)" : "Dynamic Price Tiers (3-Tier Chain Discount)"}</span>
+                  <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 tabular-nums">
+                    {configuredTierCount} {lang === "bn" ? "সক্রিয়" : "active"} / {priceTiers.length} {lang === "bn" ? "সারি" : "rows"}
+                  </span>
                 </Label>
-                <p className="text-xs text-muted-foreground">
-                  Unlimited custom price tiers for this product. Populates dynamically in the Order Creation Modal.
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {lang === "bn"
+                    ? "এক্সেলের মতো পর্যায়ক্রমিক ৩-স্তর (%) ছাড় দিন। বেস DP রেটের ওপর ভিত্তি করে চূড়ান্ত রেট স্বয়ংক্রিয়ভাবে হিসাব হবে।"
+                    : "Enter successive Excel-like percentage discounts across up to 3 tiers. Final Rate auto-calculates live from Base DP."}
                 </p>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
                 <Button
                   type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleResetBlankTiers}
+                  className="gap-1.5 text-xs h-8 text-muted-foreground hover:text-foreground"
+                  title={lang === "bn" ? "সব সারি খালি করে ১০টি ফাঁকা সারি রিসেট করুন" : "Reset to 10 blank rows"}
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  {lang === "bn" ? "ফাঁকা রিসেট" : "Reset Blank"}
+                </Button>
+                <Button
+                  type="button"
                   variant="secondary"
                   size="sm"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    handleLoadDefaultTiers(e);
-                  }}
+                  onClick={handleLoadDefaultTiers}
                   className="gap-1.5 text-xs h-8 font-medium bg-emerald-50 text-emerald-700 border border-emerald-300 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800"
-                  title="Auto-calculate 7 standard tiers based on DP (Selling Base Rate)"
+                  title="Auto-calculate 7 standard dealer tiers based on DP (Selling Base Rate)"
                 >
-                  <Sparkles className="h-3.5 w-3.5" /> + Load Default Tiers (D6, B8, D8, D10, B12, D12, B14)
+                  <Sparkles className="h-3.5 w-3.5" />
+                  {lang === "bn" ? "+ ডিফল্ট টায়ার লোড" : "+ Load Default Tiers"}
                 </Button>
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    handleAddTier(e);
-                  }}
+                  onClick={handleAddTier}
                   className="gap-1.5 text-xs text-primary border-primary/30 hover:bg-primary/5 h-8 font-medium"
                 >
-                  <Plus className="h-3.5 w-3.5" /> + Add New Tier
+                  <Plus className="h-3.5 w-3.5" />
+                  {lang === "bn" ? "+ নতুন টায়ার যোগ করুন" : "+ Add New Tier"}
                 </Button>
               </div>
             </div>
 
+            {/* Live Formula & Base DP Bar */}
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-white/60 dark:border-white/10 bg-slate-50/70 dark:bg-slate-900/50 backdrop-blur-md px-3 py-2 text-[11px]">
+              <div className="flex items-center gap-1.5 text-muted-foreground font-mono">
+                <Calculator className="h-3.5 w-3.5 text-primary shrink-0" />
+                <span>
+                  Final Rate = Base DP × (1 − T1%) × (1 − T2%) × (1 − T3%)
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5 font-mono font-semibold text-foreground tabular-nums">
+                <span className="text-muted-foreground font-sans font-normal">
+                  {lang === "bn" ? "বেস DP:" : "Base DP:"}
+                </span>
+                <span className={liveBaseDp > 0 ? "text-primary" : "text-amber-600 dark:text-amber-400"}>
+                  ৳ {liveBaseDp.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              </div>
+            </div>
+
             {priceTiers.length === 0 ? (
-              <div className="rounded-lg border border-dashed p-4 text-center text-xs text-muted-foreground bg-muted/20 space-y-2.5">
+              <div className="rounded-xl border border-dashed p-5 text-center text-xs text-muted-foreground bg-muted/20 space-y-2.5">
                 <p>
-                  No custom price tiers defined. Click &quot;+ Load Default Tiers&quot; to auto-calculate the 7 standard dealer tiers (D6, B8, D8, D10, B12, D12, B14) from DP Rate, or click &quot;+ Add New Tier&quot; to configure custom selling rates.
+                  {lang === "bn"
+                    ? "কোনো প্রাইস টায়ার সারি নেই। ফাঁকা সারি যোগ করতে \"+ নতুন টায়ার যোগ করুন\" বাটনে ক্লিক করুন।"
+                    : "No price tier rows remaining. Click \"+ Add New Tier\" to add a blank row or \"Reset Blank\" for 10 blank rows."}
                 </p>
-                <div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      handleLoadDefaultTiers(e);
-                    }}
-                    className="gap-1.5 text-xs text-emerald-700 border-emerald-300 hover:bg-emerald-50 dark:text-emerald-300 dark:border-emerald-800"
-                  >
-                    <Sparkles className="h-3.5 w-3.5" /> + Load Default Tiers (D6, B8, D8, D10, B12, D12, B14)
+                <div className="flex items-center justify-center gap-2">
+                  <Button type="button" variant="outline" size="sm" onClick={handleAddTier} className="gap-1.5 text-xs">
+                    <Plus className="h-3.5 w-3.5" /> {lang === "bn" ? "+ নতুন টায়ার" : "+ Add New Tier"}
+                  </Button>
+                  <Button type="button" variant="ghost" size="sm" onClick={handleResetBlankTiers} className="gap-1.5 text-xs">
+                    <RotateCcw className="h-3.5 w-3.5" /> {lang === "bn" ? "১০টি ফাঁকা সারি" : "10 Blank Rows"}
                   </Button>
                 </div>
               </div>
             ) : (
-              <div className="space-y-2">
-                <div className="grid grid-cols-12 gap-2 text-[11px] font-semibold text-muted-foreground px-1 uppercase tracking-wider">
-                  <span className="col-span-6 sm:col-span-7">Tier Name (Box 1)</span>
-                  <span className="col-span-5 sm:col-span-4 text-right">Price / Rate (Box 2)</span>
-                  <span className="col-span-1 text-center">Action</span>
-                </div>
-                {priceTiers.map((tier, idx) => (
-                  <div key={idx} className="grid grid-cols-12 gap-2 items-center">
-                    {/* Box 1 (Text): Tier Name */}
-                    <div className="col-span-6 sm:col-span-7">
-                      <Input
-                        type="text"
-                        value={tier.name}
-                        onChange={(e) => handleTierChange(idx, "name", e.target.value)}
-                        placeholder="e.g. D10, B12, Wholesale"
-                        className="h-9 text-xs"
-                      />
-                    </div>
-                    {/* Box 2 (Number): Price / Rate */}
-                    <div className="col-span-5 sm:col-span-4">
-                      <Input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        value={tier.price}
-                        onChange={(e) => handleTierChange(idx, "price", e.target.value)}
-                        placeholder="4500"
-                        className="h-9 font-mono text-xs text-right"
-                      />
-                    </div>
-                    {/* Trash/Delete button */}
-                    <div className="col-span-1 flex justify-center">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleRemoveTier(idx)}
-                        className="h-8 w-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                        title="Delete tier pair"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
+              <div className="rounded-xl border border-white/70 dark:border-white/10 bg-white/45 dark:bg-slate-900/40 backdrop-blur-xl shadow-sm overflow-x-auto">
+                <div className="min-w-[660px]">
+                  {/* 5-Column Sticky Frosted Header */}
+                  <div className="grid grid-cols-[minmax(145px,1.55fr)_repeat(3,minmax(92px,1fr))_minmax(148px,1.35fr)_38px] gap-2 items-center px-3 py-2.5 border-b border-slate-200/70 dark:border-slate-800/70 bg-white/75 dark:bg-slate-900/75 backdrop-blur-md text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+                    <span>{lang === "bn" ? "১. টায়ার নাম" : "1. Tier Name"}</span>
+                    <span className="text-right">{lang === "bn" ? "২. ১ম ধাপ (%)" : "2. 1st Tier (%)"}</span>
+                    <span className="text-right">{lang === "bn" ? "৩. ২য় ধাপ (%)" : "3. 2nd Tier (%)"}</span>
+                    <span className="text-right">{lang === "bn" ? "৪. ৩য় ধাপ (%)" : "4. 3rd Tier (%)"}</span>
+                    <span className="text-right">{lang === "bn" ? "৫. চূড়ান্ত রেট" : "5. Final Rate / Price"}</span>
+                    <span className="text-center sr-only">Action</span>
                   </div>
-                ))}
+
+                  {/* Rows */}
+                  <div className="divide-y divide-slate-200/50 dark:divide-slate-800/50 max-h-[380px] overflow-y-auto">
+                    {priceTiers.map((tier, idx) => {
+                      const livePreview = computeRowPreviewPrice(tier, liveBaseDp);
+                      const hasValue = livePreview !== "" && Number.isFinite(Number(livePreview));
+                      const effectivePctOff =
+                        hasValue && liveBaseDp > 0 && Number(livePreview) < liveBaseDp
+                          ? r2((1 - Number(livePreview) / liveBaseDp) * 100)
+                          : 0;
+                      const isRowActive = tier.name.trim().length > 0 || hasTierDiscount(tier);
+
+                      return (
+                        <div
+                          key={idx}
+                          className={`grid grid-cols-[minmax(145px,1.55fr)_repeat(3,minmax(92px,1fr))_minmax(148px,1.35fr)_38px] gap-2 items-center px-3 py-2 transition-colors ${
+                            isRowActive
+                              ? "bg-white/60 dark:bg-slate-800/35"
+                              : "bg-transparent hover:bg-white/40 dark:hover:bg-slate-800/20"
+                          }`}
+                        >
+                          {/* Col 1: Tier Name */}
+                          <div className="flex items-center gap-1.5">
+                            <span className="w-5 text-[10px] font-mono text-muted-foreground/70 text-right shrink-0 select-none">
+                              {idx + 1}.
+                            </span>
+                            <Input
+                              type="text"
+                              value={tier.name}
+                              onChange={(e) => handleTierChange(idx, "name", e.target.value)}
+                              placeholder="e.g. D6, B8"
+                              className="h-8 text-xs font-medium bg-white/80 dark:bg-slate-950/50"
+                            />
+                          </div>
+
+                          {/* Col 2: 1st Tier (%) */}
+                          <div className="relative">
+                            <Input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              max="100"
+                              value={tier.tier1}
+                              onChange={(e) => handleTierChange(idx, "tier1", e.target.value)}
+                              placeholder="—"
+                              className="h-8 pr-6 font-mono text-xs text-right tabular-nums bg-white/80 dark:bg-slate-950/50"
+                            />
+                            <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">
+                              %
+                            </span>
+                          </div>
+
+                          {/* Col 3: 2nd Tier (%) */}
+                          <div className="relative">
+                            <Input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              max="100"
+                              value={tier.tier2}
+                              onChange={(e) => handleTierChange(idx, "tier2", e.target.value)}
+                              placeholder="—"
+                              className="h-8 pr-6 font-mono text-xs text-right tabular-nums bg-white/80 dark:bg-slate-950/50"
+                            />
+                            <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">
+                              %
+                            </span>
+                          </div>
+
+                          {/* Col 4: 3rd Tier (%) */}
+                          <div className="relative">
+                            <Input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              max="100"
+                              value={tier.tier3}
+                              onChange={(e) => handleTierChange(idx, "tier3", e.target.value)}
+                              placeholder="—"
+                              className="h-8 pr-6 font-mono text-xs text-right tabular-nums bg-white/80 dark:bg-slate-950/50"
+                            />
+                            <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">
+                              %
+                            </span>
+                          </div>
+
+                          {/* Col 5: Final Rate / Price (Auto-Calculated Live Preview) */}
+                          <div
+                            className={`h-8 px-2.5 rounded-md border flex items-center justify-between gap-1.5 font-mono text-xs tabular-nums ${
+                              hasValue
+                                ? "border-emerald-200/80 dark:border-emerald-800/60 bg-emerald-50/70 dark:bg-emerald-950/35 text-emerald-700 dark:text-emerald-300 font-semibold"
+                                : "border-slate-200/60 dark:border-slate-800/60 bg-slate-50/50 dark:bg-slate-950/30 text-muted-foreground"
+                            }`}
+                            title={
+                              hasValue
+                                ? tier.isLegacyFixed && !hasTierDiscount(tier)
+                                  ? "Saved fixed price (enter tier % to switch to 3-tier chain formula)"
+                                  : `Auto-calculated: ${liveBaseDp} × (1 - ${parseTierPercent(tier.tier1) ?? 0}%) × (1 - ${parseTierPercent(tier.tier2) ?? 0}%) × (1 - ${parseTierPercent(tier.tier3) ?? 0}%)`
+                                : "Enter Base DP and tier discounts to preview final rate"
+                            }
+                          >
+                            {effectivePctOff > 0 ? (
+                              <span className="text-[10px] font-normal px-1 py-0.5 rounded bg-emerald-100/80 dark:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 shrink-0">
+                                -{effectivePctOff}%
+                              </span>
+                            ) : (
+                              <span className="text-[10px] font-normal text-muted-foreground/60 shrink-0">৳</span>
+                            )}
+                            <span className="truncate ml-auto">
+                              {hasValue
+                                ? `৳ ${Number(livePreview).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                                : "—"}
+                            </span>
+                          </div>
+
+                          {/* Delete Row Action */}
+                          <div className="flex justify-center">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              onClick={(e) => handleRemoveTier(idx, e)}
+                              className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                              title={lang === "bn" ? "সারি মুছে ফেলুন" : "Remove tier row"}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
             )}
           </div>

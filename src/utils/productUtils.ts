@@ -1,34 +1,91 @@
 import { STORAGE_KEYS, getDeletedIds, getProducts, r2 } from "@/utils/localStore";
 import { sanitizeFormulaInput, isFormulaInjection } from "@/utils/payloadSanitizer";
 
+export interface PriceTierEntry {
+  name: string;
+  tier1?: number | string | null;
+  tier2?: number | string | null;
+  tier3?: number | string | null;
+  price: number | string;
+  rate?: number | string;
+}
+
 /**
- * Dynamic Default Price Tier calculation formulas based on DP (Selling Base Rate):
- * - D6  = DP * 0.94
- * - B8  = DP * (4744.18 / 5150)
- * - D8  = DP * 0.92
- * - D10 = DP * 0.90
- * - B12 = DP * (4542.3 / 5150)
- * - D12 = DP * 0.88
- * - B14 = DP * (4441.36 / 5150)
+ * Safely parses an optional discount percentage value (0–100).
+ * Returns null for blank/empty inputs, or a clamped numeric percentage.
  */
+export function parseTierPercent(value?: number | string | null): number | null {
+  if (value === "" || value === null || value === undefined) return null;
+  const parsed = parseFloat(String(value));
+  if (!Number.isFinite(parsed)) return null;
+  return Math.min(100, Math.max(0, r2(parsed)));
+}
+
+/**
+ * Calculates the final tier rate using successive 3-tier chain discounts:
+ * Final Rate = Base DP * (1 - t1/100) * (1 - t2/100) * (1 - t3/100)
+ */
+export function calculateChainedTierPrice(
+  baseDp: number,
+  tier1?: number | string | null,
+  tier2?: number | string | null,
+  tier3?: number | string | null,
+): number {
+  const dp = Math.max(0, Number(baseDp) || 0);
+  if (dp <= 0) return 0;
+  const t1 = parseTierPercent(tier1) ?? 0;
+  const t2 = parseTierPercent(tier2) ?? 0;
+  const t3 = parseTierPercent(tier3) ?? 0;
+  return r2(dp * (1 - t1 / 100) * (1 - t2 / 100) * (1 - t3 / 100));
+}
+
+/**
+ * Default 3-tier chain discount presets based on DP (Selling Base Rate):
+ * - D6  = 6%             -> DP * 0.94
+ * - B8  = 6% + 2%        -> DP * 0.94 * 0.98 = DP * (4744.18 / 5150)
+ * - D8  = 8%             -> DP * 0.92
+ * - D10 = 10%            -> DP * 0.90
+ * - B12 = 10% + 2%       -> DP * 0.90 * 0.98 = DP * (4542.30 / 5150)
+ * - D12 = 12%            -> DP * 0.88
+ * - B14 = 12% + 2%       -> DP * 0.88 * 0.98 = DP * (4441.36 / 5150)
+ */
+export const DEFAULT_TIER_CHAIN_PRESETS: Record<
+  string,
+  { tier1: number; tier2: number | null; tier3: number | null }
+> = {
+  D6: { tier1: 6, tier2: null, tier3: null },
+  B8: { tier1: 6, tier2: 2, tier3: null },
+  D8: { tier1: 8, tier2: null, tier3: null },
+  D10: { tier1: 10, tier2: null, tier3: null },
+  B12: { tier1: 10, tier2: 2, tier3: null },
+  D12: { tier1: 12, tier2: null, tier3: null },
+  B14: { tier1: 12, tier2: 2, tier3: null },
+};
+
 export const DEFAULT_TIER_FORMULAS: Record<string, (dp: number) => number> = {
-  D6: (dp: number) => r2(dp * 0.94),
-  B8: (dp: number) => r2(dp * (4744.18 / 5150)),
-  D8: (dp: number) => r2(dp * 0.92),
-  D10: (dp: number) => r2(dp * 0.90),
-  B12: (dp: number) => r2(dp * (4542.3 / 5150)),
-  D12: (dp: number) => r2(dp * 0.88),
-  B14: (dp: number) => r2(dp * (4441.36 / 5150)),
+  D6: (dp: number) => calculateChainedTierPrice(dp, 6),
+  B8: (dp: number) => calculateChainedTierPrice(dp, 6, 2),
+  D8: (dp: number) => calculateChainedTierPrice(dp, 8),
+  D10: (dp: number) => calculateChainedTierPrice(dp, 10),
+  B12: (dp: number) => calculateChainedTierPrice(dp, 10, 2),
+  D12: (dp: number) => calculateChainedTierPrice(dp, 12),
+  B14: (dp: number) => calculateChainedTierPrice(dp, 12, 2),
 };
 
 export const DEFAULT_TIER_NAMES = ["D6", "B8", "D8", "D10", "B12", "D12", "B14"] as const;
 
-export function calculateDefaultPriceTiers(dp: number): { name: string; price: number; rate: number }[] {
+export function calculateDefaultPriceTiers(
+  dp: number,
+): { name: string; tier1: number; tier2: number | null; tier3: number | null; price: number; rate: number }[] {
   const numDp = Math.max(0, Number(dp) || 0);
   return DEFAULT_TIER_NAMES.map((name) => {
-    const val = DEFAULT_TIER_FORMULAS[name](numDp);
+    const preset = DEFAULT_TIER_CHAIN_PRESETS[name];
+    const val = calculateChainedTierPrice(numDp, preset.tier1, preset.tier2, preset.tier3);
     return {
       name,
+      tier1: preset.tier1,
+      tier2: preset.tier2,
+      tier3: preset.tier3,
       price: val,
       rate: val,
     };

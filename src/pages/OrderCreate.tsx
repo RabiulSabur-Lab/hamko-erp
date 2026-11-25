@@ -103,23 +103,26 @@ export function getProductPriceTiers(product?: any | null): { name: string; pric
     }
   }
   if (Array.isArray(tiers) && tiers.length > 0) {
-    let resolved = tiers
+    const dpVal = Number(product?.unit_price ?? product?.dp_price ?? product?.selling_price ?? product?.dealer_price ?? 0);
+    const resolved = tiers
       .filter((t: any) => t && (t?.name != null || t?.tier_name != null))
-      .map((t: any) => ({
-        name: formatTierLabel(String(t?.name ?? t?.tier_name ?? "")).trim(),
-        price: Number(t?.price != null && t?.price !== "" ? t.price : t?.rate) || 0,
-      }))
+      .map((t: any) => {
+        const rawPrice = Number(t?.price != null && t?.price !== "" ? t.price : t?.rate);
+        const hasChain = t?.tier1 != null || t?.tier2 != null || t?.tier3 != null;
+        let price = Number.isFinite(rawPrice) && rawPrice > 0 ? rawPrice : 0;
+        if (price <= 0 && hasChain && dpVal > 0) {
+          const t1 = Math.min(100, Math.max(0, Number(t?.tier1) || 0));
+          const t2 = Math.min(100, Math.max(0, Number(t?.tier2) || 0));
+          const t3 = Math.min(100, Math.max(0, Number(t?.tier3) || 0));
+          price = Math.round(dpVal * (1 - t1 / 100) * (1 - t2 / 100) * (1 - t3 / 100) * 100) / 100;
+        }
+        return {
+          name: formatTierLabel(String(t?.name ?? t?.tier_name ?? "")).trim(),
+          price,
+        };
+      })
       .filter((t: any) => t.name.length > 0);
 
-    const dpVal = Number(product?.unit_price ?? product?.dp_price ?? product?.selling_price ?? product?.dealer_price ?? 0);
-    if (resolved.length < 7 && dpVal > 0) {
-      const defaults = calculateDefaultPriceTiers(dpVal);
-      const existingMap = new Map(resolved.map((t) => [t.name.toUpperCase(), t.price]));
-      resolved = defaults.map((d) => {
-        const val = existingMap.get(d.name.toUpperCase());
-        return val !== undefined && Number(val) > 0 ? { name: d.name, price: Number(val) } : { name: d.name, price: d.price };
-      });
-    }
     return resolved;
   }
   if (tiers && typeof tiers === "object" && !Array.isArray(tiers)) {

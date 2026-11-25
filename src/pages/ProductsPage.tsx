@@ -35,8 +35,8 @@ import {
   formatTierLabel,
   productSchema,
   filterProductPayloadForSupabase,
-  DEFAULT_TIER_NAMES,
-  calculateDefaultPriceTiers,
+  calculateChainedTierPrice,
+  parseTierPercent,
 } from "@/utils/productUtils";
 import { sanitizeProductPayload, executeWithSchemaResilience } from "@/lib/payloadSanitizer";
 import { triggerGlobalLiveSync, clearCloudPullThrottle } from "@/utils/cloudSync";
@@ -54,7 +54,17 @@ export interface Product {
   sku?: string;
   sku_code?: string;
   category?: string | Category | any;
-  price_tiers?: Record<string, number> | Array<{ name: string; price: number }> | string;
+  price_tiers?:
+    | Record<string, number>
+    | Array<{
+        name: string;
+        price: number;
+        rate?: number;
+        tier1?: number | null;
+        tier2?: number | null;
+        tier3?: number | null;
+      }>
+    | string;
   [key: string]: any;
 }
 
@@ -211,23 +221,7 @@ export function ProductsPage() {
           if (typeof candidateTiers === "string") {
             try { candidateTiers = JSON.parse(candidateTiers); } catch { candidateTiers = undefined; }
           }
-          let resolvedPriceTiers = Array.isArray(candidateTiers) ? candidateTiers : [];
-
-          if (
-            resolvedPriceTiers.length > 0 &&
-            resolvedPriceTiers.length < 7 &&
-            resolvedPriceTiers.every((t: any) => DEFAULT_TIER_NAMES.includes(formatTierLabel(t.name).toUpperCase() as any)) &&
-            Number(resolvedDp) > 0
-          ) {
-            const fullDefaults = calculateDefaultPriceTiers(Number(resolvedDp));
-            const existingMap = new Map(resolvedPriceTiers.map((t: any) => [formatTierLabel(t.name).toUpperCase(), t.price]));
-            resolvedPriceTiers = fullDefaults.map((dt) => {
-              const customVal = existingMap.get(dt.name);
-              return customVal !== undefined && Number(customVal) > 0
-                ? { name: dt.name, price: Number(customVal), rate: Number(customVal) }
-                : dt;
-            });
-          }
+          const resolvedPriceTiers = Array.isArray(candidateTiers) ? candidateTiers : [];
 
           return {
             ...rp,
@@ -634,13 +628,30 @@ export function ProductsPage() {
       if (typeof rawInputTiers === "string") {
         try { rawInputTiers = JSON.parse(rawInputTiers); } catch { rawInputTiers = []; }
       }
-      const priceTiers: { name: string; price: number; rate: number }[] = Array.isArray(rawInputTiers)
+      const priceTiers: {
+        name: string;
+        tier1?: number | null;
+        tier2?: number | null;
+        tier3?: number | null;
+        price: number;
+        rate: number;
+      }[] = Array.isArray(rawInputTiers)
         ? rawInputTiers
           .filter((t: any) => t && typeof t.name === "string" && sanitizeFormulaInput(t.name).length > 0)
           .map((t: any) => {
-            const val = Math.max(0, r2(parseFloat(String(t.price != null && t.price !== "" ? t.price : t.rate)) || 0));
+            const t1 = parseTierPercent(t.tier1);
+            const t2 = parseTierPercent(t.tier2);
+            const t3 = parseTierPercent(t.tier3);
+            const hasChain = t1 !== null || t2 !== null || t3 !== null;
+            const rawNumeric = parseFloat(String(t.price != null && t.price !== "" ? t.price : t.rate));
+            const val = hasChain && finalDp > 0
+              ? calculateChainedTierPrice(finalDp, t1, t2, t3)
+              : Math.max(0, r2(Number.isFinite(rawNumeric) ? rawNumeric : (finalDp > 0 ? finalDp : 0)));
             return {
               name: formatTierLabel(sanitizeFormulaInput(t.name)),
+              ...(t1 !== null ? { tier1: t1 } : {}),
+              ...(t2 !== null ? { tier2: t2 } : {}),
+              ...(t3 !== null ? { tier3: t3 } : {}),
               price: val,
               rate: val,
             };

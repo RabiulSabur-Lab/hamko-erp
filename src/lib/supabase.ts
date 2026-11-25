@@ -587,7 +587,18 @@ export interface DbProductRow {
   mrp?: number | null;
   d10_price?: number | null;
   b12_price?: number | null;
-  price_tiers?: Record<string, number> | Array<{ name: string; price: number }> | string | null;
+  price_tiers?:
+    | Record<string, number>
+    | Array<{
+        name: string;
+        price: number;
+        rate?: number;
+        tier1?: number | null;
+        tier2?: number | null;
+        tier3?: number | null;
+      }>
+    | string
+    | null;
   stock_quantity: number;
   reorder_level: number;
   unit: string;
