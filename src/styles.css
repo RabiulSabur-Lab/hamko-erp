@@ -106,6 +106,10 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+html[lang="bn"] body {
+  font-family: "Hind Siliguri", "Anek Bangla", "Inter", system-ui, -apple-system, sans-serif;
+}
+
 html {
   scroll-behavior: smooth;
   font-size: 16px;
