@@ -194,19 +194,45 @@ export function encodeCustomerNotes(
   securityNotes?: string | null,
   status?: string | null
 ): string | null {
-  const metaTags = [
-    status && status === "Inactive" ? `[STATUS:Inactive]` : status === "Active" ? `[STATUS:Active]` : status ? `[STATUS:${status.trim()}]` : "",
-    partyCode ? `[PARTY:${partyCode.trim()}]` : "",
-    area ? `[AREA:${area.trim()}]` : "",
-    altPhone ? `[ALT:${altPhone.trim()}]` : "",
-    securityChequeNo ? `[SEC_CHEQUE:${securityChequeNo.trim()}]` : "",
-    securityBankName ? `[SEC_BANK:${securityBankName.trim()}]` : "",
-    securityBranchName ? `[SEC_BRANCH:${securityBranchName.trim()}]` : "",
-    securityChequeDate ? `[SEC_DATE:${securityChequeDate.trim()}]` : "",
-    securityNotes ? `[SEC_NOTES:${securityNotes.trim()}]` : "",
-  ].filter(Boolean).join("");
+  const safeTag = (val?: string | null) =>
+    (val || "").trim().replace(/\[/g, "(").replace(/\]/g, ")");
 
-  const cleanNotes = userNotes ? userNotes.trim() : "";
+  const sParty = safeTag(partyCode);
+  const sArea = safeTag(area);
+  const sAlt = safeTag(altPhone);
+  const sCheque = safeTag(securityChequeNo);
+  const sBank = safeTag(securityBankName);
+  const sBranch = safeTag(securityBranchName);
+  const sDate = safeTag(securityChequeDate);
+  const sNotes = safeTag(securityNotes);
+  const sStatus = safeTag(status);
+
+  const metaTags = [
+    sStatus && sStatus.toLowerCase() === "inactive"
+      ? `[STATUS:Inactive]`
+      : sStatus && sStatus.toLowerCase() === "active"
+      ? `[STATUS:Active]`
+      : sStatus
+      ? `[STATUS:${sStatus}]`
+      : "",
+    sParty ? `[PARTY:${sParty}]` : "",
+    sArea ? `[AREA:${sArea}]` : "",
+    sAlt ? `[ALT:${sAlt}]` : "",
+    sCheque ? `[SEC_CHEQUE:${sCheque}]` : "",
+    sBank ? `[SEC_BANK:${sBank}]` : "",
+    sBranch ? `[SEC_BRANCH:${sBranch}]` : "",
+    sDate ? `[SEC_DATE:${sDate}]` : "",
+    sNotes ? `[SEC_NOTES:${sNotes}]` : "",
+  ].filter(Boolean).join(" ");
+
+  const cleanNotes = userNotes
+    ? userNotes
+        .replace(
+          /\[(?:STATUS|PARTY|party_code|AREA|area|ALT|alt_phone|SEC_CHEQUE|SEC_BANK|SEC_BRANCH|SEC_DATE|SEC_NOTES|security_cheque):[^\]]*\]/gi,
+          "",
+        )
+        .trim()
+    : "";
   if (metaTags && cleanNotes) return `${metaTags} ${cleanNotes}`;
   if (metaTags) return metaTags;
   return cleanNotes || null;
@@ -329,11 +355,18 @@ export function AddCustomerModal({
 
   const updateForm = (updater: Partial<Customer> | ((prev: Partial<Customer>) => Partial<Customer>)) => {
     isDirtyRef.current = true;
-    if (typeof updater === "function") {
-      setForm((prev) => updater(prev));
-    } else {
-      setForm((prev) => ({ ...prev, ...updater }));
-    }
+    setForm((prev) => {
+      const next = typeof updater === "function" ? updater(prev) : { ...prev, ...updater };
+      // Keep camelCase and snake_case Security Cheque fields synchronized in live form state
+      if (typeof updater !== "function") {
+        if ("securityChequeNo" in updater) (next as any).security_cheque_no = updater.securityChequeNo ?? "";
+        if ("securityBankName" in updater) (next as any).security_bank_name = updater.securityBankName ?? "";
+        if ("securityBranchName" in updater) (next as any).security_branch_name = updater.securityBranchName ?? "";
+        if ("securityChequeDate" in updater) (next as any).security_cheque_date = updater.securityChequeDate ?? "";
+        if ("securityNotes" in updater) (next as any).security_notes = updater.securityNotes ?? "";
+      }
+      return next;
+    });
   };
 
   // Sync modal state whenever opened or customer changes
@@ -560,6 +593,19 @@ export function AddCustomerModal({
 
       if (isEditing && customer) {
         const customerId = String(customer.id).trim();
+        const combinedNotes = encodeCustomerNotes(
+          payload.notes,
+          finalPartyCode,
+          finalArea,
+          payload.alt_phone,
+          secCheque,
+          secBank,
+          secBranch,
+          secChequeDate,
+          secNotes,
+          finalStatus
+        );
+
         const updatedRecord: Customer = {
           ...customer,
           ...payload,
@@ -571,8 +617,8 @@ export function AddCustomerModal({
           is_offline: true,
         } as Customer;
 
-        // 1. Optimistic Local Store update
-        saveCustomer(updatedRecord);
+        // 1. Optimistic Local Store update (skipCloudSync avoids racing an unencoded upsert before our awaited update)
+        saveCustomer(updatedRecord, { skipCloudSync: true });
 
         // 2. Cascade update to orders (STORAGE_KEYS.ORDERS)
         const allOrders = getOrders();
@@ -662,26 +708,9 @@ export function AddCustomerModal({
         // Recalculate customer ledger to ensure due reflects new opening balance & orders/collections
         getCustomerLedgerDetails(customerId, undefined, undefined, { persist: true });
 
-        dispatchGlobalStateUpdate({ customerId, type: "customer_updated" });
-        toast.success(t("updated") || "Outlet updated successfully");
-        onSaved?.(updatedRecord);
-        onClose();
-
-        // 5. Remote Supabase persistence (clean schema payload with notes metadata)
+        // 5. Remote Supabase persistence BEFORE invoking onSaved/loadData so cloud sync never races with stale notes
+        let finalRecord: Customer = updatedRecord;
         try {
-          const combinedNotes = encodeCustomerNotes(
-            payload.notes,
-            finalPartyCode,
-            finalArea,
-            payload.alt_phone,
-            secCheque,
-            secBank,
-            secBranch,
-            secChequeDate,
-            secNotes,
-            finalStatus
-          );
-
           const validCustType = ["Dealer", "Retailer", "Wholesale"].includes(String(payload.customer_type || ""))
             ? String(payload.customer_type)
             : "Retailer";
@@ -689,7 +718,7 @@ export function AddCustomerModal({
             ? payload.due_status
             : (Number(payload.current_due || 0) > 0 ? "Partial" : "Clear");
 
-          // Standard Supabase customers table columns (is_active is boolean; notes holds metadata tag)
+          // Standard Supabase customers table columns (is_active is boolean; notes holds metadata tags incl. Security Cheque)
           const supabasePayload: Record<string, any> = {
             name: outletName,
             customer_type: validCustType,
@@ -714,18 +743,30 @@ export function AddCustomerModal({
           );
 
           if (res.error) {
-            console.warn("Failed to update customer remotely (retained with unsynced protection):", res.error.message);
-            saveCustomer({ id: customer.id, is_offline: true, _unsynced: true, _modifiedAt: Date.now() });
-            toast.error("Failed to update customer remotely: " + res.error.message);
-            return;
+            console.warn("Failed to update customer remotely (retained locally with unsynced protection):", res.error.message);
+            saveCustomer({ id: customer.id, is_offline: true, _unsynced: true, _modifiedAt: Date.now() }, { skipCloudSync: true });
+            toast.warning("Saved locally (cloud sync retry pending): " + res.error.message);
+          } else {
+            finalRecord = {
+              ...updatedRecord,
+              is_offline: false,
+              _unsynced: false,
+              _modifiedAt: Date.now(),
+            };
+            saveCustomer(
+              { id: customer.id, is_offline: false, _unsynced: false, _modifiedAt: Date.now() },
+              { skipCloudSync: true },
+            );
+            toast.success(t("updated") || "Outlet updated successfully");
           }
-
-          saveCustomer({ id: customer.id, is_offline: false, _unsynced: false, _modifiedAt: Date.now() });
         } catch (err: any) {
-          saveCustomer({ id: customer.id, is_offline: true, _unsynced: true, _modifiedAt: Date.now() });
-          toast.error("Failed to update customer remotely: " + (err?.message || "Network error"));
-          return;
+          saveCustomer({ id: customer.id, is_offline: true, _unsynced: true, _modifiedAt: Date.now() }, { skipCloudSync: true });
+          toast.warning("Saved locally (offline): " + (err?.message || "Will sync when back online"));
         }
+
+        dispatchGlobalStateUpdate({ customerId, type: "customer_updated" });
+        onSaved?.(finalRecord);
+        onClose();
       } else {
         // Create New Customer / Outlet directly in Supabase Central Database
         const creatorId = (isValidUuid(profile?.id) ? profile?.id : null) || (isValidUuid(user?.id) ? user?.id : null);
@@ -810,7 +851,7 @@ export function AddCustomerModal({
           _modifiedAt: Date.now(),
         } as Customer;
 
-        saveCustomer(newRecord);
+        saveCustomer(newRecord, { skipCloudSync: true });
         window.dispatchEvent(new CustomEvent("sales_erp_storage_update", { detail: { customer: newRecord } }));
         dispatchGlobalStateUpdate({ customerId: remoteCustomer.id, type: "customer_created" });
         toast.success(t("created") || "Outlet created successfully");
@@ -1245,7 +1286,9 @@ export function AddCustomerModal({
                 <div className="space-y-1">
                   <Label className="text-xs font-semibold">Security Cheque Number</Label>
                   <Input
-                    value={form.securityChequeNo ?? ""}
+                    name="securityChequeNo"
+                    autoComplete="off"
+                    value={form.securityChequeNo || ""}
                     onChange={(e) => updateForm({ securityChequeNo: e.target.value })}
                     placeholder="e.g., CD-9023412 or Cheque No"
                     className="font-mono text-sm uppercase"
@@ -1256,8 +1299,10 @@ export function AddCustomerModal({
                 <div className="space-y-1">
                   <Label className="text-xs font-semibold">Bank Name</Label>
                   <Input
+                    name="securityBankName"
+                    autoComplete="off"
                     list="security-banks-list"
-                    value={form.securityBankName ?? ""}
+                    value={form.securityBankName || ""}
                     onChange={(e) => updateForm({ securityBankName: e.target.value })}
                     placeholder="e.g., Dutch-Bangla Bank (DBBL), Islami Bank..."
                   />
@@ -1272,7 +1317,9 @@ export function AddCustomerModal({
                 <div className="space-y-1">
                   <Label className="text-xs font-semibold">Branch Name</Label>
                   <Input
-                    value={form.securityBranchName ?? ""}
+                    name="securityBranchName"
+                    autoComplete="off"
+                    value={form.securityBranchName || ""}
                     onChange={(e) => updateForm({ securityBranchName: e.target.value })}
                     placeholder="e.g., Motijheel Branch, Dhaka / Mathbaria Branch"
                   />
@@ -1282,8 +1329,9 @@ export function AddCustomerModal({
                 <div className="space-y-1">
                   <Label className="text-xs font-semibold">Security Cheque Received Date</Label>
                   <Input
+                    name="securityChequeDate"
                     type="date"
-                    value={form.securityChequeDate ?? ""}
+                    value={form.securityChequeDate || ""}
                     onChange={(e) => updateForm({ securityChequeDate: e.target.value })}
                   />
                 </div>
@@ -1292,7 +1340,9 @@ export function AddCustomerModal({
                 <div className="space-y-1 sm:col-span-2">
                   <Label className="text-xs font-semibold">Security Notes / Guarantee Terms</Label>
                   <Input
-                    value={form.securityNotes ?? ""}
+                    name="securityNotes"
+                    autoComplete="off"
+                    value={form.securityNotes || ""}
                     onChange={(e) => updateForm({ securityNotes: e.target.value })}
                     placeholder="e.g., ৳5,00,000 guarantee against 30-day credit limit"
                   />

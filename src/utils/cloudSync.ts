@@ -114,26 +114,31 @@ function generateUUID(): string {
  * recognized identically across Web and Mobile (`parseCustomerNotes`).
  */
 export function encodeCustomerNotes(cust: any): string {
+  const safeTag = (val: unknown) =>
+    String(val ?? "").trim().replace(/\[/g, "(").replace(/\]/g, ")");
   const parts: string[] = [];
   const rawStatus =
     cust?.status === "Inactive" || cust?.is_active === false ? "Inactive" : "Active";
   parts.push(`[STATUS:${rawStatus}]`);
 
-  if (cust?.party_code) parts.push(`[PARTY:${String(cust.party_code).trim()}]`);
-  if (cust?.area) parts.push(`[AREA:${String(cust.area).trim()}]`);
-  if (cust?.alt_phone) parts.push(`[ALT:${String(cust.alt_phone).trim()}]`);
+  const party = safeTag(cust?.party_code);
+  const area = safeTag(cust?.area || cust?.city);
+  const alt = safeTag(cust?.alt_phone);
+  if (party) parts.push(`[PARTY:${party}]`);
+  if (area) parts.push(`[AREA:${area}]`);
+  if (alt) parts.push(`[ALT:${alt}]`);
 
-  const chk = cust?.securityChequeNo || cust?.security_cheque_no;
-  const bnk = cust?.securityBankName || cust?.security_bank_name;
-  const brn = cust?.securityBranchName || cust?.security_branch_name;
-  const dt = cust?.securityChequeDate || cust?.security_cheque_date;
-  const sNotes = cust?.securityNotes || cust?.security_notes;
+  const chk = safeTag(cust?.securityChequeNo ?? cust?.security_cheque_no);
+  const bnk = safeTag(cust?.securityBankName ?? cust?.security_bank_name);
+  const brn = safeTag(cust?.securityBranchName ?? cust?.security_branch_name);
+  const dt = safeTag(cust?.securityChequeDate ?? cust?.security_cheque_date);
+  const sNotes = safeTag(cust?.securityNotes ?? cust?.security_notes);
 
-  if (chk) parts.push(`[SEC_CHEQUE:${String(chk).trim()}]`);
-  if (bnk) parts.push(`[SEC_BANK:${String(bnk).trim()}]`);
-  if (brn) parts.push(`[SEC_BRANCH:${String(brn).trim()}]`);
-  if (dt) parts.push(`[SEC_DATE:${String(dt).trim()}]`);
-  if (sNotes) parts.push(`[SEC_NOTES:${String(sNotes).trim()}]`);
+  if (chk) parts.push(`[SEC_CHEQUE:${chk}]`);
+  if (bnk) parts.push(`[SEC_BANK:${bnk}]`);
+  if (brn) parts.push(`[SEC_BRANCH:${brn}]`);
+  if (dt) parts.push(`[SEC_DATE:${dt}]`);
+  if (sNotes) parts.push(`[SEC_NOTES:${sNotes}]`);
 
   if (cust?.notes && typeof cust.notes === "string") {
     const clean = cust.notes

@@ -315,11 +315,15 @@ export function CustomersPage() {
       toast.error("Permission denied: You can only edit customers created by or assigned to yourself.");
       return;
     }
+    const localMatch = getCustomers().find((lc) => String(lc.id) === String(c.id));
+    const latest = localMatch && Number(localMatch._modifiedAt || 0) >= Number(c._modifiedAt || 0)
+      ? { ...c, ...localMatch }
+      : c;
     const dueInfo = customerDueMap.get(c.id);
     setEditing({
-      ...c,
-      current_due: dueInfo ? dueInfo.due : Number(c.current_due || 0),
-      due_status: dueInfo ? dueInfo.status : (c.due_status || "Clear"),
+      ...latest,
+      current_due: dueInfo ? dueInfo.due : Number(latest.current_due || 0),
+      due_status: dueInfo ? dueInfo.status : (latest.due_status || "Clear"),
     });
     setDialogOpen(true);
   }
@@ -346,8 +350,8 @@ export function CustomersPage() {
       _modifiedAt: Date.now(),
     };
 
-    // 1. Immediately update store & write full array to localStorage & dispatch storage update
-    updateCustomer(updatedCustomer);
+    // 1. Immediately update store & write full array to localStorage (skip duplicate background upsert)
+    updateCustomer(updatedCustomer, { skipCloudSync: true });
 
     // 2. Instant local UI state update
     setCustomers((prev) =>
@@ -1045,7 +1049,10 @@ export function CustomersPage() {
       {/* Add / Edit Customer Modal */}
       <AddCustomerModal
         open={dialogOpen}
-        onClose={() => setDialogOpen(false)}
+        onClose={() => {
+          setDialogOpen(false);
+          setEditing(null);
+        }}
         customer={editing}
         existingCustomers={customers}
         onSaved={(savedCustomer) => {
@@ -1060,7 +1067,10 @@ export function CustomersPage() {
               return [savedCustomer, ...prev];
             });
           }
-          void loadData(false);
+          // Only pull cloud refresh when saved record is already synced remotely
+          if (!savedCustomer?._unsynced) {
+            void loadData(false);
+          }
         }}
       />
 

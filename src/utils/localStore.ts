@@ -1129,12 +1129,11 @@ export function updateArea(
           (c.area && c.area.trim().toLowerCase() === oldName.trim().toLowerCase()) ||
           (c.city && c.city.trim().toLowerCase() === oldName.trim().toLowerCase());
         if (isMatch) {
-          let updatedNotes = c.notes || "";
-          if (/\[AREA:[^\]]*\]/i.test(updatedNotes)) {
-            updatedNotes = updatedNotes.replace(/\[AREA:[^\]]*\]/gi, `[AREA:${trimmedName}]`);
-          } else {
-            updatedNotes = `[AREA:${trimmedName}] ${updatedNotes}`.trim();
-          }
+          const updatedNotes = encodeCustomerNotesFromRecord({
+            ...c,
+            area: trimmedName,
+            city: trimmedName,
+          });
           const nextCust: Customer = {
             ...c,
             area: trimmedName,
@@ -1750,6 +1749,54 @@ export function parseCustomerNotes(rawNotes?: string | null): {
 }
 
 /**
+ * Encodes customer metadata (including Security Cheque fields, party_code, area, alt_phone, status)
+ * into the Supabase `notes` text column so background upserts NEVER strip security cheque data.
+ */
+export function encodeCustomerNotesFromRecord(cust: any): string | null {
+  if (!cust) return null;
+  const sanitizeTagVal = (val: unknown): string =>
+    String(val ?? "")
+      .trim()
+      .replace(/\[/g, "(")
+      .replace(/\]/g, ")");
+
+  const parts: string[] = [];
+  const rawStatus =
+    cust.status === "Inactive" || cust.is_active === false ? "Inactive" : "Active";
+  parts.push(`[STATUS:${rawStatus}]`);
+
+  const partyCode = sanitizeTagVal(cust.party_code);
+  const area = sanitizeTagVal(cust.area || cust.city);
+  const altPhone = sanitizeTagVal(cust.alt_phone);
+  const chk = sanitizeTagVal(cust.securityChequeNo ?? cust.security_cheque_no);
+  const bnk = sanitizeTagVal(cust.securityBankName ?? cust.security_bank_name);
+  const brn = sanitizeTagVal(cust.securityBranchName ?? cust.security_branch_name);
+  const dt = sanitizeTagVal(cust.securityChequeDate ?? cust.security_cheque_date);
+  const sNotes = sanitizeTagVal(cust.securityNotes ?? cust.security_notes);
+
+  if (partyCode) parts.push(`[PARTY:${partyCode}]`);
+  if (area) parts.push(`[AREA:${area}]`);
+  if (altPhone) parts.push(`[ALT:${altPhone}]`);
+  if (chk) parts.push(`[SEC_CHEQUE:${chk}]`);
+  if (bnk) parts.push(`[SEC_BANK:${bnk}]`);
+  if (brn) parts.push(`[SEC_BRANCH:${brn}]`);
+  if (dt) parts.push(`[SEC_DATE:${dt}]`);
+  if (sNotes) parts.push(`[SEC_NOTES:${sNotes}]`);
+
+  if (cust.notes && typeof cust.notes === "string") {
+    const clean = cust.notes
+      .replace(
+        /\[(?:STATUS|PARTY|party_code|AREA|area|ALT|alt_phone|SEC_CHEQUE|SEC_BANK|SEC_BRANCH|SEC_DATE|SEC_NOTES|security_cheque):[^\]]*\]/gi,
+        "",
+      )
+      .trim();
+    if (clean) parts.push(clean);
+  }
+
+  return parts.join(" ").trim() || null;
+}
+
+/**
  * Merges remote customers from Supabase (Cloud-Authoritative) with genuinely unsynced
  * offline local customers. Ensures web and mobile always converge to the exact same state,
  * evicting cloud-deleted records while preserving offline field entries.
@@ -1817,14 +1864,38 @@ export function mergeAndEnrichCustomers(
       rc.due_status ||
       (resolvedDue > 0 ? "Partial" : "Clear");
 
+    const hasRemoteMetaTags = Boolean(
+      rc.notes &&
+        /\[(?:STATUS|PARTY|party_code|AREA|area|ALT|alt_phone|SEC_CHEQUE|SEC_BANK|SEC_BRANCH|SEC_DATE|SEC_NOTES|security_cheque):/i.test(
+          rc.notes,
+        ),
+    );
+    const localSecCheque = loc?.securityChequeNo ?? (loc as any)?.security_cheque_no ?? null;
+    const localSecBank = loc?.securityBankName ?? (loc as any)?.security_bank_name ?? null;
+    const localSecBranch = loc?.securityBranchName ?? (loc as any)?.security_branch_name ?? null;
+    const localSecDate = loc?.securityChequeDate ?? (loc as any)?.security_cheque_date ?? null;
+    const localSecNotes = loc?.securityNotes ?? (loc as any)?.security_notes ?? null;
+
+    const remoteSecCheque = rc.securityChequeNo || (rc as any).security_cheque_no || parsed.securityChequeNo || null;
+    const remoteSecBank = rc.securityBankName || (rc as any).security_bank_name || parsed.securityBankName || null;
+    const remoteSecBranch = rc.securityBranchName || (rc as any).security_branch_name || parsed.securityBranchName || null;
+    const remoteSecDate = rc.securityChequeDate || (rc as any).security_cheque_date || parsed.securityChequeDate || null;
+    const remoteSecNotes = rc.securityNotes || (rc as any).security_notes || parsed.securityNotes || null;
+
+    const resolvedSecCheque = !remoteWins ? localSecCheque : (remoteSecCheque || (!hasRemoteMetaTags ? localSecCheque : null));
+    const resolvedSecBank = !remoteWins ? localSecBank : (remoteSecBank || (!hasRemoteMetaTags ? localSecBank : null));
+    const resolvedSecBranch = !remoteWins ? localSecBranch : (remoteSecBranch || (!hasRemoteMetaTags ? localSecBranch : null));
+    const resolvedSecDate = !remoteWins ? localSecDate : (remoteSecDate || (!hasRemoteMetaTags ? localSecDate : null));
+    const resolvedSecNotes = !remoteWins ? localSecNotes : (remoteSecNotes || (!hasRemoteMetaTags ? localSecNotes : null));
+
     return {
       ...rc,
-      outlet_name: rc.outlet_name || rc.name || loc?.outlet_name || "",
+      outlet_name: (!remoteWins && (loc?.outlet_name || loc?.name)) || rc.outlet_name || rc.name || loc?.outlet_name || "",
       name: (!remoteWins && loc?.name ? loc.name : rc.name) || "",
-      party_code: rc.party_code || parsed.party_code || loc?.party_code || null,
-      area: rc.area || parsed.area || rc.city || loc?.area || null,
+      party_code: (!remoteWins ? loc?.party_code : undefined) || rc.party_code || parsed.party_code || loc?.party_code || null,
+      area: (!remoteWins ? loc?.area : undefined) || rc.area || parsed.area || rc.city || loc?.area || null,
       city: (!remoteWins ? loc?.city : undefined) ?? rc.city ?? parsed.area ?? null,
-      alt_phone: rc.alt_phone || parsed.alt_phone || loc?.alt_phone || null,
+      alt_phone: (!remoteWins ? loc?.alt_phone : undefined) ?? (rc.alt_phone || parsed.alt_phone || (!hasRemoteMetaTags ? loc?.alt_phone : null) || null),
       phone: (!remoteWins ? loc?.phone : undefined) ?? rc.phone ?? null,
       contact_person: (!remoteWins ? loc?.contact_person : undefined) ?? rc.contact_person ?? null,
       customer_type: (!remoteWins ? loc?.customer_type : undefined) || rc.customer_type || "Retailer",
@@ -1836,42 +1907,19 @@ export function mergeAndEnrichCustomers(
       longitude: resolvedLongitude,
       status: resolvedStatus,
       is_active: resolvedIsActive,
-      securityChequeNo:
-        rc.securityChequeNo ||
-        (rc as any).security_cheque_no ||
-        parsed.securityChequeNo ||
-        loc?.securityChequeNo ||
-        (loc as any)?.security_cheque_no ||
-        null,
-      securityBankName:
-        rc.securityBankName ||
-        (rc as any).security_bank_name ||
-        parsed.securityBankName ||
-        loc?.securityBankName ||
-        (loc as any)?.security_bank_name ||
-        null,
-      securityBranchName:
-        rc.securityBranchName ||
-        (rc as any).security_branch_name ||
-        parsed.securityBranchName ||
-        loc?.securityBranchName ||
-        (loc as any)?.security_branch_name ||
-        null,
-      securityChequeDate:
-        rc.securityChequeDate ||
-        (rc as any).security_cheque_date ||
-        parsed.securityChequeDate ||
-        loc?.securityChequeDate ||
-        (loc as any)?.security_cheque_date ||
-        null,
-      securityNotes:
-        rc.securityNotes ||
-        (rc as any).security_notes ||
-        parsed.securityNotes ||
-        loc?.securityNotes ||
-        (loc as any)?.security_notes ||
-        null,
-      notes: parsed.cleanNotes !== undefined ? parsed.cleanNotes : rc.notes,
+      securityChequeNo: resolvedSecCheque,
+      securityBankName: resolvedSecBank,
+      securityBranchName: resolvedSecBranch,
+      securityChequeDate: resolvedSecDate,
+      securityNotes: resolvedSecNotes,
+      security_cheque_no: resolvedSecCheque,
+      security_bank_name: resolvedSecBank,
+      security_branch_name: resolvedSecBranch,
+      security_cheque_date: resolvedSecDate,
+      security_notes: resolvedSecNotes,
+      notes: !remoteWins && loc?.notes !== undefined
+        ? (parseCustomerNotes(loc.notes).cleanNotes ?? "")
+        : (parsed.cleanNotes !== undefined ? parsed.cleanNotes : rc.notes),
       opening_balance: resolvedOpening,
       opening_due: resolvedOpening,
       current_due: resolvedDue,
@@ -3304,7 +3352,10 @@ export const getCustomers = (): Customer[] => {
  * Saves or updates an outlet / customer in the persistent local storage array (STORAGE_KEYS.CUSTOMERS).
  * Immediately updates localStorage and dispatches storage update event so all components stay in sync.
  */
-export function saveCustomer(customer: Customer | (Partial<Customer> & { id: string })): Customer[] {
+export function saveCustomer(
+  customer: Customer | (Partial<Customer> & { id: string }),
+  options?: { skipCloudSync?: boolean },
+): Customer[] {
   const current: Customer[] = getCustomers();
   const index = current.findIndex((c: Customer) => String(c.id) === String(customer.id));
   const existing = index >= 0 ? current[index] : null;
@@ -3323,6 +3374,38 @@ export function saveCustomer(customer: Customer | (Partial<Customer> & { id: str
   }
   const is_active = status === "Active";
 
+  // Keep camelCase and snake_case Security Cheque fields strictly synchronized (respecting explicit clears)
+  const resolvedSecCheque =
+    customer.securityChequeNo !== undefined
+      ? customer.securityChequeNo
+      : (customer as any).security_cheque_no !== undefined
+      ? (customer as any).security_cheque_no
+      : (existing?.securityChequeNo ?? (existing as any)?.security_cheque_no ?? null);
+  const resolvedSecBank =
+    customer.securityBankName !== undefined
+      ? customer.securityBankName
+      : (customer as any).security_bank_name !== undefined
+      ? (customer as any).security_bank_name
+      : (existing?.securityBankName ?? (existing as any)?.security_bank_name ?? null);
+  const resolvedSecBranch =
+    customer.securityBranchName !== undefined
+      ? customer.securityBranchName
+      : (customer as any).security_branch_name !== undefined
+      ? (customer as any).security_branch_name
+      : (existing?.securityBranchName ?? (existing as any)?.security_branch_name ?? null);
+  const resolvedSecDate =
+    customer.securityChequeDate !== undefined
+      ? customer.securityChequeDate
+      : (customer as any).security_cheque_date !== undefined
+      ? (customer as any).security_cheque_date
+      : (existing?.securityChequeDate ?? (existing as any)?.security_cheque_date ?? null);
+  const resolvedSecNotes =
+    customer.securityNotes !== undefined
+      ? customer.securityNotes
+      : (customer as any).security_notes !== undefined
+      ? (customer as any).security_notes
+      : (existing?.securityNotes ?? (existing as any)?.security_notes ?? null);
+
   const resolvedCustomerId = isValidUuid(customer.id) ? customer.id : generateUuid();
   const customerToSave: Customer = {
     ...(existing || {}),
@@ -3330,6 +3413,16 @@ export function saveCustomer(customer: Customer | (Partial<Customer> & { id: str
     id: resolvedCustomerId,
     status,
     is_active,
+    securityChequeNo: resolvedSecCheque,
+    securityBankName: resolvedSecBank,
+    securityBranchName: resolvedSecBranch,
+    securityChequeDate: resolvedSecDate,
+    securityNotes: resolvedSecNotes,
+    security_cheque_no: resolvedSecCheque,
+    security_bank_name: resolvedSecBank,
+    security_branch_name: resolvedSecBranch,
+    security_cheque_date: resolvedSecDate,
+    security_notes: resolvedSecNotes,
     updated_at: new Date().toISOString(),
     _modifiedAt: Date.now(),
     _unsynced: customer._unsynced !== undefined ? customer._unsynced : (existing?._unsynced ?? true),
@@ -3344,29 +3437,37 @@ export function saveCustomer(customer: Customer | (Partial<Customer> & { id: str
   }
   setLocalData(STORAGE_KEYS.CUSTOMERS, updated);
 
-  // Ensure cloud persistence to Supabase customers table
-  try {
-    const cleanCust = sanitizeCustomerPayload(
-      {
-        ...customerToSave,
-        name: (customerToSave.outlet_name || customerToSave.name || "").trim(),
-      },
-      index < 0
-    );
-    if (cleanCust.name) {
-      executeWithSchemaResilience("customers", cleanCust, (p) =>
-        supabase.from("customers").upsert(p)
-      ).then(undefined, () => {});
+  // Ensure cloud persistence to Supabase customers table WITH encoded metadata tags intact
+  if (!options?.skipCloudSync) {
+    try {
+      const encodedNotes = encodeCustomerNotesFromRecord(customerToSave);
+      const cleanCust = sanitizeCustomerPayload(
+        {
+          ...customerToSave,
+          name: (customerToSave.outlet_name || customerToSave.name || "").trim(),
+          city: customerToSave.area || customerToSave.city || null,
+          notes: encodedNotes,
+        },
+        index < 0
+      );
+      if (cleanCust.name) {
+        executeWithSchemaResilience("customers", cleanCust, (p) =>
+          supabase.from("customers").upsert(p)
+        ).then(undefined, () => {});
+      }
+    } catch {
+      // Non-critical background sync
     }
-  } catch {
-    // Non-critical background sync
   }
 
   return updated;
 }
 
-export const updateCustomer = (customerOrPartial: Customer | (Partial<Customer> & { id: string })): Customer[] => {
-  return saveCustomer(customerOrPartial);
+export const updateCustomer = (
+  customerOrPartial: Customer | (Partial<Customer> & { id: string }),
+  options?: { skipCloudSync?: boolean },
+): Customer[] => {
+  return saveCustomer(customerOrPartial, options);
 };
 
 /**
