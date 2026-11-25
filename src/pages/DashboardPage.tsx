@@ -756,7 +756,7 @@ export function DashboardPage() {
                   <div
                     key={card.label}
                     onClick={() => navigate(card.route)}
-                    className="rounded-2xl apple-glass-card p-3.5 cursor-pointer hover:-translate-y-0.5 hover:shadow-xl dark:hover:border-slate-700 active:scale-[0.99] transition-all duration-300"
+                    className="rounded-2xl apple-glass-card p-3.5 cursor-pointer hover:-translate-y-1 hover:shadow-[0_12px_40px_0_rgba(31,38,135,0.12)] dark:hover:shadow-[0_12px_40px_0_rgba(0,0,0,0.5)] dark:hover:border-white/25 active:scale-[0.99] transition-all duration-300"
                   >
                     <div className="flex items-center justify-between">
                       <div className={`flex h-8 w-8 items-center justify-center rounded-xl ${card.bg} ring-1 ring-inset ring-black/[0.04] dark:ring-white/[0.08]`}>
@@ -1117,7 +1117,7 @@ export function DashboardPage() {
               ) : (
                 <div className="space-y-2">
                   {topProducts.map((p, idx) => (
-                    <div key={p.id || p.name} className="flex items-center justify-between rounded-xl border border-white/60 dark:border-slate-800/70 bg-white/55 dark:bg-slate-800/40 p-3 hover:bg-white/85 dark:hover:bg-slate-800/70 transition-colors">
+                    <div key={p.id || p.name} className="flex items-center justify-between rounded-xl border border-white/70 dark:border-white/10 bg-white/35 dark:bg-white/[0.04] p-3 hover:bg-white/60 dark:hover:bg-white/[0.08] transition-colors">
                       <div className="flex items-center gap-3 min-w-0 flex-1">
                         <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary/10 text-xs font-bold text-primary">
                           {idx + 1}
@@ -1174,7 +1174,7 @@ export function DashboardPage() {
                   {recentOrders.map((o, idx) => {
                     const statusLabel = String(o?.status || "Pending");
                     return (
-                      <div key={o?.id || o?.order_number || idx} className="flex items-center justify-between rounded-xl border border-white/60 dark:border-slate-800/70 bg-white/55 dark:bg-slate-800/40 p-3 hover:bg-white/85 dark:hover:bg-slate-800/70 transition-colors">
+                      <div key={o?.id || o?.order_number || idx} className="flex items-center justify-between rounded-xl border border-white/70 dark:border-white/10 bg-white/35 dark:bg-white/[0.04] p-3 hover:bg-white/60 dark:hover:bg-white/[0.08] transition-colors">
                         <div className="min-w-0 flex-1">
                           <p className="text-sm font-semibold truncate">{o?.order_number || "—"}</p>
                           <p className="text-xs text-muted-foreground truncate">{o?.customer?.name ?? "—"}</p>

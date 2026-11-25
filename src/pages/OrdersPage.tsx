@@ -1547,7 +1547,7 @@ export function OrdersPage() {
               {/* Mobile Order Cards (screens < 768px) */}
               <div className="block md:hidden divide-y divide-border/60">
                 {filtered.map((o) => (
-                  <div key={o.id} className="p-4 space-y-3 bg-card hover:bg-muted/30 transition-colors">
+                  <div key={o.id} className="p-4 space-y-3 bg-transparent hover:bg-white/40 dark:hover:bg-white/[0.04] transition-colors">
                     {/* Header: Order Number + Status Dropdown */}
                     <div className="flex items-start justify-between gap-2">
                       <div>

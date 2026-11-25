@@ -1413,7 +1413,7 @@ export function OrderCreate() {
         </Card>
 
         {/* Order Financials & Payment */}
-        <Card className="bg-gradient-to-br from-white/85 via-white/75 to-sky-50/70 dark:from-slate-900/75 dark:via-slate-900/65 dark:to-primary/10 border-primary/25">
+        <Card className="bg-gradient-to-br from-white/50 via-white/35 to-sky-100/45 dark:from-slate-900/50 dark:via-slate-900/40 dark:to-sky-950/40 border-primary/30">
           <CardHeader className="pb-3">
             <CardTitle className="text-base font-semibold">Order Summary</CardTitle>
           </CardHeader>

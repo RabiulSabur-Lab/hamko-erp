@@ -585,7 +585,7 @@ export function PurchaseInvoice() {
 
         {/* Sidebar Summary (Right 1 col) */}
         <div className="space-y-6">
-          <Card className="border-primary/25 bg-gradient-to-br from-white/85 via-white/75 to-sky-50/70 dark:from-slate-900/75 dark:via-slate-900/65 dark:to-primary/10 sticky top-4">
+          <Card className="border-primary/30 bg-gradient-to-br from-white/50 via-white/35 to-sky-100/45 dark:from-slate-900/50 dark:via-slate-900/40 dark:to-sky-950/40 sticky top-4">
             <CardHeader className="pb-3 border-b">
               <CardTitle className="text-base font-semibold">Procurement Summary</CardTitle>
               <CardDescription>Financial impact on Supplier Ledger</CardDescription>

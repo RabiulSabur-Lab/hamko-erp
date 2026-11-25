@@ -232,7 +232,16 @@ export function AppLayout({ children }: { children: ReactNode }) {
   const activeRoute = path === "/" ? "dashboard" : path.replace(/^\//, "").split("/")[0];
 
   return (
-    <div className="min-h-screen erp-glass-canvas">
+    <div className="relative min-h-screen erp-glass-canvas">
+      {/* Ambient Glowing Radial Orbs for True Apple Liquid Glass Refraction */}
+      <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden print:hidden" aria-hidden="true">
+        <div className="absolute -top-28 -left-20 h-[480px] w-[480px] rounded-full bg-sky-300/55 dark:bg-sky-500/22 blur-[110px]" />
+        <div className="absolute -top-24 right-[-6%] h-[520px] w-[520px] rounded-full bg-indigo-300/50 dark:bg-indigo-500/22 blur-[120px]" />
+        <div className="absolute top-[36%] left-[32%] h-[420px] w-[500px] rounded-full bg-cyan-200/50 dark:bg-cyan-500/15 blur-[120px]" />
+        <div className="absolute -bottom-24 left-[12%] h-[460px] w-[460px] rounded-full bg-violet-300/40 dark:bg-violet-600/18 blur-[120px]" />
+        <div className="absolute -bottom-20 right-[6%] h-[480px] w-[480px] rounded-full bg-blue-300/45 dark:bg-blue-500/18 blur-[115px]" />
+      </div>
+
       {/* Mobile overlay */}
       {sidebarOpen && (
         <div
@@ -249,7 +258,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
       />
 
       {/* Main content */}
-      <div className="lg:pl-64">
+      <div className="relative z-10 lg:pl-64">
         {isMobileViewport ? (
           /* Mobile-Only Top Header (<768px): Official Hamko Corporate Deep Blue/Navy */
           <header className="md:hidden sticky top-0 z-20 flex h-16 items-center gap-2.5 border-b border-blue-950/20 bg-gradient-to-r from-[#0a2540] via-[#0f3460] to-[#1e3a8a] text-white px-3.5 shadow-xs">
@@ -360,7 +369,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
           </header>
         ) : (
           /* Desktop-Only Classic Enterprise Web ERP Header (>=768px) */
-          <header className="hidden md:flex sticky top-0 z-20 h-16 items-center gap-3 border-b border-white/60 dark:border-slate-800/80 bg-white/75 dark:bg-slate-950/75 px-4 backdrop-blur-xl shadow-xs shadow-slate-200/30 dark:shadow-none lg:px-6">
+          <header className="hidden md:flex sticky top-0 z-20 h-16 items-center gap-3 border-b border-white/75 dark:border-white/12 bg-white/45 dark:bg-slate-950/45 px-4 backdrop-blur-2xl backdrop-saturate-200 shadow-[0_4px_24px_0_rgba(31,38,135,0.05)] dark:shadow-[0_4px_24px_0_rgba(0,0,0,0.3)] lg:px-6">
             <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setSidebarOpen(true)}>
               <Menu className="h-5 w-5" />
             </Button>

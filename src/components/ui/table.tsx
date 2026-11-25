@@ -22,7 +22,7 @@ TableBody.displayName = "TableBody";
 
 export const TableRow = forwardRef<HTMLTableRowElement, HTMLAttributes<HTMLTableRowElement>>(
   ({ className, ...props }, ref) => (
-    <tr ref={ref} className={cn("border-b transition-colors hover:bg-muted/50", className)} {...props} />
+    <tr ref={ref} className={cn("border-b border-slate-200/50 dark:border-white/10 transition-colors hover:bg-white/45 dark:hover:bg-white/[0.04]", className)} {...props} />
   ),
 );
 TableRow.displayName = "TableRow";

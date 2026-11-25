@@ -1143,7 +1143,7 @@ export function AccountsPage() {
     <div className="space-y-4">
       {/* KPI cards */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
-        <Card interactive className="bg-gradient-to-br from-teal-50/85 via-white/80 to-white/70 border-teal-200/75 dark:from-teal-950/40 dark:via-slate-900/70 dark:to-slate-900/65 dark:border-teal-800/60">
+        <Card interactive className="bg-gradient-to-br from-teal-100/50 via-white/35 to-cyan-50/40 border-teal-200/80 dark:from-teal-500/20 dark:via-slate-900/40 dark:to-slate-900/45 dark:border-teal-400/25">
           <CardContent className="p-4">
             <div className="flex items-center justify-between gap-2">
               <p className="text-xs font-semibold text-teal-800 dark:text-teal-300 truncate">{t("todaysCollection") || (lang === "bn" ? "আজকের কালেকশন" : "Today's Collection")}</p>
@@ -1290,7 +1290,7 @@ export function AccountsPage() {
                     {filteredCollections.map((c) => {
                       const displayColNo = c.collection_number || `COL-${String(c.id).slice(0, 8)}`;
                       return (
-                        <div key={c.id} className="p-4 space-y-2.5 bg-card hover:bg-muted/30 transition-colors">
+                        <div key={c.id} className="p-4 space-y-2.5 bg-transparent hover:bg-white/40 dark:hover:bg-white/[0.04] transition-colors">
                           <div className="flex items-start justify-between gap-2">
                             <div>
                               <button

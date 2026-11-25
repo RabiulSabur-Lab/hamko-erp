@@ -929,7 +929,7 @@ export function ProductsPage() {
                 {filtered.map((p: Product) => {
                   const dpPrice = p.unit_price ?? (p as any).dp_price ?? (p as any).selling_price ?? (p as any).price ?? (p as any).dealer_price ?? 0;
                   return (
-                    <div key={p.id} className="p-4 space-y-2.5 bg-card hover:bg-muted/30 transition-colors">
+                    <div key={p.id} className="p-4 space-y-2.5 bg-transparent hover:bg-white/40 dark:hover:bg-white/[0.04] transition-colors">
                       <div className="flex items-start justify-between gap-2">
                         <div>
                           <button

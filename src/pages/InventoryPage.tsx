@@ -370,7 +370,7 @@ export function InventoryPage() {
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <Card
           interactive
-          className={`cursor-pointer ${statusFilter === "all" ? "ring-2 ring-primary/40 bg-sky-50/75 dark:bg-sky-950/30" : ""}`}
+          className={`cursor-pointer ${statusFilter === "all" ? "ring-2 ring-primary/45 bg-sky-100/45 dark:bg-sky-500/20" : ""}`}
           onClick={() => setStatusFilter("all")}
         >
           <CardContent className="p-4">
@@ -386,7 +386,7 @@ export function InventoryPage() {
 
         <Card
           interactive
-          className={`cursor-pointer ${statusFilter === "low" ? "ring-2 ring-amber-500/40 bg-amber-50/75 dark:bg-amber-950/30" : ""}`}
+          className={`cursor-pointer ${statusFilter === "low" ? "ring-2 ring-amber-500/45 bg-amber-100/45 dark:bg-amber-500/20" : ""}`}
           onClick={() => setStatusFilter(statusFilter === "low" ? "all" : "low")}
         >
           <CardContent className="p-4">
@@ -402,7 +402,7 @@ export function InventoryPage() {
 
         <Card
           interactive
-          className={`cursor-pointer ${statusFilter === "out" ? "ring-2 ring-rose-500/40 bg-rose-50/75 dark:bg-rose-950/30" : ""}`}
+          className={`cursor-pointer ${statusFilter === "out" ? "ring-2 ring-rose-500/45 bg-rose-100/45 dark:bg-rose-500/20" : ""}`}
           onClick={() => setStatusFilter(statusFilter === "out" ? "all" : "out")}
         >
           <CardContent className="p-4">
@@ -518,7 +518,7 @@ export function InventoryPage() {
                     : (p.category || (p as any).category_name || '—');
 
                   return (
-                    <div key={p.id} className="p-4 space-y-2.5 bg-card hover:bg-muted/30 transition-colors">
+                    <div key={p.id} className="p-4 space-y-2.5 bg-transparent hover:bg-white/40 dark:hover:bg-white/[0.04] transition-colors">
                       <div className="flex items-start justify-between gap-2">
                         <div>
                           <button

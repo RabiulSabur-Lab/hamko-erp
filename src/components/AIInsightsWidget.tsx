@@ -211,8 +211,8 @@ export const AIInsightsWidget = memo(function AIInsightsWidget({
     : null;
 
   return (
-    <Card className="bg-gradient-to-br from-white/80 via-white/75 to-sky-50/70 dark:from-slate-900/75 dark:via-slate-900/65 dark:to-primary/10 overflow-hidden">
-      <CardHeader className="pb-3 border-b border-slate-200/60 dark:border-slate-800/70 bg-white/40 dark:bg-slate-900/40">
+    <Card className="bg-gradient-to-br from-white/50 via-white/35 to-sky-100/40 dark:from-slate-900/50 dark:via-slate-900/38 dark:to-sky-950/40 overflow-hidden">
+      <CardHeader className="pb-3 border-b border-white/60 dark:border-white/10 bg-white/25 dark:bg-white/[0.03]">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="flex items-center gap-2.5">
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-sky-500/12 text-sky-600 dark:bg-sky-500/15 dark:text-sky-400 ring-1 ring-inset ring-sky-500/20">
@@ -361,7 +361,7 @@ export const AIInsightsWidget = memo(function AIInsightsWidget({
                   <thead className="bg-muted/70 text-foreground font-semibold border-b border-border/80" {...props} />
                 ),
                 tbody: ({ node, ...props }) => (
-                  <tbody className="divide-y divide-border/40 bg-card" {...props} />
+                  <tbody className="divide-y divide-border/40 bg-white/30 dark:bg-white/[0.03]" {...props} />
                 ),
                 tr: ({ node, ...props }) => (
                   <tr className="hover:bg-muted/30 transition-colors" {...props} />

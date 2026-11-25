@@ -10,9 +10,9 @@ export const Card = forwardRef<HTMLDivElement, CardProps>(
     <div
       ref={ref}
       className={cn(
-        "rounded-2xl border border-white/60 bg-white/75 text-card-foreground backdrop-blur-xl shadow-lg shadow-slate-200/40 apple-glass-rim transition-all duration-300 dark:border-slate-800/80 dark:bg-slate-900/65 dark:shadow-none print:rounded-lg print:border-slate-300 print:bg-white print:shadow-none print:backdrop-blur-none",
+        "relative rounded-2xl border border-white/80 bg-white/40 text-card-foreground backdrop-blur-2xl backdrop-saturate-200 ring-1 ring-inset ring-white/50 shadow-[0_8px_32px_0_rgba(31,38,135,0.07)] liquid-glass-surface transition-all duration-300 dark:border-white/15 dark:bg-slate-900/40 dark:ring-white/10 dark:shadow-[0_8px_32px_0_rgba(0,0,0,0.37)] print:rounded-lg print:border-slate-300 print:bg-white print:ring-0 print:shadow-none print:backdrop-blur-none",
         interactive &&
-          "hover:-translate-y-0.5 hover:shadow-xl hover:shadow-slate-200/60 hover:border-white/90 dark:hover:border-slate-700 dark:hover:bg-slate-900/80",
+          "liquid-glass-interactive hover:-translate-y-1 hover:bg-white/50 hover:border-white hover:shadow-[0_12px_40px_0_rgba(31,38,135,0.12)] dark:hover:bg-slate-900/55 dark:hover:border-white/25 dark:hover:shadow-[0_12px_40px_0_rgba(0,0,0,0.5)]",
         className,
       )}
       {...props}

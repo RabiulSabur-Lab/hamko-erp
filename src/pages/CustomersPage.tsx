@@ -708,7 +708,7 @@ export function CustomersPage() {
                   );
 
                   return (
-                    <div key={c.id} className="p-4 space-y-3 bg-card hover:bg-muted/30 transition-colors">
+                    <div key={c.id} className="p-4 space-y-3 bg-transparent hover:bg-white/40 dark:hover:bg-white/[0.04] transition-colors">
                       {/* Card Header: Outlet Name + Status + Security Cheque */}
                       <div className="flex items-start justify-between gap-2">
                         <div>
