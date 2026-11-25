@@ -1196,7 +1196,7 @@ export function SupplierLedger() {
 
                           if (item.type === "invoice") {
                             return (
-                              <TableRow key={item.id} className="hover:bg-muted/40 transition-colors">
+                              <TableRow key={item.id}>
                                 <TableCell className="text-xs font-mono">{item.date}</TableCell>
                                 <TableCell className="font-mono font-bold text-foreground">
                                   <div className="flex items-center gap-1.5">
@@ -1479,26 +1479,26 @@ export function SupplierLedger() {
                           );
                         })}
                       </TableBody>
-                      <tfoot className="sticky bottom-0 z-20 border-t bg-muted/95 backdrop-blur-xs font-semibold text-xs shadow-[0_-1px_2px_rgba(0,0,0,0.05)]">
-                        <TableRow className="bg-muted/95 hover:bg-muted/95">
-                          <TableCell colSpan={3} className="sticky bottom-0 z-20 bg-muted text-right font-bold py-3 text-muted-foreground">
+                      <tfoot className="sticky bottom-0 z-20 border-t border-white/60 dark:border-white/10 bg-white/85 dark:bg-slate-900/90 backdrop-blur-md font-semibold text-xs shadow-[0_-1px_4px_rgba(15,23,42,0.05)]">
+                        <TableRow className="bg-transparent hover:bg-transparent backdrop-blur-none">
+                          <TableCell colSpan={3} className="sticky bottom-0 z-20 bg-white/85 dark:bg-slate-900/90 backdrop-blur-md text-right font-bold py-3 text-muted-foreground">
                             Total Bills &amp; Payments:
                           </TableCell>
-                          <TableCell className="sticky bottom-0 z-20 bg-muted text-right font-mono font-bold text-foreground">
+                          <TableCell className="sticky bottom-0 z-20 bg-white/85 dark:bg-slate-900/90 backdrop-blur-md text-right font-mono font-bold text-foreground">
                             {formatBDT(procurementLedger.totalPurchases)}
                           </TableCell>
-                          <TableCell className="sticky bottom-0 z-20 bg-muted text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                          <TableCell className="sticky bottom-0 z-20 bg-white/85 dark:bg-slate-900/90 backdrop-blur-md text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">
                             {formatBDT(procurementLedger.totalPayments)}
                           </TableCell>
                           <TableCell
-                            className={`sticky bottom-0 z-20 bg-muted text-right font-mono font-bold text-sm ${procurementLedger.closingBalance > 0
+                            className={`sticky bottom-0 z-20 bg-white/85 dark:bg-slate-900/90 backdrop-blur-md text-right font-mono font-bold text-sm ${procurementLedger.closingBalance > 0
                               ? "text-amber-600 dark:text-amber-400"
                               : "text-emerald-600 dark:text-emerald-400"
                               }`}
                           >
                             {formatBDT(procurementLedger.closingBalance)}
                           </TableCell>
-                          <TableCell className="sticky bottom-0 z-20 bg-muted" />
+                          <TableCell className="sticky bottom-0 z-20 bg-white/85 dark:bg-slate-900/90 backdrop-blur-md" />
                         </TableRow>
                       </tfoot>
                     </Table>

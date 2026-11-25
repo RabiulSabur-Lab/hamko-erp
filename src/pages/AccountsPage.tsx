@@ -1375,7 +1375,7 @@ export function AccountsPage() {
                           <TableHead>{t("date")}</TableHead>
                           <TableHead className="text-right">{t("amount")}</TableHead>
                           <TableHead>{t("paymentMethod")}</TableHead>
-                          <TableHead className="text-right sticky right-0 top-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.08)]">{t("actions")}</TableHead>
+                          <TableHead className="text-right sticky right-0 top-0 z-30 bg-white/85 dark:bg-slate-900/90 backdrop-blur-md shadow-[-4px_0_8px_-2px_rgba(15,23,42,0.06)]">{t("actions")}</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -1421,7 +1421,7 @@ export function AccountsPage() {
                                   )}
                                 </div>
                               </TableCell>
-                              <TableCell className="text-right sticky right-0 z-10 bg-white dark:bg-gray-800 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.1)]">
+                              <TableCell className="text-right sticky right-0 z-10 bg-white/85 dark:bg-slate-900/90 backdrop-blur-md shadow-[-4px_0_8px_-2px_rgba(15,23,42,0.06)]">
                                 <div className="whitespace-nowrap flex items-center justify-end gap-1">
                                   <Button
                                     variant="ghost"
@@ -1530,7 +1530,7 @@ export function AccountsPage() {
                             <TableHead>Recorded By</TableHead>
                             <TableHead>{t("date")}</TableHead>
                             <TableHead className="text-right">{t("amount")}</TableHead>
-                            <TableHead className="text-right sticky right-0 top-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.08)]">{t("actions")}</TableHead>
+                            <TableHead className="text-right sticky right-0 top-0 z-30 bg-white/85 dark:bg-slate-900/90 backdrop-blur-md shadow-[-4px_0_8px_-2px_rgba(15,23,42,0.06)]">{t("actions")}</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -1546,7 +1546,7 @@ export function AccountsPage() {
                               </TableCell>
                               <TableCell className="text-sm">{formatDate(e.expense_date)}</TableCell>
                               <TableCell className="text-right font-semibold text-rose-600">{formatBDT(e.amount)}</TableCell>
-                              <TableCell className="text-right sticky right-0 z-10 bg-white dark:bg-gray-800 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.1)]">
+                              <TableCell className="text-right sticky right-0 z-10 bg-white/85 dark:bg-slate-900/90 backdrop-blur-md shadow-[-4px_0_8px_-2px_rgba(15,23,42,0.06)]">
                                 <div className="whitespace-nowrap flex items-center justify-end gap-1">
                                   <Button variant="ghost" size="icon" onClick={() => handleDeleteExpense(e.id)} title={t("delete")}>
                                     <Trash2 className="h-3.5 w-3.5 text-destructive" />
@@ -1762,7 +1762,7 @@ export function AccountsPage() {
                           <TableHead>{t("phone")}</TableHead>
                           <TableHead className="text-right">{t("currentDue" as string) || "Due"}</TableHead>
                           <TableHead>{t("dueStatus")}</TableHead>
-                          <TableHead className="text-right sticky right-0 top-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.08)]">{t("actions")}</TableHead>
+                          <TableHead className="text-right sticky right-0 top-0 z-30 bg-white/85 dark:bg-slate-900/90 backdrop-blur-md shadow-[-4px_0_8px_-2px_rgba(15,23,42,0.06)]">{t("actions")}</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -1775,7 +1775,7 @@ export function AccountsPage() {
                             <TableCell className="text-sm">{c.phone ?? "—"}</TableCell>
                             <TableCell className="text-right font-semibold text-amber-600">{formatBDT(due)}</TableCell>
                             <TableCell><Badge variant={status === "Overdue" ? "destructive" : "warning"} className="text-[10px]">{t(status.toLowerCase())}</Badge></TableCell>
-                            <TableCell className="text-right sticky right-0 z-10 bg-white dark:bg-gray-800 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.1)]">
+                            <TableCell className="text-right sticky right-0 z-10 bg-white/85 dark:bg-slate-900/90 backdrop-blur-md shadow-[-4px_0_8px_-2px_rgba(15,23,42,0.06)]">
                               <div className="whitespace-nowrap flex items-center justify-end gap-1">
                                 <Button
                                   variant="outline"

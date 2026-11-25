@@ -24,7 +24,7 @@ export const TableHeader = forwardRef<HTMLTableSectionElement, HTMLAttributes<HT
     <thead
       ref={ref}
       className={cn(
-        "sticky top-0 z-20 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md shadow-[inset_0_-1px_0_0_rgba(148,163,184,0.35)] dark:shadow-[inset_0_-1px_0_0_rgba(255,255,255,0.12)] [&_tr]:border-b [&_tr]:border-slate-200/70 dark:[&_tr]:border-white/10 [&_th]:bg-white/90 dark:[&_th]:bg-slate-900/90 [&_th]:backdrop-blur-md print:static print:bg-white print:shadow-none",
+        "sticky top-0 z-20 bg-white/85 dark:bg-slate-900/90 backdrop-blur-md shadow-[inset_0_-1px_0_0_rgba(148,163,184,0.3)] dark:shadow-[inset_0_-1px_0_0_rgba(255,255,255,0.12)] [&_tr]:border-b [&_tr]:border-slate-200/60 dark:[&_tr]:border-white/10 [&_tr]:bg-transparent [&_tr]:hover:bg-transparent [&_tr]:backdrop-blur-none [&_th]:bg-white/85 dark:[&_th]:bg-slate-900/90 [&_th]:backdrop-blur-md print:static print:bg-white print:shadow-none",
         className,
       )}
       {...props}
@@ -40,7 +40,14 @@ TableBody.displayName = "TableBody";
 
 export const TableRow = forwardRef<HTMLTableRowElement, HTMLAttributes<HTMLTableRowElement>>(
   ({ className, ...props }, ref) => (
-    <tr ref={ref} className={cn("border-b border-slate-200/50 dark:border-white/10 transition-colors hover:bg-white/45 dark:hover:bg-white/[0.04]", className)} {...props} />
+    <tr
+      ref={ref}
+      className={cn(
+        "border-b border-white/55 dark:border-white/10 bg-white/40 hover:bg-white/60 dark:bg-slate-900/40 dark:hover:bg-slate-900/60 backdrop-blur-md transition-colors print:bg-white print:backdrop-blur-none",
+        className,
+      )}
+      {...props}
+    />
   ),
 );
 TableRow.displayName = "TableRow";

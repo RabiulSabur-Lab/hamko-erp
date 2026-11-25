@@ -225,7 +225,7 @@ export function ProcurementAuditModal({ open, onClose, supplierId }: Procurement
                     : log.timestamp;
 
                   return (
-                    <TableRow key={log.id} className="text-xs hover:bg-muted/30">
+                    <TableRow key={log.id} className="text-xs">
                       <TableCell className="font-mono text-[11px] text-muted-foreground whitespace-nowrap">
                         {formattedDate}
                       </TableCell>

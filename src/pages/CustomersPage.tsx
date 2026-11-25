@@ -867,7 +867,7 @@ export function CustomersPage() {
                       <TableHead>{t("phone")}</TableHead>
                       <TableHead className="text-right">{t("currentDue" as string) || "Due"}</TableHead>
                       <TableHead>{t("dueStatus")}</TableHead>
-                      <TableHead className="text-right sticky right-0 top-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.08)]">{t("actions")}</TableHead>
+                      <TableHead className="text-right sticky right-0 top-0 z-30 bg-white/85 dark:bg-slate-900/90 backdrop-blur-md shadow-[-4px_0_8px_-2px_rgba(15,23,42,0.06)]">{t("actions")}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -963,7 +963,7 @@ export function CustomersPage() {
                               {advanceDeposit > 0 ? "Advance" : t(dueStatus.toLowerCase())}
                             </Badge>
                           </TableCell>
-                          <TableCell className="text-right py-2.5 whitespace-nowrap sticky right-0 z-10 bg-white dark:bg-gray-800 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.1)]">
+                          <TableCell className="text-right py-2.5 whitespace-nowrap sticky right-0 z-10 bg-white/85 dark:bg-slate-900/90 backdrop-blur-md shadow-[-4px_0_8px_-2px_rgba(15,23,42,0.06)]">
                             <div className="whitespace-nowrap flex items-center justify-end gap-1">
                               <Button
                                 variant="ghost"

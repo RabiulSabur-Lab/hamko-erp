@@ -732,7 +732,7 @@ export function UserManagement() {
                         currentAuthUser?.id === u.id;
 
                       return (
-                        <TableRow key={u.id} className="hover:bg-muted/30 transition-colors">
+                        <TableRow key={u.id}>
                           {/* Full Name */}
                           <TableCell>
                             <div className="flex items-center gap-2.5">

@@ -981,7 +981,7 @@ export function SfaPage() {
                           <TableHead>{t("purpose" as string) || "Purpose"}</TableHead>
                           <TableHead>{t("outcome" as string) || "Outcome"}</TableHead>
                           <TableHead>{t("warehouse" as string) || "Location"}</TableHead>
-                          <TableHead className="text-right sticky right-0 top-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.08)]">{t("actions")}</TableHead>
+                          <TableHead className="text-right sticky right-0 top-0 z-30 bg-white/85 dark:bg-slate-900/90 backdrop-blur-md shadow-[-4px_0_8px_-2px_rgba(15,23,42,0.06)]">{t("actions")}</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -1014,7 +1014,7 @@ export function SfaPage() {
                                 <span className="text-xs text-muted-foreground">—</span>
                               )}
                             </TableCell>
-                            <TableCell className="text-right sticky right-0 z-10 bg-white dark:bg-gray-800 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.1)]">
+                            <TableCell className="text-right sticky right-0 z-10 bg-white/85 dark:bg-slate-900/90 backdrop-blur-md shadow-[-4px_0_8px_-2px_rgba(15,23,42,0.06)]">
                               <Button
                                 variant="ghost"
                                 size="icon"
@@ -1119,7 +1119,7 @@ export function SfaPage() {
                           <TableHead className="text-right">{t("targetAmount")}</TableHead>
                           <TableHead className="text-right">{t("achieved")}</TableHead>
                           <TableHead>{t("progress")}</TableHead>
-                          <TableHead className="text-right sticky right-0 top-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.08)]">{t("actions")}</TableHead>
+                          <TableHead className="text-right sticky right-0 top-0 z-30 bg-white/85 dark:bg-slate-900/90 backdrop-blur-md shadow-[-4px_0_8px_-2px_rgba(15,23,42,0.06)]">{t("actions")}</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -1167,7 +1167,7 @@ export function SfaPage() {
                                   )}
                                 </div>
                               </TableCell>
-                              <TableCell className="text-right sticky right-0 z-10 bg-white dark:bg-gray-800 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.1)]">
+                              <TableCell className="text-right sticky right-0 z-10 bg-white/85 dark:bg-slate-900/90 backdrop-blur-md shadow-[-4px_0_8px_-2px_rgba(15,23,42,0.06)]">
                                 <div className="flex justify-end gap-1">
                                   <Button
                                     variant="ghost"
@@ -1430,7 +1430,7 @@ export function SfaPage() {
                           <TableHead>Location</TableHead>
                           <TableHead>Contact</TableHead>
                           <TableHead>Notes</TableHead>
-                          <TableHead className="text-right sticky right-0 top-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.08)]">{t("actions")}</TableHead>
+                          <TableHead className="text-right sticky right-0 top-0 z-30 bg-white/85 dark:bg-slate-900/90 backdrop-blur-md shadow-[-4px_0_8px_-2px_rgba(15,23,42,0.06)]">{t("actions")}</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -1491,7 +1491,7 @@ export function SfaPage() {
                               <TableCell className="text-xs text-amber-600 dark:text-amber-400 max-w-xs truncate">
                                 {r.notes || "—"}
                               </TableCell>
-                              <TableCell className="text-right sticky right-0 z-10 bg-white dark:bg-gray-800 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.1)]">
+                              <TableCell className="text-right sticky right-0 z-10 bg-white/85 dark:bg-slate-900/90 backdrop-blur-md shadow-[-4px_0_8px_-2px_rgba(15,23,42,0.06)]">
                                 <div className="flex items-center justify-end gap-1">
                                   <Button
                                     variant="ghost"

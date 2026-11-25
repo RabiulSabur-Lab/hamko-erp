@@ -233,13 +233,13 @@ export function AppLayout({ children }: { children: ReactNode }) {
 
   return (
     <div className="relative min-h-screen erp-glass-canvas">
-      {/* Ambient Glowing Radial Orbs for True Apple Liquid Glass Refraction */}
+      {/* Soft Airy Ambient Glowing Orbs for Apple Liquid Glass Refraction */}
       <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden print:hidden" aria-hidden="true">
-        <div className="absolute -top-28 -left-20 h-[480px] w-[480px] rounded-full bg-sky-300/55 dark:bg-sky-500/22 blur-[110px]" />
-        <div className="absolute -top-24 right-[-6%] h-[520px] w-[520px] rounded-full bg-indigo-300/50 dark:bg-indigo-500/22 blur-[120px]" />
-        <div className="absolute top-[36%] left-[32%] h-[420px] w-[500px] rounded-full bg-cyan-200/50 dark:bg-cyan-500/15 blur-[120px]" />
-        <div className="absolute -bottom-24 left-[12%] h-[460px] w-[460px] rounded-full bg-violet-300/40 dark:bg-violet-600/18 blur-[120px]" />
-        <div className="absolute -bottom-20 right-[6%] h-[480px] w-[480px] rounded-full bg-blue-300/45 dark:bg-blue-500/18 blur-[115px]" />
+        <div className="absolute -top-28 -left-20 h-[480px] w-[480px] rounded-full bg-sky-100/70 dark:bg-cyan-500/20 blur-[110px]" />
+        <div className="absolute -top-24 right-[-6%] h-[520px] w-[520px] rounded-full bg-indigo-100/60 dark:bg-sky-500/18 blur-[120px]" />
+        <div className="absolute top-[36%] left-[32%] h-[420px] w-[500px] rounded-full bg-blue-100/50 dark:bg-cyan-600/14 blur-[120px]" />
+        <div className="absolute -bottom-24 left-[12%] h-[460px] w-[460px] rounded-full bg-indigo-100/45 dark:bg-slate-700/30 blur-[120px]" />
+        <div className="absolute -bottom-20 right-[6%] h-[480px] w-[480px] rounded-full bg-sky-100/60 dark:bg-cyan-400/16 blur-[115px]" />
       </div>
 
       {/* Mobile overlay */}

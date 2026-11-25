@@ -1691,7 +1691,7 @@ export function OrdersPage() {
                       <TableHead>{t("status")}</TableHead>
                       <TableHead className="text-right">{t("total")}</TableHead>
                       <TableHead className="text-right">{t("dueAmount")}</TableHead>
-                      <TableHead className="text-right sticky right-0 top-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.08)]">{t("actions")}</TableHead>
+                      <TableHead className="text-right sticky right-0 top-0 z-30 bg-white/85 dark:bg-slate-900/90 backdrop-blur-md shadow-[-4px_0_8px_-2px_rgba(15,23,42,0.06)]">{t("actions")}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1786,7 +1786,7 @@ export function OrdersPage() {
                         </TableCell>
                         <TableCell className="text-right font-medium">{formatBDT(o.total_amount)}</TableCell>
                         <TableCell className="text-right">{o.due_amount > 0 ? <span className="text-amber-600">{formatBDT(o.due_amount)}</span> : "—"}</TableCell>
-                        <TableCell className="text-right sticky right-0 z-10 bg-white dark:bg-gray-800 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.1)]">
+                        <TableCell className="text-right sticky right-0 z-10 bg-white/85 dark:bg-slate-900/90 backdrop-blur-md shadow-[-4px_0_8px_-2px_rgba(15,23,42,0.06)]">
                           <div className="whitespace-nowrap flex items-center justify-end gap-1">
                             <Button variant="ghost" size="icon" onClick={() => view(o)} title={t("viewAll")}><Eye className="h-3.5 w-3.5" /></Button>
                             {canModifyOrder(o) ? (
