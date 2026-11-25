@@ -13,7 +13,7 @@ export const Table = forwardRef<HTMLTableElement, TableProps>(
         containerClassName,
       )}
     >
-      <table ref={ref} className={cn("w-full caption-bottom text-sm", className)} {...props} />
+      <table ref={ref} className={cn("w-full caption-bottom text-[13px]", className)} {...props} />
     </div>
   ),
 );
@@ -47,14 +47,14 @@ TableRow.displayName = "TableRow";
 
 export const TableHead = forwardRef<HTMLTableCellElement, ThHTMLAttributes<HTMLTableCellElement>>(
   ({ className, ...props }, ref) => (
-    <th ref={ref} className={cn("h-11 px-3 text-left align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0", className)} {...props} />
+    <th ref={ref} className={cn("h-10 px-3 text-left align-middle text-xs font-semibold tracking-tight text-muted-foreground whitespace-nowrap [&:has([role=checkbox])]:pr-0", className)} {...props} />
   ),
 );
 TableHead.displayName = "TableHead";
 
 export const TableCell = forwardRef<HTMLTableCellElement, TdHTMLAttributes<HTMLTableCellElement>>(
   ({ className, ...props }, ref) => (
-    <td ref={ref} className={cn("p-3 align-middle [&:has([role=checkbox])]:pr-0", className)} {...props} />
+    <td ref={ref} className={cn("px-3 py-2.5 align-middle [&:has([role=checkbox])]:pr-0", className)} {...props} />
   ),
 );
 TableCell.displayName = "TableCell";

@@ -1452,17 +1452,17 @@ export function OrdersPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-1 flex-col gap-2 sm:flex-row sm:items-center">
-          <div className="relative flex-1 max-w-sm">
+      <div className="flex flex-wrap items-center justify-between gap-2.5">
+        <div className="flex flex-1 flex-wrap gap-2 items-center min-w-0">
+          <div className="relative flex-1 min-w-[200px] sm:max-w-xs">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input placeholder={t("search")} value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
+            <Input placeholder={t("search")} value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9 h-9" />
           </div>
-          <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="sm:w-44">
+          <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="w-full sm:w-36 h-9">
             <option value="">{t("selectStatus")}</option>
             {statuses.map((s) => <option key={s} value={s}>{t(s.toLowerCase())}</option>)}
           </Select>
-          <Select value={areaFilter} onChange={(e) => setAreaFilter(e.target.value)} className="sm:w-40">
+          <Select value={areaFilter} onChange={(e) => setAreaFilter(e.target.value)} className="w-full sm:w-36 h-9">
             <option value="">All Areas</option>
             {areas.map((ar) => (
               <option key={ar.id} value={ar.name}>
@@ -1470,7 +1470,7 @@ export function OrdersPage() {
               </option>
             ))}
           </Select>
-          <Select value={officerFilter} onChange={(e) => setOfficerFilter(e.target.value)} className="sm:w-44">
+          <Select value={officerFilter} onChange={(e) => setOfficerFilter(e.target.value)} className="w-full sm:w-36 h-9">
             <option value="">All Officers</option>
             {(contextOfficers && contextOfficers.length > 0 ? contextOfficers : salesOfficers).map((so) => (
               <option key={so.id} value={so.id}>
@@ -1479,7 +1479,7 @@ export function OrdersPage() {
             ))}
           </Select>
         </div>
-        <div className="flex gap-2 items-center">
+        <div className="flex flex-wrap gap-2 items-center shrink-0">
           {isOfflineMode && (
             <Badge variant="outline" className="gap-1 border-amber-500/40 bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400">
               <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
@@ -1495,7 +1495,7 @@ export function OrdersPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         {statuses.map((s) => {
           const count = orders.filter((o) => o.status === s).length;
           const config = getOrderStatusConfig(s);

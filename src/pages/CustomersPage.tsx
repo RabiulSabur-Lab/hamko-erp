@@ -532,15 +532,15 @@ export function CustomersPage() {
   return (
     <div className="space-y-4">
       {/* Toolbar */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-1 flex-col sm:flex-row flex-wrap gap-2 items-stretch sm:items-center">
-          <div className="relative flex-1 min-w-[200px] max-w-full sm:max-w-sm">
+      <div className="flex flex-wrap items-center justify-between gap-2.5">
+        <div className="flex flex-1 flex-wrap gap-2 items-center min-w-0">
+          <div className="relative flex-1 min-w-[200px] sm:max-w-xs">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
               placeholder="Search by Outlet, Party Code, Phone..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="pl-9 pr-9"
+              className="pl-9 pr-9 h-9"
             />
             {search && (
               <button
@@ -554,20 +554,20 @@ export function CustomersPage() {
               </button>
             )}
           </div>
-          <Select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="w-full sm:w-36">
+          <Select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="w-full sm:w-32 h-9">
             <option value="">{t("allTypes")}</option>
             {customerTypes.map((ty) => <option key={ty} value={ty}>{t(ty.toLowerCase())}</option>)}
           </Select>
-          <Select value={dueFilter} onChange={(e) => setDueFilter(e.target.value)} className="w-full sm:w-36">
+          <Select value={dueFilter} onChange={(e) => setDueFilter(e.target.value)} className="w-full sm:w-32 h-9">
             <option value="">{t("selectStatus")}</option>
             {dueStatuses.map((d) => <option key={d} value={d}>{t(d.toLowerCase())}</option>)}
           </Select>
-          <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="w-full sm:w-32">
+          <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="w-full sm:w-28 h-9">
             <option value="">All Status</option>
             <option value="Active">Active</option>
             <option value="Inactive">Inactive</option>
           </Select>
-          <Select value={areaFilter} onChange={(e) => setAreaFilter(e.target.value)} className="w-full sm:w-40">
+          <Select value={areaFilter} onChange={(e) => setAreaFilter(e.target.value)} className="w-full sm:w-36 h-9">
             <option value="">All Areas</option>
             {areas.map((ar) => (
               <option key={ar.id} value={ar.name}>
@@ -575,7 +575,7 @@ export function CustomersPage() {
               </option>
             ))}
           </Select>
-          <Select value={officerFilter} onChange={(e) => setOfficerFilter(e.target.value)} className="w-full sm:w-40">
+          <Select value={officerFilter} onChange={(e) => setOfficerFilter(e.target.value)} className="w-full sm:w-36 h-9">
             <option value="">All Officers</option>
             {salesOfficers.map((so) => (
               <option key={so.id} value={so.id}>
@@ -584,7 +584,7 @@ export function CustomersPage() {
             ))}
           </Select>
         </div>
-        <div className="flex gap-2 w-full sm:w-auto justify-end items-center">
+        <div className="flex flex-wrap gap-2 w-full sm:w-auto justify-end items-center shrink-0">
           {isOfflineMode && (
             <Badge variant="outline" className="gap-1 border-amber-500/40 bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400">
               <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />

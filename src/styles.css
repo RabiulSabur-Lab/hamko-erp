@@ -108,6 +108,26 @@ body {
 
 html {
   scroll-behavior: smooth;
+  font-size: 16px;
+}
+
+/* Ergonomic Enterprise Desktop Scaling (prevents zoomed-in feel on 125%/150% DPI laptops & large monitors) */
+@media (min-width: 1024px) {
+  html {
+    font-size: 14px;
+  }
+}
+
+@media (min-width: 1600px) {
+  html {
+    font-size: 14.5px;
+  }
+}
+
+@media print {
+  html {
+    font-size: 16px !important;
+  }
 }
 
 ::-webkit-scrollbar {

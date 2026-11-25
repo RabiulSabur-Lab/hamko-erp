@@ -94,12 +94,12 @@ export const Sidebar: FC<SidebarProps> = ({ open, onClose, unreadCount = 0 }) =>
   return (
     <aside
       className={cn(
-        "fixed inset-y-0 left-0 z-40 w-64 transform border-r border-white/75 dark:border-white/12 bg-white/45 dark:bg-slate-950/50 backdrop-blur-2xl backdrop-saturate-200 text-sidebar-foreground transition-transform duration-300 ease-in-out lg:translate-x-0 shadow-[4px_0_32px_0_rgba(31,38,135,0.06)] dark:shadow-[4px_0_32px_0_rgba(0,0,0,0.35)]",
+        "fixed inset-y-0 left-0 z-40 w-56 xl:w-60 transform border-r border-white/75 dark:border-white/12 bg-white/45 dark:bg-slate-950/50 backdrop-blur-2xl backdrop-saturate-200 text-sidebar-foreground transition-transform duration-300 ease-in-out lg:translate-x-0 shadow-[4px_0_32px_0_rgba(31,38,135,0.06)] dark:shadow-[4px_0_32px_0_rgba(0,0,0,0.35)]",
         open ? "translate-x-0" : "-translate-x-full",
       )}
     >
-      <div className="flex h-16 items-center justify-between px-6 border-b select-none">
-        <img src="/Hamko.png" alt="Hamko Cookware" className="h-10 w-auto object-contain shrink-0" />
+      <div className="flex h-14 items-center justify-between px-5 border-b select-none">
+        <img src="/Hamko.png" alt="Hamko Cookware" className="h-9 w-auto object-contain shrink-0" />
         <button
           type="button"
           onClick={onClose}
@@ -110,7 +110,7 @@ export const Sidebar: FC<SidebarProps> = ({ open, onClose, unreadCount = 0 }) =>
         </button>
       </div>
 
-      <nav className="flex flex-col gap-1 p-3 overflow-y-auto h-[calc(100vh-4rem)]">
+      <nav className="flex flex-col gap-1 p-2.5 overflow-y-auto h-[calc(100vh-3.5rem)]">
         {visibleNavItems.map((item) => {
           const Icon = item.icon;
           const active = String(activeRoute) === String(item.path);

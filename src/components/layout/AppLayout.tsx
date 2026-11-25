@@ -258,7 +258,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
       />
 
       {/* Main content */}
-      <div className="relative z-10 lg:pl-64">
+      <div className="relative z-10 lg:pl-56 xl:pl-60 min-w-0">
         {isMobileViewport ? (
           /* Mobile-Only Top Header (<768px): Official Hamko Corporate Deep Blue/Navy */
           <header className="md:hidden sticky top-0 z-20 flex h-16 items-center gap-2.5 border-b border-blue-950/20 bg-gradient-to-r from-[#0a2540] via-[#0f3460] to-[#1e3a8a] text-white px-3.5 shadow-xs">
@@ -369,13 +369,14 @@ export function AppLayout({ children }: { children: ReactNode }) {
           </header>
         ) : (
           /* Desktop-Only Classic Enterprise Web ERP Header (>=768px) */
-          <header className="hidden md:flex sticky top-0 z-20 h-16 items-center gap-3 border-b border-white/75 dark:border-white/12 bg-white/45 dark:bg-slate-950/45 px-4 backdrop-blur-2xl backdrop-saturate-200 shadow-[0_4px_24px_0_rgba(31,38,135,0.05)] dark:shadow-[0_4px_24px_0_rgba(0,0,0,0.3)] lg:px-6">
+          <header className="hidden md:flex sticky top-0 z-20 h-14 items-center border-b border-white/75 dark:border-white/12 bg-white/45 dark:bg-slate-950/45 px-4 sm:px-6 lg:px-8 backdrop-blur-2xl backdrop-saturate-200 shadow-[0_4px_24px_0_rgba(31,38,135,0.05)] dark:shadow-[0_4px_24px_0_rgba(0,0,0,0.3)]">
+            <div className="mx-auto flex w-full max-w-[1520px] items-center gap-3">
             <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setSidebarOpen(true)}>
               <Menu className="h-5 w-5" />
             </Button>
 
-            <div className="flex-1">
-              <h1 className="text-base font-semibold lg:text-lg">
+            <div className="flex-1 min-w-0">
+              <h1 className="text-base font-semibold lg:text-lg truncate">
                 {t(navItems.find((n) => String(n.path) === String(activeRoute))?.key ?? "dashboard")}
               </h1>
             </div>
@@ -453,11 +454,16 @@ export function AppLayout({ children }: { children: ReactNode }) {
                 </>
               )}
             </div>
+            </div>
           </header>
         )}
 
         {/* Page content */}
-        <main className={isMobileViewport ? "p-3.5 pb-24" : "p-4 lg:p-6"}>{children}</main>
+        <main className={isMobileViewport ? "p-3.5 pb-24" : "px-4 py-4 sm:px-6 lg:px-8 lg:py-5"}>
+          <div className={isMobileViewport ? "w-full min-w-0" : "mx-auto w-full max-w-[1520px] min-w-0"}>
+            {children}
+          </div>
+        </main>
       </div>
 
       {/* Fixed Mobile Bottom Navigation Bar — STRICTLY mounted on Mobile Viewports (< 768px) only */}

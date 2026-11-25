@@ -137,16 +137,16 @@ function WidgetErrorCard({
 // ─── Skeleton loader for KPI cards ───────────────────────────────────────────
 function KpiSkeleton() {
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-7">
+    <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-7">
       {Array.from({ length: 7 }).map((_, i) => (
-        <Card key={i} className="overflow-hidden">
-          <CardContent className="p-4 space-y-3">
+        <Card key={i} className="overflow-hidden min-w-0">
+          <CardContent className="p-3.5 space-y-2.5">
             <div className="flex items-start justify-between">
-              <div className="h-9 w-9 rounded-xl bg-muted/70 animate-pulse" />
-              <div className="h-5 w-12 rounded-full bg-muted/70 animate-pulse" />
+              <div className="h-8 w-8 rounded-xl bg-muted/70 animate-pulse" />
+              <div className="h-5 w-11 rounded-full bg-muted/70 animate-pulse" />
             </div>
-            <div className="h-3 w-24 rounded bg-muted/70 animate-pulse mt-3" />
-            <div className="h-6 w-20 rounded bg-muted/70 animate-pulse" />
+            <div className="h-3 w-20 rounded bg-muted/70 animate-pulse mt-2" />
+            <div className="h-5 w-20 rounded bg-muted/70 animate-pulse" />
           </CardContent>
         </Card>
       ))}
@@ -846,7 +846,7 @@ export function DashboardPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* =====================================================================
           DESKTOP ENTERPRISE WEB ERP INTERFACE (>= 768px)
          ===================================================================== */}
@@ -905,23 +905,23 @@ export function DashboardPage() {
         {loading ? (
           <KpiSkeleton />
         ) : (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-7">
+          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-7">
             {kpiCards.map((card: any) => {
               const Icon = card.icon;
               return (
                 <Card
                   key={card.label}
                   interactive
-                  className="overflow-hidden cursor-pointer flex flex-col justify-between"
+                  className="overflow-hidden min-w-0 cursor-pointer flex flex-col justify-between"
                   onClick={() => navigate(card.route)}
                 >
-                  <CardContent className="p-4 flex flex-col justify-between h-full">
-                    <div>
+                  <CardContent className="p-3.5 flex flex-col justify-between h-full">
+                    <div className="min-w-0">
                       <div className="flex items-start justify-between gap-1.5">
-                        <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${card.bg} ring-1 ring-inset ring-black/[0.04] dark:ring-white/[0.08]`}>
+                        <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ${card.bg} ring-1 ring-inset ring-black/[0.04] dark:ring-white/[0.08]`}>
                           <Icon className={`h-4 w-4 ${card.color}`} />
                         </div>
-                        <Badge variant={card.up ? "success" : "secondary"} className="text-[10px] shrink-0">
+                        <Badge variant={card.up ? "success" : "secondary"} className="text-[10px] px-1.5 shrink-0">
                           {card.up ? (
                             <ArrowUpRight className="h-2.5 w-2.5 mr-0.5" />
                           ) : (
@@ -930,21 +930,21 @@ export function DashboardPage() {
                           {card.trend}
                         </Badge>
                       </div>
-                      <p className="text-xs font-medium text-muted-foreground mt-3 truncate">{card.label}</p>
-                      <p className="text-base md:text-lg font-bold tabular-nums tracking-tight mt-0.5 truncate">{card.value}</p>
+                      <p className="text-xs font-medium text-muted-foreground mt-2.5 truncate" title={card.label}>{card.label}</p>
+                      <p className="text-base font-bold tabular-nums tracking-tight mt-0.5 truncate" title={card.value}>{card.value}</p>
                       {card.subtitle && (
-                        <p className="text-[10px] text-muted-foreground/85 mt-0.5 font-medium truncate">
+                        <p className="text-[10px] text-muted-foreground/85 mt-0.5 font-medium truncate" title={card.subtitle}>
                           {card.subtitle}
                         </p>
                       )}
                     </div>
                     {card.breakdown && (
-                      <div className="flex items-center gap-1.5 mt-2 pt-1.5 border-t border-border/40 text-[10px] font-semibold">
-                        <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-1.5 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
+                      <div className="flex flex-wrap items-center gap-1 mt-2 pt-1.5 border-t border-border/40 text-[10px] font-semibold">
+                        <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400 bg-emerald-50/80 dark:bg-emerald-950/50 px-1.5 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
                           <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
                           Active: {card.breakdown.active}
                         </span>
-                        <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-800">
+                        <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-400 bg-amber-50/80 dark:bg-amber-950/50 px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-800">
                           <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
                           Inactive: {card.breakdown.inactive}
                         </span>

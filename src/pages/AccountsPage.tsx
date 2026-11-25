@@ -1142,7 +1142,7 @@ export function AccountsPage() {
   return (
     <div className="space-y-4">
       {/* KPI cards */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <Card interactive className="bg-gradient-to-br from-teal-100/50 via-white/35 to-cyan-50/40 border-teal-200/80 dark:from-teal-500/20 dark:via-slate-900/40 dark:to-slate-900/45 dark:border-teal-400/25">
           <CardContent className="p-4">
             <div className="flex items-center justify-between gap-2">
