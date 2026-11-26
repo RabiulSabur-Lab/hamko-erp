@@ -3,16 +3,21 @@
  * Automated Hamko Cookware Catalog -> Supabase ERP Importer
  *
  * Reads the 3-field catalog dataset (sku_code, product_name, category) extracted
- * from hamko-cookware-catalog.pdf and safely upserts:
+ * from hamko-cookware-catalog.pdf and safely syncs:
  *   1. All 12 main categories into `public.categories`
  *   2. All 230 products into `public.products`:
  *      - New SKUs are inserted with default/0 values for pricing & stock.
  *      - Existing SKUs update ONLY `name`, `category_id`, `brand`, and `updated_at`
  *        so live ERP prices, discounts, and inventory quantities are never overwritten.
  *
+ * Uses conflict-free INSERT-missing / UPDATE-existing logic so it works even on
+ * Supabase instances that do not yet have UNIQUE constraints on categories(name)
+ * or products(sku_code).
+ *
  * Usage:
- *   node scripts/import_hamko_catalog.mjs            # Execute live import
- *   node scripts/import_hamko_catalog.mjs --dry-run  # Preview without writing
+ *   node scripts/import_hamko_catalog.mjs                             # Uses .env / env vars
+ *   node scripts/import_hamko_catalog.mjs --dry-run                   # Preview without writing
+ *   node scripts/import_hamko_catalog.mjs --url <URL> --key <KEY>     # Target specific Supabase project
  */
 
 import fs from "node:fs";
@@ -27,6 +32,14 @@ const PROJECT_ROOT = path.resolve(__dirname, "..");
 const DATA_FILE = path.join(PROJECT_ROOT, "data", "hamko_cookware_products_3fields.json");
 const DRY_RUN = process.argv.includes("--dry-run");
 const BATCH_SIZE = 50;
+
+function getArgValue(flag) {
+  const idx = process.argv.indexOf(flag);
+  if (idx !== -1 && process.argv[idx + 1] && !process.argv[idx + 1].startsWith("--")) {
+    return process.argv[idx + 1].trim();
+  }
+  return null;
+}
 
 function loadEnvFiles() {
   const merged = {};
@@ -103,11 +116,14 @@ async function fetchAllRows(supabase, table, columns) {
 
 async function main() {
   const env = loadEnvFiles();
-  const supabaseUrl = env.SUPABASE_URL || env.VITE_SUPABASE_URL;
-  const supabaseKey = env.SUPABASE_SERVICE_ROLE_KEY || env.VITE_SUPABASE_ANON_KEY;
+  const supabaseUrl = getArgValue("--url") || env.SUPABASE_URL || env.VITE_SUPABASE_URL;
+  const supabaseKey =
+    getArgValue("--key") || env.SUPABASE_SERVICE_ROLE_KEY || env.VITE_SUPABASE_ANON_KEY;
 
   if (!supabaseUrl || !supabaseKey) {
-    throw new Error("Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY in environment / .env");
+    throw new Error(
+      "Missing Supabase URL/Key. Provide via --url/--key or VITE_SUPABASE_URL & VITE_SUPABASE_ANON_KEY.",
+    );
   }
 
   if (!fs.existsSync(DATA_FILE)) {
@@ -135,11 +151,13 @@ async function main() {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
-  // 1. Fetch existing categories & upsert the 12 catalog categories
+  // 1. Fetch existing categories & insert only missing catalog categories (avoids 42P10 when UNIQUE(name) is absent)
   const existingCategories = await fetchAllRows(supabase, "categories", "id,name,description");
-  const existingCatMap = new Map(existingCategories.map((c) => [c.name, c]));
+  const existingCatMap = new Map(
+    existingCategories.map((c) => [String(c.name || "").trim().toLowerCase(), c]),
+  );
   const missingCategories = categoryNames
-    .filter((name) => !existingCatMap.has(name))
+    .filter((name) => !existingCatMap.has(name.toLowerCase()))
     .map((name) => ({
       name,
       description: `Hamko Cookware — ${name}`,
@@ -150,11 +168,9 @@ async function main() {
   );
 
   if (!DRY_RUN && missingCategories.length > 0) {
-    const { error: catErr } = await supabase
-      .from("categories")
-      .upsert(missingCategories, { onConflict: "name", ignoreDuplicates: true });
+    const { error: catErr } = await supabase.from("categories").insert(missingCategories);
     if (catErr) {
-      throw new Error(`Category upsert failed: ${catErr.message}`);
+      throw new Error(`Category insert failed: ${catErr.message}`);
     }
   }
 
@@ -166,31 +182,36 @@ async function main() {
       ]
     : await fetchAllRows(supabase, "categories", "id,name");
 
-  const categoryIdByName = new Map(liveCategories.map((c) => [c.name, c.id]));
+  const categoryIdByName = new Map(
+    liveCategories.map((c) => [String(c.name || "").trim().toLowerCase(), c.id]),
+  );
   for (const name of categoryNames) {
-    if (!categoryIdByName.has(name)) {
-      throw new Error(`Category "${name}" could not be resolved after upsert.`);
+    if (!categoryIdByName.has(name.toLowerCase())) {
+      throw new Error(`Category "${name}" could not be resolved after insert.`);
     }
   }
 
-  // 2. Fetch existing products so we never wipe live prices/stock on existing SKUs
-  const existingProducts = await fetchAllRows(
-    supabase,
-    "products",
-    "id,sku_code,name,brand,category_id,unit_price,dealer_price,stock_quantity",
+  // 2. Inspect existing products and live column availability (e.g., price_tiers)
+  const existingProducts = await fetchAllRows(supabase, "products", "*");
+  const sampleColumns = existingProducts[0] ? new Set(Object.keys(existingProducts[0])) : null;
+  const hasPriceTiersCol = sampleColumns ? sampleColumns.has("price_tiers") : false;
+
+  const existingProductBySku = new Map(
+    existingProducts
+      .filter((p) => p.sku_code)
+      .map((p) => [String(p.sku_code).trim().toUpperCase(), p]),
   );
-  const existingProductBySku = new Map(existingProducts.map((p) => [p.sku_code, p]));
 
   const nowIso = new Date().toISOString();
   const toInsert = [];
   const toUpdate = [];
 
   for (const item of catalogItems) {
-    const categoryId = categoryIdByName.get(item.category);
-    const existing = existingProductBySku.get(item.sku_code);
+    const categoryId = categoryIdByName.get(item.category.toLowerCase());
+    const existing = existingProductBySku.get(item.sku_code.toUpperCase());
 
     if (!existing) {
-      toInsert.push({
+      const payload = {
         sku_code: item.sku_code,
         name: item.product_name,
         brand: "Hamko",
@@ -203,7 +224,11 @@ async function main() {
         unit: "pcs",
         is_active: true,
         updated_at: nowIso,
-      });
+      };
+      if (hasPriceTiersCol) {
+        payload.price_tiers = [];
+      }
+      toInsert.push(payload);
     } else {
       toUpdate.push({
         id: existing.id,
@@ -229,18 +254,14 @@ async function main() {
   let insertedCount = 0;
   for (let i = 0; i < toInsert.length; i += BATCH_SIZE) {
     const chunk = toInsert.slice(i, i + BATCH_SIZE);
-    const { data, error } = await supabase
-      .from("products")
-      .upsert(chunk, { onConflict: "sku_code" })
-      .select("id,sku_code");
+    const { data, error } = await supabase.from("products").insert(chunk).select("id,sku_code");
     if (error) {
       throw new Error(`Bulk insert batch ${i}-${i + chunk.length} failed: ${error.message}`);
     }
     insertedCount += data?.length ?? chunk.length;
   }
 
-  // 4. Safely update metadata (name, category_id, brand, updated_at) on existing products
-  //    using concurrency-bounded PATCHes so existing unit_price / dealer_price / stock_quantity stay untouched
+  // 4. Safely update metadata on existing products without altering price/stock
   let updatedCount = 0;
   const CONCURRENCY = 10;
   for (let i = 0; i < toUpdate.length; i += CONCURRENCY) {
@@ -272,7 +293,11 @@ async function main() {
     "id,sku_code,name,brand,category_id,unit_price,dealer_price,stock_quantity",
   );
   const postCatIdToName = new Map(postCategories.map((c) => [c.id, c.name]));
-  const postBySku = new Map(postProducts.map((p) => [p.sku_code, p]));
+  const postBySku = new Map(
+    postProducts
+      .filter((p) => p.sku_code)
+      .map((p) => [String(p.sku_code).trim().toUpperCase(), p]),
+  );
 
   const missingAfterImport = [];
   const mismatchedCategory = [];
@@ -280,17 +305,17 @@ async function main() {
   const categoryCounts = {};
 
   for (const item of catalogItems) {
-    const row = postBySku.get(item.sku_code);
+    const row = postBySku.get(item.sku_code.toUpperCase());
     if (!row) {
       missingAfterImport.push(item.sku_code);
       continue;
     }
     const actualCat = postCatIdToName.get(row.category_id);
     categoryCounts[actualCat] = (categoryCounts[actualCat] || 0) + 1;
-    if (actualCat !== item.category) {
+    if (String(actualCat || "").toLowerCase() !== item.category.toLowerCase()) {
       mismatchedCategory.push({ sku: item.sku_code, expected: item.category, actual: actualCat });
     }
-    const prev = existingProductBySku.get(item.sku_code);
+    const prev = existingProductBySku.get(item.sku_code.toUpperCase());
     if (
       prev &&
       (Number(row.unit_price) !== Number(prev.unit_price) ||

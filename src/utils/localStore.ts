@@ -173,8 +173,8 @@ export const STORAGE_KEYS = {
   AUTH_CREDENTIALS: 'sales_erp_auth_credentials',
 } as const;
 
-export const CACHE_SYNC_VERSION = "hamko-cloud-sync-v6";
-const CACHE_SYNC_META_KEY = "sales_erp_cloud_cache_meta_v6";
+export const CACHE_SYNC_VERSION = "hamko-cloud-sync-v7";
+const CACHE_SYNC_META_KEY = "sales_erp_cloud_cache_meta_v7";
 const CROSS_TAB_CHANNEL_NAME = "hamko_erp_cross_tab_sync";
 
 export function isValidUUID(str?: string | null): boolean {
@@ -310,9 +310,28 @@ export function ensureCrossPlatformCacheConsistency(): boolean {
       STORAGE_KEYS.VISITS,
     ];
 
+    const catalogPurgeKeys = new Set<string>([
+      STORAGE_KEYS.PRODUCTS,
+      STORAGE_KEYS.CATEGORIES,
+    ]);
+
     for (const key of mirroredCollectionKeys) {
       const existing = getItemWithTTL<any[]>(key, []);
       if (Array.isArray(existing) && existing.length > 0) {
+        // For catalog mirrors (products & categories), evict stale cloud-cached entries
+        // on cache version bump or Supabase project change while keeping unsynced offline creations.
+        if (catalogPurgeKeys.has(key)) {
+          const unsyncedOnly = existing.filter(
+            (item) => item && typeof item === "object" && (item.is_offline === true || item._unsynced === true),
+          );
+          if (unsyncedOnly.length > 0) {
+            setItemWithTTL(key, unsyncedOnly, null);
+          } else {
+            removeItem(key);
+          }
+          continue;
+        }
+
         const sanitized = existing.map((item) => {
           if (!item || typeof item !== "object") return item;
           // Strictly PRESERVE is_offline, _unsynced, and _modifiedAt flags.
@@ -2225,6 +2244,7 @@ export function reconcileProductsWithRemote(
 
   const localNotOnRemote = localProds.filter(
     (lp) =>
+      isPendingOfflineRecord(lp) &&
       !remoteIdSet.has(String(lp.id)) &&
       (!lp.sku_code || !remoteSkuSet.has(String(lp.sku_code).trim().toUpperCase()))
   );
@@ -2266,7 +2286,7 @@ export function reconcileCategoriesWithRemote(
 
   const remoteIdSet = new Set(validRemote.map((c) => String(c.id)));
   const localNotOnRemote = (Array.isArray(currentLocal) ? currentLocal : []).filter(
-    (lc) => lc && !remoteIdSet.has(String(lc.id))
+    (lc) => lc && isPendingOfflineRecord(lc) && !remoteIdSet.has(String(lc.id))
   );
   const reconciled = [...localNotOnRemote, ...validRemote].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
   if (options?.persist !== false) {

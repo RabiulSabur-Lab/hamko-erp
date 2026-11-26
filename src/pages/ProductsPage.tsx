@@ -40,6 +40,10 @@ import {
 } from "@/utils/productUtils";
 import { sanitizeProductPayload, executeWithSchemaResilience } from "@/lib/payloadSanitizer";
 import { triggerGlobalLiveSync, clearCloudPullThrottle } from "@/utils/cloudSync";
+import {
+  ensureOfficialCatalogSeeded,
+  isCatalogSeedingInProgress,
+} from "@/services/catalogSeedService";
 
 export interface Category {
   id: string;
@@ -140,17 +144,29 @@ export function ProductsPage() {
       }
     }, 3500);
 
+    let realtimeReloadTimer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleRealtimeReload = () => {
+      if (isCatalogSeedingInProgress()) return;
+      if (realtimeReloadTimer) clearTimeout(realtimeReloadTimer);
+      realtimeReloadTimer = setTimeout(() => {
+        if (mountedRef.current && !isCatalogSeedingInProgress()) {
+          void loadData(false);
+        }
+      }, 450);
+    };
+
     const prodChannel = supabase
       .channel("products-page-realtime")
-      .on("postgres_changes", { event: "*", schema: "public", table: "products" }, () => loadData())
-      .on("postgres_changes", { event: "*", schema: "public", table: "categories" }, () => loadData())
-      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => loadData())
-      .on("postgres_changes", { event: "*", schema: "public", table: "stock_transactions" }, () => loadData())
+      .on("postgres_changes", { event: "*", schema: "public", table: "products" }, scheduleRealtimeReload)
+      .on("postgres_changes", { event: "*", schema: "public", table: "categories" }, scheduleRealtimeReload)
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, scheduleRealtimeReload)
+      .on("postgres_changes", { event: "*", schema: "public", table: "stock_transactions" }, scheduleRealtimeReload)
       .subscribe();
 
     return () => {
       mountedRef.current = false;
       clearTimeout(watchdog);
+      if (realtimeReloadTimer) clearTimeout(realtimeReloadTimer);
       try {
         if (prodChannel && supabase?.removeChannel) {
           supabase.removeChannel(prodChannel);
@@ -177,12 +193,12 @@ export function ProductsPage() {
     }
     try {
       const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("Products fetch timeout")), 4500)
+        setTimeout(() => reject(new Error("Products fetch timeout")), 12000)
       );
       const [pRes, cRes] = await Promise.race([
         Promise.all([
-          supabase.from("products").select("*, category:categories(*)").order("name", { ascending: true }),
-          supabase.from("categories").select("*").order("name"),
+          supabase.from("products").select("*, category:categories(*)").order("name", { ascending: true }).limit(2000),
+          supabase.from("categories").select("*").order("name").limit(500),
         ]),
         timeoutPromise,
       ]);
@@ -190,8 +206,9 @@ export function ProductsPage() {
       if (!mountedRef.current) return;
 
       let cats: Category[] = categories;
-      if (cRes.data && Array.isArray(cRes.data)) {
+      if (!cRes.error && Array.isArray(cRes.data)) {
         cats = cRes.data as Category[];
+        setLocalData(STORAGE_KEYS.CATEGORIES, cats, null, false);
         if (mountedRef.current) setCategories(cats);
       }
       const catMap = new Map<string, Category>(cats.map((c: Category) => [c.id, c]));
@@ -200,13 +217,27 @@ export function ProductsPage() {
       let rawProductList: any[] | null = !pRes.error && Array.isArray(pRes.data) && pRes.data.length > 0 ? pRes.data : null;
       if (!rawProductList) {
         console.warn("Products joined select notice, attempting flat query fallback:", pRes?.error?.message);
-        const fbRes = await supabase.from("products").select("*").order("name", { ascending: true });
+        const fbRes = await supabase.from("products").select("*").order("name", { ascending: true }).limit(2000);
         if (!fbRes.error && Array.isArray(fbRes.data)) {
           rawProductList = fbRes.data;
         }
       }
 
       if (rawProductList) {
+        // One-time automatic bootstrap if the connected live Supabase project has not yet imported the 230 official products
+        if (!isCatalogSeedingInProgress() && rawProductList.length < 200) {
+          const seedResult = await ensureOfficialCatalogSeeded(rawProductList, cats);
+          if (seedResult.seeded && mountedRef.current) {
+            toast.success(
+              lang === "bn"
+                ? `অফিশিয়াল হ্যামকো ক্যাটালগের ${seedResult.insertedProducts}টি পণ্য ডাটাবেজে যুক্ত হয়েছে`
+                : `Synced ${seedResult.insertedProducts} official Hamko Cookware products & ${seedResult.insertedCategories} categories to database`,
+            );
+            await loadData(false);
+            return;
+          }
+        }
+
         const validRemote = (rawProductList as Product[]).filter((p: Product) => !deletedIds.has(p.id));
 
         const enrichedRemote: Product[] = validRemote.map((rp: any) => {
@@ -241,6 +272,10 @@ export function ProductsPage() {
         const merged: Product[] = enrichedRemote.sort((a: Product, b: Product) =>
           (a.name || "").localeCompare(b.name || "")
         );
+
+        // Persist authoritative live cloud catalog back to localStorage so stale caches never override Supabase
+        setLocalData(STORAGE_KEYS.PRODUCTS, merged, null, false);
+        dispatchGlobalStateUpdate();
 
         if (mountedRef.current) setProducts(merged);
         if (isManual) {
