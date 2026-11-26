@@ -178,7 +178,25 @@ function hydrateCachedTokenFromSessionJson(raw: string | null | undefined): void
   try {
     const parsed = JSON.parse(raw);
     const sessionObj = parsed?.currentSession || parsed?.session || parsed;
-    if (sessionObj?.access_token) {
+    if (sessionObj?.access_token && typeof sessionObj.access_token === "string") {
+      // Strictly validate JWT issuer against the active Supabase project URL before caching
+      const parts = sessionObj.access_token.split(".");
+      if (parts.length === 3) {
+        let b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+        while (b64.length % 4) b64 += "=";
+        const payload = JSON.parse(atob(b64));
+        if (typeof payload.iss === "string" && SUPABASE_URL) {
+          const activeHost = new URL(SUPABASE_URL).hostname;
+          if (payload.iss.includes(".supabase.co") && !payload.iss.includes(activeHost)) {
+            syncCachedAccessToken(null);
+            return;
+          }
+        }
+        if (typeof payload.exp === "number" && payload.exp * 1000 <= Date.now()) {
+          syncCachedAccessToken(null);
+          return;
+        }
+      }
       syncCachedAccessToken(sessionObj.access_token, sessionObj.expires_at);
     }
   } catch {
@@ -685,7 +703,10 @@ export const SUPABASE_TABLE_SELECTS = {
     "id, product_id, warehouse, quantity, updated_at",
 } as const;
 
-export interface UserProfile extends DbUserRow {}
+export interface UserProfile extends DbUserRow {
+  employee_code?: string | null;
+  employee_id?: string | null;
+}
 
 export interface Customer extends DbCustomerRow {
   outlet_name?: string | null;

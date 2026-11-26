@@ -1,6 +1,6 @@
 import { useState, useEffect, type ReactNode } from "react";
 import { toast } from "sonner";
-import { useAuth } from "./lib/auth";
+import { useAuth, resolveVerifiedRole } from "./lib/auth";
 import { useRouter } from "./router";
 import { AuthPage } from "./pages/AuthPage";
 import { LandingPage } from "./pages/LandingPage";
@@ -44,26 +44,7 @@ function ProtectedRoute({
   const { user, profile, loading: authLoading } = useAuth();
   const { navigate } = useRouter();
 
-  const rawRole = (
-    profile?.role_name ||
-    (user as any)?.user_metadata?.role ||
-    (user as any)?.profile?.role ||
-    (user as any)?.role_name ||
-    ((user as any)?.role && (user as any).role !== "authenticated" ? (user as any).role : "") ||
-    ((user as any)?.email?.toLowerCase().includes("officer") ? "sales_officer" : "") ||
-    user?.role ||
-    ""
-  );
-  const userRole = (rawRole || "").toLowerCase().replace(/[\s_-]+/g, "");
-
-  const isAdmin =
-    userRole === "super_admin" ||
-    userRole === "superadmin" ||
-    userRole === "admin" ||
-    userRole.includes("admin") ||
-    String(profile?.role_name || "").toLowerCase().includes("admin") ||
-    (user as any)?.role === "super_admin" ||
-    (Boolean(user?.email?.toLowerCase().includes("admin")) && !userRole.includes("officer"));
+  const { isSuperAdmin: isAdmin } = resolveVerifiedRole(profile, user);
 
   const isAllowed = requireAdmin !== undefined ? (requireAdmin ? isAdmin : true) : (allowed ?? true);
 
@@ -216,35 +197,8 @@ export function App() {
     }
   }, [session, loading, route, isRoot, navigate]);
 
-  // Role-based access control (RBAC): inspect exact user role structure
-  const rawRole = (
-    profile?.role_name ||
-    (user as any)?.user_metadata?.role ||
-    (user as any)?.profile?.role ||
-    (user as any)?.role_name ||
-    ((user as any)?.role && (user as any).role !== "authenticated" ? (user as any).role : "") ||
-    ((user as any)?.email?.toLowerCase().includes("officer") ? "sales_officer" : "") ||
-    user?.role ||
-    ""
-  );
-  const userRole = (rawRole || "").toLowerCase().replace(/[\s_-]+/g, "");
-  const isSalesOfficer =
-    userRole === "sales_officer" ||
-    userRole === "salesofficer" ||
-    userRole === "so" ||
-    userRole.includes("officer") ||
-    (user as any)?.role === "sales_officer" ||
-    (user as any)?.user_metadata?.role === "sales_officer" ||
-    (user as any)?.email?.toLowerCase().includes("officer");
-
-  const isSuperAdmin =
-    userRole === "super_admin" ||
-    userRole === "superadmin" ||
-    userRole === "admin" ||
-    userRole.includes("admin") ||
-    String(profile?.role_name || "").toLowerCase().includes("admin") ||
-    (user as any)?.role === "super_admin" ||
-    (Boolean(user?.email?.toLowerCase().includes("admin")) && !userRole.includes("officer"));
+  // Strict Role-based access control (RBAC) bound to verified Supabase auth UID & email
+  const { normalizedRole: userRole, isSalesOfficer, isSuperAdmin } = resolveVerifiedRole(profile, user);
 
   const page = (() => {
     if (

@@ -6,7 +6,14 @@ import {
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { withQueryTimeout } from "@/lib/supabaseQuery";
-import { useAuth, hasActiveSessionToken, ensureValidSession } from "@/lib/auth";
+import {
+  useAuth,
+  hasActiveSessionToken,
+  ensureValidSession,
+  doesProfileMatchAuthUser,
+  resolveVerifiedRole,
+} from "@/lib/auth";
+import { getUserDisplayCode } from "@/services/userService";
 import { useTheme } from "@/lib/theme";
 import { useI18n } from "@/lib/i18n";
 import { useRouter } from "@/router";
@@ -231,6 +238,33 @@ export function AppLayout({ children }: { children: ReactNode }) {
 
   const activeRoute = path === "/" ? "dashboard" : path.replace(/^\//, "").split("/")[0];
 
+  // Strictly validate displayed user identity against the authenticated Supabase session user
+  const verifiedProfile = doesProfileMatchAuthUser(profile, user) ? profile : null;
+  const verifiedRole = resolveVerifiedRole(verifiedProfile, user);
+  const displayEmail = user?.email || verifiedProfile?.email || "";
+  const displayFullName =
+    (verifiedProfile?.full_name || "").trim() ||
+    (verifiedRole.isSuperAdmin ? "Super Admin" : displayEmail ? displayEmail.split("@")[0] : "User");
+  const roleI18nKeyMap: Record<string, string> = {
+    "Super Admin": "superAdmin",
+    "Sales Manager": "salesManager",
+    "Sales Officer": "salesOfficer",
+    Distributor: "distributor",
+    Accountant: "accountant",
+  };
+  const displayRoleLabel = verifiedRole.roleName
+    ? t(roleI18nKeyMap[verifiedRole.roleName] || "salesOfficer")
+    : verifiedRole.roleName;
+  const displayEmployeeCode = user?.id
+    ? getUserDisplayCode({
+        id: user.id,
+        email: displayEmail,
+        role_name: verifiedRole.roleName,
+        employee_code: verifiedProfile?.employee_code ?? undefined,
+        employee_id: verifiedProfile?.employee_id ?? undefined,
+      })
+    : "";
+
   return (
     <div className="relative min-h-screen erp-glass-canvas">
       {/* Soft Airy Ambient Glowing Orbs for Apple Liquid Glass Refraction */}
@@ -328,17 +362,22 @@ export function AppLayout({ children }: { children: ReactNode }) {
                 className="flex items-center gap-1.5 rounded-lg p-1 hover:bg-white/15 transition-colors"
               >
                 <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/20 text-xs font-bold text-white border border-white/30">
-                  {initials(profile?.full_name ?? "U")}
+                  {initials(displayFullName)}
                 </div>
               </button>
               {userMenuOpen && (
                 <>
                   <div className="fixed inset-0 z-30" onClick={() => setUserMenuOpen(false)} />
-                  <div className="absolute right-0 top-full z-40 mt-2 w-56 rounded-lg border bg-popover text-popover-foreground p-1 shadow-lg">
+                  <div className="absolute right-0 top-full z-40 mt-2 w-60 rounded-lg border bg-popover text-popover-foreground p-1 shadow-lg">
                     <div className="px-3 py-2 border-b mb-1">
-                      <p className="text-sm font-medium">{profile?.full_name ?? "User"}</p>
-                      <p className="text-xs text-muted-foreground truncate">{profile?.email ?? user?.email ?? ""}</p>
-                      <Badge variant="secondary" className="mt-1 text-[10px]">{profile?.role_name ?? "Staff"}</Badge>
+                      <p className="text-sm font-medium truncate">{displayFullName}</p>
+                      <p className="text-xs text-muted-foreground truncate">{displayEmail}</p>
+                      <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
+                        <Badge variant="secondary" className="text-[10px]">{displayRoleLabel}</Badge>
+                        {displayEmployeeCode && (
+                          <Badge variant="outline" className="text-[10px] font-mono">{displayEmployeeCode}</Badge>
+                        )}
+                      </div>
                     </div>
                     <button
                       type="button"
@@ -408,12 +447,12 @@ export function AppLayout({ children }: { children: ReactNode }) {
                 className="flex items-center gap-2 rounded-lg p-1 pr-2 hover:bg-accent"
               >
                 <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
-                  {initials(profile?.full_name ?? "U")}
+                  {initials(displayFullName)}
                 </div>
                 <div className="hidden text-left sm:block">
-                  <p className="text-xs font-medium leading-tight">{profile?.full_name ?? "User"}</p>
+                  <p className="text-xs font-medium leading-tight max-w-[140px] truncate">{displayFullName}</p>
                   <p className="text-[10px] text-muted-foreground">
-                    {profile?.role_name ? t(profile.role_name.toLowerCase().replace(/\s+/g, "")) : "Sales Staff"}
+                    {displayRoleLabel}
                   </p>
                 </div>
                 <ChevronDown className="h-3 w-3 text-muted-foreground" />
@@ -422,11 +461,16 @@ export function AppLayout({ children }: { children: ReactNode }) {
               {userMenuOpen && (
                 <>
                   <div className="fixed inset-0 z-30" onClick={() => setUserMenuOpen(false)} />
-                  <div className="absolute right-0 top-full z-40 mt-2 w-56 rounded-lg border bg-popover text-popover-foreground p-1 shadow-lg">
+                  <div className="absolute right-0 top-full z-40 mt-2 w-60 rounded-lg border bg-popover text-popover-foreground p-1 shadow-lg">
                     <div className="px-3 py-2 border-b mb-1">
-                      <p className="text-sm font-medium">{profile?.full_name ?? "User"}</p>
-                      <p className="text-xs text-muted-foreground truncate">{profile?.email ?? user?.email ?? ""}</p>
-                      <Badge variant="secondary" className="mt-1 text-[10px]">{profile?.role_name ?? "Staff"}</Badge>
+                      <p className="text-sm font-medium truncate">{displayFullName}</p>
+                      <p className="text-xs text-muted-foreground truncate">{displayEmail}</p>
+                      <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
+                        <Badge variant="secondary" className="text-[10px]">{displayRoleLabel}</Badge>
+                        {displayEmployeeCode && (
+                          <Badge variant="outline" className="text-[10px] font-mono">{displayEmployeeCode}</Badge>
+                        )}
+                      </div>
                     </div>
                     <button
                       type="button"

@@ -2872,10 +2872,16 @@ export function reconcileUsersWithRemote(
       const existingId = seenEmails.get(uemail)!;
       const existingObj = mergedById.get(existingId);
       if (existingObj) {
-        const merged = isRemoteAuthoritative(userObj, existingObj)
-          ? { ...existingObj, ...userObj, id: existingObj.id }
-          : { ...userObj, ...existingObj };
-        mergedById.set(existingObj.id, merged);
+        const remoteWins = isRemoteAuthoritative(userObj, existingObj);
+        const authoritativeId = remoteWins ? uid : existingObj.id;
+        const merged = remoteWins
+          ? { ...existingObj, ...userObj, id: authoritativeId }
+          : { ...userObj, ...existingObj, id: authoritativeId };
+        if (authoritativeId !== existingObj.id) {
+          mergedById.delete(existingObj.id);
+        }
+        mergedById.set(authoritativeId, merged);
+        seenEmails.set(uemail, authoritativeId);
         return;
       }
     }
@@ -2896,15 +2902,17 @@ export function reconcileUsersWithRemote(
         upsertIntoMerged({
           ...existing,
           ...ru,
-          id: existing.id || ru.id,
+          id: ru.id || existing.id,
           role: ru.role || existing.role,
           role_name: ru.role_name || existing.role_name,
+          _unsynced: false,
+          is_offline: false,
         });
       } else {
         upsertIntoMerged({
           ...ru,
           ...existing,
-          id: existing.id || ru.id,
+          id: ru.id || existing.id,
         });
       }
     }

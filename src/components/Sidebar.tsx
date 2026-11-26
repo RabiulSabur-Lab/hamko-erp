@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Users, Package, ShoppingCart, Truck, Warehouse,
   Wallet, MapPin, BarChart3, UserCog, Bell, BookOpen, X,
 } from "lucide-react";
-import { useAuth } from "@/lib/auth";
+import { useAuth, resolveVerifiedRole } from "@/lib/auth";
 import { useI18n } from "@/lib/i18n";
 import { useRouter } from "@/router";
 import { cn } from "@/lib/utils";
@@ -41,34 +41,7 @@ export const Sidebar: FC<SidebarProps> = ({ open, onClose, unreadCount = 0 }) =>
   const { t } = useI18n();
   const { path, navigate } = useRouter();
 
-  const userRole = (
-    profile?.role_name ||
-    ((user as any)?.role && (user as any).role !== "authenticated" ? (user as any).role : "") ||
-    (user as any)?.user_metadata?.role ||
-    (user as any)?.profile?.role ||
-    ((user as any)?.email?.toLowerCase().includes("officer") ? "sales_officer" : "") ||
-    ""
-  ).toLowerCase();
-
-  const isSalesOfficer =
-    userRole === "sales_officer" ||
-    userRole === "salesofficer" ||
-    userRole === "so" ||
-    userRole.includes("officer") ||
-    (user as any)?.role === "sales_officer" ||
-    (user as any)?.user_metadata?.role === "sales_officer" ||
-    (user as any)?.email?.toLowerCase().includes("officer");
-
-  const normalizedRole = userRole.replace(/[\s_-]+/g, "");
-  const isSuperAdmin =
-    userRole === "super_admin" ||
-    userRole === "superadmin" ||
-    normalizedRole === "superadmin" ||
-    normalizedRole.includes("admin") ||
-    String(profile?.role_name || "").toLowerCase().includes("admin") ||
-    (user as any)?.role === "super_admin" ||
-    String((user as any)?.user_metadata?.role || "").toLowerCase().includes("admin") ||
-    (Boolean(user?.email?.toLowerCase().includes("admin")) && !normalizedRole.includes("officer"));
+  const { normalizedRole, isSuperAdmin, isSalesOfficer } = resolveVerifiedRole(profile, user);
 
   const visibleNavItems = navItems.filter((item) => {
     const itemPath = String(item.path).toLowerCase();

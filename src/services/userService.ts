@@ -9,6 +9,7 @@ import {
   saveDeletedId,
   removeDeletedId,
   broadcastCrossTabSync,
+  isRemoteAuthoritative,
 } from "@/utils/localStore";
 import { TTL } from "@/lib/storageManager";
 
@@ -899,21 +900,44 @@ export function mergeAndEnrichUsers(
       (ru.email ? localByEmail.get(ru.email.toLowerCase()) : undefined);
 
     if (localMatch) {
-      // Local changes take precedence over stale remote tables (especially if RLS prevented remote update)
-      const merged: ManagedUser = {
-        ...ru,
-        ...localMatch,
-        id: localMatch.id || resolvedId,
-        email: localMatch.email || ru.email,
-        full_name: localMatch.full_name || ru.full_name,
-        phone: localMatch.phone !== undefined ? localMatch.phone : ru.phone,
-        role: localMatch.role || ru.role,
-        role_name: localMatch.role_name || ru.role_name,
-        is_active: localMatch.is_active !== undefined ? localMatch.is_active : ru.is_active,
-        created_at: localMatch.created_at || ru.created_at,
-        updated_at: localMatch.updated_at || ru.updated_at || new Date().toISOString(),
-      };
-      registerMerged(merged);
+      if (!isRemoteAuthoritative(ru, localMatch)) {
+        // Genuine unsynced/recent local modification — preserve until synced
+        const merged: ManagedUser = {
+          ...ru,
+          ...localMatch,
+          id: ru.id || localMatch.id || resolvedId,
+          email: localMatch.email || ru.email,
+          full_name: localMatch.full_name || ru.full_name,
+          phone: localMatch.phone !== undefined ? localMatch.phone : ru.phone,
+          role: localMatch.role || ru.role,
+          role_name: localMatch.role_name || ru.role_name,
+          is_active: localMatch.is_active !== undefined ? localMatch.is_active : ru.is_active,
+          created_at: localMatch.created_at || ru.created_at,
+          updated_at: localMatch.updated_at || ru.updated_at || new Date().toISOString(),
+        };
+        registerMerged(merged);
+      } else {
+        // Authoritative Supabase public.users record overrides stale local cache (fixes cached name/UID drift)
+        if (localMatch.id && resolvedId && localMatch.id !== resolvedId) {
+          migrateUserReferences(localMatch.id, resolvedId);
+        }
+        const merged: ManagedUser = {
+          ...localMatch,
+          ...ru,
+          id: resolvedId,
+          email: ru.email || localMatch.email,
+          full_name: ru.full_name || localMatch.full_name,
+          phone: ru.phone !== undefined && ru.phone !== null ? ru.phone : localMatch.phone,
+          role: ru.role || localMatch.role,
+          role_name: ru.role_name || localMatch.role_name,
+          is_active: ru.is_active !== undefined ? ru.is_active : localMatch.is_active,
+          created_at: ru.created_at || localMatch.created_at,
+          updated_at: ru.updated_at || localMatch.updated_at || new Date().toISOString(),
+          _unsynced: false,
+          is_offline: false,
+        };
+        registerMerged(merged);
+      }
     } else {
       registerMerged({ ...ru, id: resolvedId });
     }
@@ -1052,17 +1076,25 @@ export async function updateManagedUser(
     oldEmail: editingUser.email,
   });
 
-  // Attempt live Supabase Auth update
-  if (credentialsUpdated) {
+  // Attempt live Supabase Auth update (sync full_name metadata on self-edits so auth metadata never drifts)
+  const nameChanged = updates.fullName.trim() !== String(editingUser.full_name || "").trim();
+  if (credentialsUpdated || (isEditingSelf && nameChanged)) {
     try {
       if (isEditingSelf) {
-        const payload: { email?: string; password?: string } = {};
+        const payload: { email?: string; password?: string; data?: Record<string, any> } = {
+          data: {
+            full_name: updates.fullName.trim(),
+            role_name: roleLabel,
+          },
+        };
         if (passwordChanged) payload.password = updates.newPassword!.trim();
         if (emailChanged) payload.email = updates.email;
         const { error } = await supabase.auth.updateUser(payload);
         if (error) {
           console.warn("Supabase auth.updateUser notice:", error.message);
-          warning = `Auth update notice: ${error.message}`;
+          if (credentialsUpdated) {
+            warning = `Auth update notice: ${error.message}`;
+          }
         }
       } else {
         const authAdmin = (supabase.auth as any).admin;

@@ -43,12 +43,13 @@ export function UsersProvider({ children }: { children: ReactNode }) {
   const isRefreshingRef = useRef(false);
   const lastSyncedUserIdRef = useRef<string | null>(null);
 
-  // Sync usersMap with profile when authentication state becomes available
+  // Sync usersMap with profile strictly when profile matches the active authenticated userId
   useEffect(() => {
-    if (profile?.id) {
+    if (profile?.id && userId && String(profile.id).trim() === String(userId).trim()) {
       setUsersMap((prev) => {
         if (
           prev[profile.id]?.full_name === profile.full_name &&
+          prev[profile.id]?.email === profile.email &&
           prev[profile.id]?.role_name === profile.role_name
         ) {
           return prev;
@@ -64,7 +65,7 @@ export function UsersProvider({ children }: { children: ReactNode }) {
         };
       });
     }
-  }, [profile?.id, profile?.full_name, profile?.email, profile?.role_name]);
+  }, [userId, profile?.id, profile?.full_name, profile?.email, profile?.role_name]);
 
   // Master fetch function with stable identity (uses refs to avoid effect re-trigger loops)
   const refreshUsers = useCallback(async () => {
