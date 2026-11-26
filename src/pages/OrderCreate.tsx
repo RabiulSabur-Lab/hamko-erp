@@ -48,7 +48,7 @@ import {
   reconcileProductsWithRemote,
 } from "@/utils/localStore";
 import { normalizePaymentMethod } from "@/utils/cloudSync";
-import { sanitizeFormulaInput, formatTierLabel, calculateDefaultPriceTiers, DEFAULT_TIER_NAMES } from "@/utils/productUtils";
+import { sanitizeFormulaInput, formatTierLabel, calculateDefaultPriceTiers, DEFAULT_TIER_NAMES, filterActiveProducts } from "@/utils/productUtils";
 import {
   sanitizeOrderPayload,
   sanitizeOrderItemPayload,
@@ -227,9 +227,17 @@ export function OrderCreate() {
     return role.includes("admin");
   }, [profile, user]);
 
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>(() => getCustomers());
+  const [products, setProducts] = useState<Product[]>(() =>
+    filterActiveProducts(getProducts(), getDeletedIds(STORAGE_KEYS.DELETED_PRODUCTS)),
+  );
+  const [categories, setCategories] = useState<Array<{ id: string; name: string }>>(() =>
+    getLocalData<Array<{ id: string; name: string }>>(STORAGE_KEYS.CATEGORIES, []),
+  );
   const [saving, setSaving] = useState(false);
+
+  // Strictly UI-only per-row category filter map (never persisted to Supabase or printed memos)
+  const [rowCategoryFilters, setRowCategoryFilters] = useState<Record<string, string>>({});
 
   // Form State
   const [customerId, setCustomerId] = useState("");
@@ -262,27 +270,32 @@ export function OrderCreate() {
     // Live Supabase fetch
     async function fetchLive() {
       try {
-        const [cRes, pRes] = await Promise.all([
-          supabase.from("customers").select(SUPABASE_TABLE_SELECTS.customers).order("name", { ascending: true }),
-          supabase.from("products").select(SUPABASE_TABLE_SELECTS.productsFull).order("name", { ascending: true }),
+        const [cRes, pRes, catRes] = await Promise.all([
+          supabase.from("customers").select(SUPABASE_TABLE_SELECTS.customers).order("name", { ascending: true }).limit(2000),
+          supabase.from("products").select(SUPABASE_TABLE_SELECTS.productsFull).order("name", { ascending: true }).limit(2000),
+          supabase.from("categories").select("id, name").order("name", { ascending: true }).limit(500),
         ]);
         if (!isMounted) return;
+        if (!catRes.error && Array.isArray(catRes.data) && catRes.data.length > 0) {
+          setCategories(catRes.data as Array<{ id: string; name: string }>);
+        }
         if (!cRes.error && Array.isArray(cRes.data) && cRes.data.length > 0) {
           setCustomers((cRes.data as Customer[]).filter((c) => c.is_active !== false && c.status !== "Inactive"));
         } else if (cRes.error) {
           // Fallback query if joined/extended columns encounter schema issues
-          const fbCust = await supabase.from("customers").select("*").order("name", { ascending: true });
+          const fbCust = await supabase.from("customers").select("*").order("name", { ascending: true }).limit(2000);
           if (!fbCust.error && Array.isArray(fbCust.data) && isMounted) {
             setCustomers((fbCust.data as Customer[]).filter((c) => c.is_active !== false && c.status !== "Inactive"));
           }
         }
 
+        const deletedProdIds = getDeletedIds(STORAGE_KEYS.DELETED_PRODUCTS);
         if (!pRes.error && Array.isArray(pRes.data) && pRes.data.length > 0) {
-          setProducts((pRes.data as Product[]).filter((p) => p.is_active !== false));
+          setProducts(filterActiveProducts(pRes.data as Product[], deletedProdIds));
         } else if (pRes.error) {
-          const fbProd = await supabase.from("products").select("*").order("name", { ascending: true });
+          const fbProd = await supabase.from("products").select("*").order("name", { ascending: true }).limit(2000);
           if (!fbProd.error && Array.isArray(fbProd.data) && isMounted) {
-            setProducts((fbProd.data as Product[]).filter((p) => p.is_active !== false));
+            setProducts(filterActiveProducts(fbProd.data as Product[], deletedProdIds));
           }
         }
       } catch (err) {
@@ -403,23 +416,86 @@ export function OrderCreate() {
       });
   }, [customers]);
 
-  // Searchable Product options - exclude deleted, inactive, or formula products
-  const productOptions: SearchableOption[] = useMemo(() => {
+  // Category lookup map derived from categories table + embedded product.category
+  const categoryNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    (categories || []).forEach((c) => {
+      if (c?.id && c?.name) map.set(String(c.id), String(c.name).trim());
+    });
+    (products || []).forEach((p) => {
+      const cid = p?.category_id ? String(p.category_id) : (p?.category && typeof p.category === "object" && (p.category as any).id ? String((p.category as any).id) : "");
+      const cname = p?.category && typeof p.category === "object" && p.category.name ? String(p.category.name).trim() : "";
+      if (cid && cname && !map.has(cid)) map.set(cid, cname);
+    });
+    return map;
+  }, [categories, products]);
+
+  const resolveProductCategoryKey = (p?: Product | null): { id: string; name: string } => {
+    if (!p) return { id: "", name: "" };
+    const cid =
+      (p.category_id && typeof p.category_id === "string" ? p.category_id : "") ||
+      (p.category && typeof p.category === "object" && (p.category as any).id ? String((p.category as any).id) : "");
+    const directName =
+      (p.category && typeof p.category === "object" && p.category.name ? String(p.category.name).trim() : "") ||
+      (typeof (p as any)?.category === "string" ? String((p as any).category).trim() : "") ||
+      (cid ? categoryNameById.get(cid) || "" : "");
+    if (cid) return { id: cid, name: directName };
+    if (directName) return { id: `name::${directName.toLowerCase()}`, name: directName };
+    return { id: "", name: "" };
+  };
+
+  const activeCleanProducts = useMemo(() => {
     const deletedIds = getDeletedIds(STORAGE_KEYS.DELETED_PRODUCTS);
-    return (products || [])
-      .filter((p) => p && p.id && p.is_active !== false && !deletedIds.has(p.id) && p.name !== "[Deleted Product]" && !String(p.name || "").startsWith("="))
-      .sort((a, b) => (a?.name || "").localeCompare(b?.name || ""))
+    return filterActiveProducts(products || [], deletedIds).filter(
+      (p) => !String(p.name || "").startsWith("="),
+    );
+  }, [products]);
+
+  const categoryFilterOptions = useMemo(() => {
+    const seen = new Map<string, string>();
+    activeCleanProducts.forEach((p) => {
+      const { id, name } = resolveProductCategoryKey(p);
+      if (id && name && !seen.has(id)) seen.set(id, name);
+    });
+    return Array.from(seen.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [activeCleanProducts, categoryNameById]);
+
+  // Searchable Product options sorted cleanly with category metadata for fast per-row filtering
+  const sortedProductsWithCategory = useMemo(() => {
+    return [...activeCleanProducts]
       .map((p) => {
-        const catName = p?.category?.name || "";
+        const cat = resolveProductCategoryKey(p);
         const cleanName = sanitizeFormulaInput(p?.name || "");
         const cleanSku = sanitizeFormulaInput(p?.sku_code || "");
         return {
-          value: p.id,
-          label: catName ? `[${catName}] ${cleanName}` : cleanName,
-          sublabel: `${cleanSku} · Stock: ${p?.stock_quantity ?? 0}`,
+          product: p,
+          catId: cat.id,
+          catName: cat.name,
+          cleanName,
+          cleanSku,
+          stock: p?.stock_quantity ?? 0,
         };
-      });
-  }, [products]);
+      })
+      .sort((a, b) => a.cleanName.localeCompare(b.cleanName));
+  }, [activeCleanProducts, categoryNameById]);
+
+  const getProductOptionsForCategory = (selectedCatId: string): SearchableOption[] => {
+    const list = selectedCatId
+      ? sortedProductsWithCategory.filter((entry) => entry.catId === selectedCatId)
+      : sortedProductsWithCategory;
+
+    return list.map((entry) => ({
+      value: entry.product.id,
+      label: selectedCatId
+        ? entry.cleanName
+        : entry.catName
+        ? `[${entry.catName}] ${entry.cleanName}`
+        : entry.cleanName,
+      sublabel: `${entry.cleanSku} · Stock: ${entry.stock}`,
+    }));
+  };
 
   // When customer changes, update non-customized item price tiers according to customer type
   const handleCustomerChange = (newCustId: string) => {
@@ -544,7 +620,34 @@ export function OrderCreate() {
   };
 
   const removeItem = (index: number) => {
+    const targetRow = items[index];
+    const rowKey = targetRow?._rowId || `item-${index}`;
+    setRowCategoryFilters((prev) => {
+      if (!(rowKey in prev)) return prev;
+      const next = { ...prev };
+      delete next[rowKey];
+      return next;
+    });
     setItems((prev) => (prev || []).filter((_, i) => i !== index));
+  };
+
+  // UI-only per-row Category filter handler (does NOT modify DB schema or printed memo)
+  const handleRowCategoryChange = (index: number, rowKey: string, nextCatId: string) => {
+    setRowCategoryFilters((prev) => ({
+      ...prev,
+      [rowKey]: nextCatId,
+    }));
+    if (!nextCatId) return;
+    const currentItem = items[index];
+    if (currentItem?.product_id) {
+      const selectedProd =
+        productsMap.get(currentItem.product_id) ||
+        (products || []).find((p) => p?.id === currentItem.product_id);
+      const prodCat = resolveProductCategoryKey(selectedProd);
+      if (prodCat.id !== nextCatId) {
+        updateItem(index, "product_id", "");
+      }
+    }
   };
 
   const updateItem = (index: number, field: keyof OrderItemRow, value: any) => {
@@ -1147,110 +1250,137 @@ export function OrderCreate() {
         </CardHeader>
         <CardContent className="p-0">
           <div>
-            <Table containerClassName="max-h-[55vh]">
-              <TableHeader>
-                <TableRow className="hover:bg-transparent">
-                  <TableHead className="min-w-[260px]">Product</TableHead>
-                  <TableHead className="w-24 text-center">Qty</TableHead>
-                  <TableHead className="w-36">
-                    <div className="flex items-center gap-1">
-                      <span>{t("priceTier") || "Price Tier"}</span>
-                      <span
-                        className="inline-flex cursor-help text-muted-foreground hover:text-foreground transition-colors"
-                        title={
-                          lang === "bn"
-                            ? "প্রাইস টিয়ার: DP হলো পাইকারি ডিলার মূল্য; Custom দিয়ে নির্দিষ্ট দর নির্ধারণ করা যায়।"
-                            : "Price Tier: DP (Dealer Price) is wholesale tier rate; Custom allows manual price entry."
-                        }
-                      >
-                        <HelpCircle className="h-3 w-3" />
-                      </span>
-                    </div>
-                  </TableHead>
-                  <TableHead className="w-32 text-right">Selling Price</TableHead>
-                  <TableHead className="w-24 text-right">Discount</TableHead>
-                  <TableHead className="w-28 text-right">Subtotal</TableHead>
-                  <TableHead className="w-12 text-center"></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {items.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground text-sm">
-                      No items added. Click "+ Add Item" below to select products.
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  items.map((it, idx) => {
-                    const isDraft = status === "Draft";
-                    const prod = productsMap.get(it.product_id) || (products || []).find((p) => p?.id === it.product_id);
-                    const baseStock = Math.max(0, Number(prod?.stock_quantity ?? (prod as any)?.stock ?? 0));
-                    const otherRowsQty = (items || []).reduce(
-                      (sum, other, otherIdx) =>
-                        otherIdx !== idx && other?.product_id === it.product_id
-                          ? sum + (Number(other?.quantity) || 0)
-                          : sum,
-                      0
-                    );
-                    const remainingForThisRow = Math.max(0, baseStock - otherRowsQty);
-                    const requestedQty = Number(it?.quantity) || 0;
-                    const isRowOverStock = Boolean(
-                      prod && (requestedQty > remainingForThisRow || baseStock <= 0)
-                    );
+            {/* Mobile / Android APK (< 768px): Spacious stacked item cards with Category above Product */}
+            <div className="block md:hidden divide-y divide-border/60">
+              {items.length === 0 ? (
+                <div className="text-center py-8 px-4 text-muted-foreground text-sm">
+                  No items added. Click "+ Add Item" below to select products.
+                </div>
+              ) : (
+                items.map((it, idx) => {
+                  const rowKey = it._rowId || `item-${idx}`;
+                  const selectedCatId = rowCategoryFilters[rowKey] || "";
+                  const rowProductOptions = getProductOptionsForCategory(selectedCatId);
+                  const isDraft = status === "Draft";
+                  const prod = productsMap.get(it.product_id) || (products || []).find((p) => p?.id === it.product_id);
+                  const baseStock = Math.max(0, Number(prod?.stock_quantity ?? (prod as any)?.stock ?? 0));
+                  const otherRowsQty = (items || []).reduce(
+                    (sum, other, otherIdx) =>
+                      otherIdx !== idx && other?.product_id === it.product_id
+                        ? sum + (Number(other?.quantity) || 0)
+                        : sum,
+                    0
+                  );
+                  const remainingForThisRow = Math.max(0, baseStock - otherRowsQty);
+                  const requestedQty = Number(it?.quantity) || 0;
+                  const isRowOverStock = Boolean(
+                    prod && (requestedQty > remainingForThisRow || baseStock <= 0)
+                  );
+                  const dynamicTiers = getProductPriceTiers(prod) || [];
 
-                    return (
-                      <TableRow key={it._rowId || `item-${idx}`}>
-                        {/* Product Search */}
-                        <TableCell className="p-2">
-                          <SearchableSelect
-                            options={productOptions}
-                            value={it.product_id}
-                            onChange={(val) => updateItem(idx, "product_id", val)}
-                            placeholder="Select product..."
-                            searchPlaceholder="Search product by name or category..."
-                          />
-                          {prod && (
-                            <div className="mt-1 px-1 flex items-center justify-between text-[11px] font-mono">
-                              <span
-                                className={cn(
-                                  "transition-colors",
-                                  isRowOverStock
-                                    ? isDraft
-                                      ? "text-amber-600 dark:text-amber-400 font-medium flex items-center gap-1"
-                                      : "text-destructive font-semibold flex items-center gap-1"
-                                    : "text-muted-foreground"
-                                )}
-                              >
-                                {isRowOverStock && (
-                                  <span
-                                    className={cn(
-                                      "inline-block w-1.5 h-1.5 rounded-full",
-                                      isDraft ? "bg-amber-500" : "bg-destructive animate-pulse"
-                                    )}
-                                  />
-                                )}
-                                Stock: {baseStock}
-                              </span>
+                  return (
+                    <div key={rowKey} className="p-3.5 space-y-2.5 bg-card">
+                      {/* Card Header */}
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-mono">
+                            #{idx + 1}
+                          </Badge>
+                          <span className="text-xs font-semibold text-primary font-mono">
+                            {formatBDT(it.subtotal || 0)}
+                          </span>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => removeItem(idx)}
+                          className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                          aria-label="Remove item"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+
+                      {/* 1. Category Dropdown (Full Width directly above Product) */}
+                      <div className="space-y-1">
+                        <Label className="text-[11px] text-muted-foreground">
+                          {t("category") || "Category"}
+                        </Label>
+                        <Select
+                          value={selectedCatId}
+                          onChange={(e) => handleRowCategoryChange(idx, rowKey, e.target.value)}
+                          className="w-full h-10 text-sm"
+                          aria-label={`Filter category for item ${idx + 1}`}
+                        >
+                          <option value="">
+                            {lang === "bn" ? "সকল ক্যাটাগরি" : "All Categories"}
+                          </option>
+                          {categoryFilterOptions.map((cat) => (
+                            <option key={cat.id} value={cat.id}>
+                              {cat.name}
+                            </option>
+                          ))}
+                        </Select>
+                      </div>
+
+                      {/* 2. Product Search (Full Width directly below Category) */}
+                      <div className="space-y-1">
+                        <Label className="text-[11px] text-muted-foreground">
+                          {t("product") || "Product"}
+                        </Label>
+                        <SearchableSelect
+                          options={rowProductOptions}
+                          value={it.product_id}
+                          onChange={(val) => updateItem(idx, "product_id", val)}
+                          placeholder={selectedCatId ? "Select product in category..." : "Select product..."}
+                          searchPlaceholder="Search product by name or SKU..."
+                          className="w-full"
+                        />
+                        {prod && (
+                          <div className="px-0.5 flex items-center justify-between text-[11px] font-mono">
+                            <span
+                              className={cn(
+                                "transition-colors",
+                                isRowOverStock
+                                  ? isDraft
+                                    ? "text-amber-600 dark:text-amber-400 font-medium flex items-center gap-1"
+                                    : "text-destructive font-semibold flex items-center gap-1"
+                                  : "text-muted-foreground"
+                              )}
+                            >
                               {isRowOverStock && (
                                 <span
                                   className={cn(
-                                    "text-[10px] font-medium",
-                                    isDraft ? "text-amber-600 dark:text-amber-400" : "text-destructive font-semibold"
+                                    "inline-block w-1.5 h-1.5 rounded-full",
+                                    isDraft ? "bg-amber-500" : "bg-destructive animate-pulse"
                                   )}
-                                >
-                                  {isDraft
-                                    ? "Replenish before approval"
-                                    : baseStock <= 0
-                                    ? "Out of stock"
-                                    : "Limit exceeded"}
-                                </span>
+                                />
                               )}
-                            </div>
-                          )}
-                        </TableCell>
+                              Stock: {baseStock}
+                            </span>
+                            {isRowOverStock && (
+                              <span
+                                className={cn(
+                                  "text-[10px] font-medium",
+                                  isDraft ? "text-amber-600 dark:text-amber-400" : "text-destructive font-semibold"
+                                )}
+                              >
+                                {isDraft
+                                  ? "Replenish before approval"
+                                  : baseStock <= 0
+                                  ? "Out of stock"
+                                  : `Max: ${remainingForThisRow}`}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
 
-                        {/* Quantity */}
-                        <TableCell className="p-2">
+                      {/* 3. Qty & Price Tier */}
+                      <div className="grid grid-cols-2 gap-2.5">
+                        <div className="space-y-1">
+                          <Label className="text-[11px] text-muted-foreground">Qty</Label>
                           <Input
                             type="number"
                             min="1"
@@ -1259,70 +1389,43 @@ export function OrderCreate() {
                             onChange={(e) => updateItem(idx, "quantity", e.target.value)}
                             onBlur={() => updateItem(idx, "quantity", Math.max(1, Math.round(Number(it.quantity) || 1)))}
                             className={cn(
-                              "h-9 text-center font-mono",
+                              "h-10 text-center font-mono",
                               isRowOverStock && (
                                 isDraft
-                                  ? "border-amber-400 text-amber-900 dark:text-amber-200 bg-amber-50/50 dark:bg-amber-950/20 focus-visible:ring-amber-400 font-medium"
-                                  : "border-destructive text-destructive bg-destructive/10 focus-visible:ring-destructive font-semibold"
+                                  ? "border-amber-400 text-amber-900 dark:text-amber-200 bg-amber-50/50 dark:bg-amber-950/20 font-medium"
+                                  : "border-destructive text-destructive bg-destructive/10 font-semibold"
                               )
                             )}
                             aria-invalid={!isDraft && isRowOverStock}
-                            title={
-                              isRowOverStock
-                                ? isDraft
-                                  ? "Low stock - replenish before approval"
-                                  : baseStock <= 0
-                                  ? "Out of stock"
-                                  : `Max available: ${remainingForThisRow}`
-                                : undefined
-                            }
                           />
-                          {isRowOverStock && (
-                            <div
-                              className={cn(
-                                "text-[10px] font-medium mt-1 text-center whitespace-nowrap animate-in fade-in duration-200",
-                                isDraft ? "text-amber-600 dark:text-amber-400" : "text-destructive font-semibold"
-                              )}
-                            >
-                              {isDraft
-                                ? "Low stock - replenish before approval"
-                                : baseStock <= 0
-                                ? "Out of stock"
-                                : `Max: ${remainingForThisRow}`}
-                            </div>
-                          )}
-                        </TableCell>
-
-                        {/* Price Tier Selector */}
-                        <TableCell className="p-2">
-                          {(() => {
-                            const dynamicTiers = getProductPriceTiers(prod) || [];
-
-                            return (
-                              <Select
-                                value={formatTierLabel(it.price_tier) || "DP"}
-                                onChange={(e) => updateItem(idx, "price_tier", e.target.value)}
-                                className="h-9 text-xs"
-                              >
-                                <option value="DP">
-                                   {lang === "bn" ? "ডিলার মূল্য (DP)" : "DP (Dealer Price)"}
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-[11px] text-muted-foreground">{t("priceTier") || "Price Tier"}</Label>
+                          <Select
+                            value={formatTierLabel(it.price_tier) || "DP"}
+                            onChange={(e) => updateItem(idx, "price_tier", e.target.value)}
+                            className="h-10 text-xs"
+                          >
+                            <option value="DP">
+                              {lang === "bn" ? "ডিলার মূল্য (DP)" : "DP (Dealer Price)"}
+                            </option>
+                            {dynamicTiers.map((dt: any, dtIdx: number) => {
+                              const cleanName = formatTierLabel(dt?.name);
+                              return (
+                                <option key={dtIdx} value={cleanName || dt?.name}>
+                                  {cleanName || dt?.name}
                                 </option>
-                                {dynamicTiers.map((dt: any, dtIdx: number) => {
-                                  const cleanName = formatTierLabel(dt?.name);
-                                  return (
-                                    <option key={dtIdx} value={cleanName || dt?.name}>
-                                      {cleanName || dt?.name}
-                                    </option>
-                                  );
-                                })}
-                                <option value="Custom">Custom</option>
-                              </Select>
-                            );
-                          })()}
-                        </TableCell>
+                              );
+                            })}
+                            <option value="Custom">Custom</option>
+                          </Select>
+                        </div>
+                      </div>
 
-                        {/* Selling Price */}
-                        <TableCell className="p-2">
+                      {/* 4. Selling Price & Discount */}
+                      <div className="grid grid-cols-2 gap-2.5">
+                        <div className="space-y-1">
+                          <Label className="text-[11px] text-muted-foreground">Selling Price</Label>
                           <Input
                             type="number"
                             step="0.01"
@@ -1330,12 +1433,11 @@ export function OrderCreate() {
                             value={it.unit_price}
                             onChange={(e) => updateItem(idx, "unit_price", e.target.value)}
                             onBlur={() => updateItem(idx, "unit_price", Math.max(0, r2(Number(it.unit_price) || 0)))}
-                            className="h-9 font-mono text-right"
+                            className="h-10 font-mono text-right"
                           />
-                        </TableCell>
-
-                        {/* Discount */}
-                        <TableCell className="p-2">
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-[11px] text-muted-foreground">Discount</Label>
                           <Input
                             type="number"
                             step="0.01"
@@ -1343,33 +1445,266 @@ export function OrderCreate() {
                             value={it.discount}
                             onChange={(e) => updateItem(idx, "discount", e.target.value)}
                             onBlur={() => updateItem(idx, "discount", Math.max(0, r2(Number(it.discount) || 0)))}
-                            className="h-9 font-mono text-right"
+                            className="h-10 font-mono text-right"
                             placeholder="0"
                           />
-                        </TableCell>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
 
-                        {/* Subtotal */}
-                        <TableCell className="p-2 text-right font-mono font-medium">
-                          {formatBDT(it.subtotal || 0)}
-                        </TableCell>
+            {/* Desktop / Web (>= 768px): Compact Category column to the left of Product */}
+            <div className="hidden md:block">
+              <Table containerClassName="max-h-[55vh]">
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead className="w-48 min-w-[176px]">{t("category") || "Category"}</TableHead>
+                    <TableHead className="min-w-[220px]">Product</TableHead>
+                    <TableHead className="w-20 text-center">Qty</TableHead>
+                    <TableHead className="w-32">
+                      <div className="flex items-center gap-1">
+                        <span>{t("priceTier") || "Price Tier"}</span>
+                        <span
+                          className="inline-flex cursor-help text-muted-foreground hover:text-foreground transition-colors"
+                          title={
+                            lang === "bn"
+                              ? "প্রাইস টিয়ার: DP হলো পাইকারি ডিলার মূল্য; Custom দিয়ে নির্দিষ্ট দর নির্ধারণ করা যায়।"
+                              : "Price Tier: DP (Dealer Price) is wholesale tier rate; Custom allows manual price entry."
+                          }
+                        >
+                          <HelpCircle className="h-3 w-3" />
+                        </span>
+                      </div>
+                    </TableHead>
+                    <TableHead className="w-28 text-right">Selling Price</TableHead>
+                    <TableHead className="w-24 text-right">Discount</TableHead>
+                    <TableHead className="w-28 text-right">Subtotal</TableHead>
+                    <TableHead className="w-10 text-center"></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {items.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={8} className="text-center py-8 text-muted-foreground text-sm">
+                        No items added. Click "+ Add Item" below to select products.
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    items.map((it, idx) => {
+                      const rowKey = it._rowId || `item-${idx}`;
+                      const selectedCatId = rowCategoryFilters[rowKey] || "";
+                      const rowProductOptions = getProductOptionsForCategory(selectedCatId);
+                      const isDraft = status === "Draft";
+                      const prod = productsMap.get(it.product_id) || (products || []).find((p) => p?.id === it.product_id);
+                      const baseStock = Math.max(0, Number(prod?.stock_quantity ?? (prod as any)?.stock ?? 0));
+                      const otherRowsQty = (items || []).reduce(
+                        (sum, other, otherIdx) =>
+                          otherIdx !== idx && other?.product_id === it.product_id
+                            ? sum + (Number(other?.quantity) || 0)
+                            : sum,
+                        0
+                      );
+                      const remainingForThisRow = Math.max(0, baseStock - otherRowsQty);
+                      const requestedQty = Number(it?.quantity) || 0;
+                      const isRowOverStock = Boolean(
+                        prod && (requestedQty > remainingForThisRow || baseStock <= 0)
+                      );
 
-                        {/* Remove Button */}
-                        <TableCell className="p-2 text-center">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => removeItem(idx)}
-                            className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })
-                )}
-              </TableBody>
-            </Table>
+                      return (
+                        <TableRow key={rowKey}>
+                          {/* UI-Only Category Filter Dropdown (left of Product) */}
+                          <TableCell className="p-2 align-top">
+                            <Select
+                              value={selectedCatId}
+                              onChange={(e) => handleRowCategoryChange(idx, rowKey, e.target.value)}
+                              className="h-9 text-xs md:w-44 lg:w-48"
+                              aria-label={`Filter category for item ${idx + 1}`}
+                            >
+                              <option value="">
+                                {lang === "bn" ? "সকল ক্যাটাগরি" : "All Categories"}
+                              </option>
+                              {categoryFilterOptions.map((cat) => (
+                                <option key={cat.id} value={cat.id}>
+                                  {cat.name}
+                                </option>
+                              ))}
+                            </Select>
+                          </TableCell>
+
+                          {/* Product Search */}
+                          <TableCell className="p-2 align-top">
+                            <SearchableSelect
+                              options={rowProductOptions}
+                              value={it.product_id}
+                              onChange={(val) => updateItem(idx, "product_id", val)}
+                              placeholder={selectedCatId ? "Select product in category..." : "Select product..."}
+                              searchPlaceholder="Search product by name or category..."
+                            />
+                            {prod && (
+                              <div className="mt-1 px-1 flex items-center justify-between text-[11px] font-mono">
+                                <span
+                                  className={cn(
+                                    "transition-colors",
+                                    isRowOverStock
+                                      ? isDraft
+                                        ? "text-amber-600 dark:text-amber-400 font-medium flex items-center gap-1"
+                                        : "text-destructive font-semibold flex items-center gap-1"
+                                      : "text-muted-foreground"
+                                  )}
+                                >
+                                  {isRowOverStock && (
+                                    <span
+                                      className={cn(
+                                        "inline-block w-1.5 h-1.5 rounded-full",
+                                        isDraft ? "bg-amber-500" : "bg-destructive animate-pulse"
+                                      )}
+                                    />
+                                  )}
+                                  Stock: {baseStock}
+                                </span>
+                                {isRowOverStock && (
+                                  <span
+                                    className={cn(
+                                      "text-[10px] font-medium",
+                                      isDraft ? "text-amber-600 dark:text-amber-400" : "text-destructive font-semibold"
+                                    )}
+                                  >
+                                    {isDraft
+                                      ? "Replenish before approval"
+                                      : baseStock <= 0
+                                      ? "Out of stock"
+                                      : "Limit exceeded"}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </TableCell>
+
+                          {/* Quantity */}
+                          <TableCell className="p-2 align-top">
+                            <Input
+                              type="number"
+                              min="1"
+                              max={!isDraft && prod ? Math.max(0, remainingForThisRow) : undefined}
+                              value={it.quantity}
+                              onChange={(e) => updateItem(idx, "quantity", e.target.value)}
+                              onBlur={() => updateItem(idx, "quantity", Math.max(1, Math.round(Number(it.quantity) || 1)))}
+                              className={cn(
+                                "h-9 text-center font-mono",
+                                isRowOverStock && (
+                                  isDraft
+                                    ? "border-amber-400 text-amber-900 dark:text-amber-200 bg-amber-50/50 dark:bg-amber-950/20 focus-visible:ring-amber-400 font-medium"
+                                    : "border-destructive text-destructive bg-destructive/10 focus-visible:ring-destructive font-semibold"
+                                )
+                              )}
+                              aria-invalid={!isDraft && isRowOverStock}
+                              title={
+                                isRowOverStock
+                                  ? isDraft
+                                    ? "Low stock - replenish before approval"
+                                    : baseStock <= 0
+                                    ? "Out of stock"
+                                    : `Max available: ${remainingForThisRow}`
+                                  : undefined
+                              }
+                            />
+                            {isRowOverStock && (
+                              <div
+                                className={cn(
+                                  "text-[10px] font-medium mt-1 text-center whitespace-nowrap animate-in fade-in duration-200",
+                                  isDraft ? "text-amber-600 dark:text-amber-400" : "text-destructive font-semibold"
+                                )}
+                              >
+                                {isDraft
+                                  ? "Low stock - replenish before approval"
+                                  : baseStock <= 0
+                                  ? "Out of stock"
+                                  : `Max: ${remainingForThisRow}`}
+                              </div>
+                            )}
+                          </TableCell>
+
+                          {/* Price Tier Selector */}
+                          <TableCell className="p-2 align-top">
+                            {(() => {
+                              const dynamicTiers = getProductPriceTiers(prod) || [];
+
+                              return (
+                                <Select
+                                  value={formatTierLabel(it.price_tier) || "DP"}
+                                  onChange={(e) => updateItem(idx, "price_tier", e.target.value)}
+                                  className="h-9 text-xs"
+                                >
+                                  <option value="DP">
+                                     {lang === "bn" ? "ডিলার মূল্য (DP)" : "DP (Dealer Price)"}
+                                  </option>
+                                  {dynamicTiers.map((dt: any, dtIdx: number) => {
+                                    const cleanName = formatTierLabel(dt?.name);
+                                    return (
+                                      <option key={dtIdx} value={cleanName || dt?.name}>
+                                        {cleanName || dt?.name}
+                                      </option>
+                                    );
+                                  })}
+                                  <option value="Custom">Custom</option>
+                                </Select>
+                              );
+                            })()}
+                          </TableCell>
+
+                          {/* Selling Price */}
+                          <TableCell className="p-2 align-top">
+                            <Input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={it.unit_price}
+                              onChange={(e) => updateItem(idx, "unit_price", e.target.value)}
+                              onBlur={() => updateItem(idx, "unit_price", Math.max(0, r2(Number(it.unit_price) || 0)))}
+                              className="h-9 font-mono text-right"
+                            />
+                          </TableCell>
+
+                          {/* Discount */}
+                          <TableCell className="p-2 align-top">
+                            <Input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={it.discount}
+                              onChange={(e) => updateItem(idx, "discount", e.target.value)}
+                              onBlur={() => updateItem(idx, "discount", Math.max(0, r2(Number(it.discount) || 0)))}
+                              className="h-9 font-mono text-right"
+                              placeholder="0"
+                            />
+                          </TableCell>
+
+                          {/* Subtotal */}
+                          <TableCell className="p-2 text-right font-mono font-medium align-top pt-3.5">
+                            {formatBDT(it.subtotal || 0)}
+                          </TableCell>
+
+                          {/* Remove Button */}
+                          <TableCell className="p-2 text-center align-top pt-2.5">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => removeItem(idx)}
+                              className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
+                  )}
+                </TableBody>
+              </Table>
+            </div>
             <div className="p-2 border-t bg-muted/10">
               <Button
                 type="button"
