@@ -15,29 +15,17 @@ import {
 } from "@/utils/localStore";
 import { pullFreshCloudStateToLocalStore } from "@/utils/cloudSync";
 
-function readEnvVar(name: string): string | undefined {
+export function getGeminiApiKey(): string {
   try {
-    const metaEnv = (import.meta as unknown as { env?: Record<string, unknown> })?.env;
-    const fromMeta = metaEnv?.[name];
-    if (typeof fromMeta === "string" && fromMeta.trim().length > 0) {
-      return fromMeta.trim().replace(/^["']|["']$/g, "");
+    const raw = import.meta.env?.VITE_GEMINI_API_KEY;
+    if (typeof raw === "string") {
+      const cleaned = raw.trim().replace(/^["']|["']$/g, "");
+      return cleaned.length > 10 ? cleaned : "";
     }
   } catch {
-    // Ignore import.meta access errors in non-Vite runtimes
+    // Ignore import.meta access errors outside Vite runtimes
   }
-
-  const procEnv = (globalThis as unknown as { process?: { env?: Record<string, string | undefined> } }).process?.env;
-  const fromProcess = procEnv?.[name];
-  if (typeof fromProcess === "string" && fromProcess.trim().length > 0) {
-    return fromProcess.trim().replace(/^["']|["']$/g, "");
-  }
-
-  return undefined;
-}
-
-export function getGeminiApiKey(): string {
-  const key = readEnvVar("VITE_GEMINI_API_KEY") ?? readEnvVar("GEMINI_API_KEY") ?? "";
-  return key.length > 10 ? key : "";
+  return "";
 }
 
 export function hasGeminiApiKey(): boolean {
