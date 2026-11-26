@@ -1,15 +1,54 @@
 import { toast } from "sonner";
 
+export const ACTIVE_SW_CACHE_NAME = "hamko-erp-cache-v20-20261126";
+export const APP_BUNDLE_VERSION = "v20-20261126";
+const BUNDLE_VERSION_STORAGE_KEY = "hamko_erp_bundle_version";
+const RELOAD_GUARD_SESSION_KEY = "hamko_sw_reloaded_version";
+
 /**
- * Registers the production service worker, configures update checks,
- * and handles aggressive new-version reload prompts for mobile browsers.
+ * Purges ALL outdated Cache Storage buckets on both Web/PWA browsers and Capacitor WebViews
+ * whenever a newer app bundle version boots, without clearing auth tokens or offline data.
+ */
+export function purgeStaleWebViewAndBrowserCaches(): void {
+  if (typeof window === "undefined") return;
+  try {
+    const prevVersion = window.localStorage?.getItem(BUNDLE_VERSION_STORAGE_KEY);
+    const versionChanged = prevVersion !== APP_BUNDLE_VERSION;
+
+    if (typeof caches !== "undefined") {
+      caches
+        .keys()
+        .then((keys) => {
+          return Promise.all(
+            keys
+              .filter((key) => key !== ACTIVE_SW_CACHE_NAME)
+              .map((key) => {
+                console.log("[CacheGuard] Purging outdated cache bucket:", key);
+                return caches.delete(key);
+              }),
+          );
+        })
+        .catch(() => null);
+    }
+
+    if (versionChanged) {
+      window.localStorage?.setItem(BUNDLE_VERSION_STORAGE_KEY, APP_BUNDLE_VERSION);
+    }
+  } catch (err) {
+    console.warn("[CacheGuard] Boot cache purge notice:", err);
+  }
+}
+
+/**
+ * Registers the production service worker, configures aggressive update checks,
+ * purges all legacy caches, and handles safe auto-reload for mobile/PWA browsers.
  */
 export function registerServiceWorker(): void {
   if (typeof window === "undefined" || !("serviceWorker" in navigator)) {
     return;
   }
 
-  // Avoid registering SW inside Capacitor native webviews where assets are local file:// bundles
+  // Avoid registering SW inside Capacitor native webviews where assets are local bundled files
   try {
     const isCapacitor = Boolean(
       (window as any).Capacitor?.isNativePlatform && (window as any).Capacitor.isNativePlatform(),
@@ -19,44 +58,32 @@ export function registerServiceWorker(): void {
     // Safe fallback
   }
 
+  const triggerSafeHardReload = (reason: string) => {
+    try {
+      const alreadyReloaded = window.sessionStorage?.getItem(RELOAD_GUARD_SESSION_KEY);
+      if (alreadyReloaded === APP_BUNDLE_VERSION) return;
+      window.sessionStorage?.setItem(RELOAD_GUARD_SESSION_KEY, APP_BUNDLE_VERSION);
+    } catch {
+      // Ignore sessionStorage restrictions
+    }
+    console.log(`[SW] ${reason}. Reloading page for fresh ${APP_BUNDLE_VERSION} bundle...`);
+    window.location.reload();
+  };
+
   window.addEventListener("load", async () => {
     try {
-      // Purge any legacy caches on load so stale desktop/mobile bundles never persist
-      if (typeof caches !== "undefined") {
-        caches.keys().then((keys) => {
-          keys.forEach((key) => {
-            if (
-              key === "hamko-erp-cache-v1" ||
-              key === "hamko-erp-cache-v2" ||
-              key === "hamko-erp-cache-v3-20261122" ||
-              key === "hamko-erp-cache-v4-20261122" ||
-              key === "hamko-erp-cache-v5-20261124" ||
-              key === "hamko-erp-cache-v6-20261124" ||
-              key === "hamko-erp-cache-v7-20261124" ||
-              key === "hamko-erp-cache-v8-20261124" ||
-              key === "hamko-erp-cache-v9-20261124" ||
-              key === "hamko-erp-cache-v10-20261124" ||
-              key === "hamko-erp-cache-v11-20261125" ||
-              key === "hamko-erp-cache-v12-20261125" ||
-              key === "hamko-erp-cache-v13-20261125" ||
-              key === "hamko-erp-cache-v14-20261125" ||
-              key === "hamko-erp-cache-v15-20261125" ||
-              key === "hamko-erp-cache-v16-20261125" ||
-              key === "hamko-erp-cache-v17-20261125" ||
-              key === "hamko-erp-cache-v18-20261125"
-            ) {
-              caches.delete(key);
-            }
-          });
-        }).catch(() => null);
-      }
+      // Wildcard purge of ALL non-current caches on load so stale desktop/mobile bundles never persist
+      purgeStaleWebViewAndBrowserCaches();
 
-      const registration = await navigator.serviceWorker.register("/sw.js?v=19", {
+      const registration = await navigator.serviceWorker.register("/sw.js?v=20", {
         scope: "/",
         updateViaCache: "none",
       });
 
       console.log("[SW] Registered with scope:", registration.scope);
+
+      // Immediately probe server for newer sw.js rather than waiting for the periodic timer
+      registration.update().catch(() => null);
 
       if (registration.waiting) {
         registration.waiting.postMessage({ type: "SKIP_WAITING" });
@@ -78,13 +105,28 @@ export function registerServiceWorker(): void {
         };
       };
 
-      // 2. Controller change auto-reload: When new SW activates, refresh page for fresh bundle
+      // 2. Controller change & SW activation message auto-reload
       let refreshing = false;
       navigator.serviceWorker.addEventListener("controllerchange", () => {
         if (!refreshing) {
           refreshing = true;
-          console.log("[SW] Controller changed. Reloading page for new version...");
-          window.location.reload();
+          triggerSafeHardReload("Controller changed");
+        }
+      });
+
+      navigator.serviceWorker.addEventListener("message", (event) => {
+        if (event.data?.type === "SW_ACTIVATED" && event.data?.cacheName === ACTIVE_SW_CACHE_NAME) {
+          const prev = (() => {
+            try {
+              return window.localStorage?.getItem(BUNDLE_VERSION_STORAGE_KEY);
+            } catch {
+              return APP_BUNDLE_VERSION;
+            }
+          })();
+          if (prev && prev !== APP_BUNDLE_VERSION && !refreshing) {
+            refreshing = true;
+            triggerSafeHardReload("New service worker activated");
+          }
         }
       });
 

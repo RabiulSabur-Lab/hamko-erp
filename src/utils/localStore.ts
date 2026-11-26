@@ -173,8 +173,8 @@ export const STORAGE_KEYS = {
   AUTH_CREDENTIALS: 'sales_erp_auth_credentials',
 } as const;
 
-export const CACHE_SYNC_VERSION = "hamko-cloud-sync-v5";
-const CACHE_SYNC_META_KEY = "sales_erp_cloud_cache_meta_v5";
+export const CACHE_SYNC_VERSION = "hamko-cloud-sync-v6";
+const CACHE_SYNC_META_KEY = "sales_erp_cloud_cache_meta_v6";
 const CROSS_TAB_CHANNEL_NAME = "hamko_erp_cross_tab_sync";
 
 export function isValidUUID(str?: string | null): boolean {

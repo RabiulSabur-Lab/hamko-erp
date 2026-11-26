@@ -892,148 +892,289 @@ export function ProductEditModal({
                 </div>
               </div>
             ) : (
-              <div className="rounded-xl border border-white/70 dark:border-white/10 bg-white/45 dark:bg-slate-900/40 backdrop-blur-xl shadow-sm overflow-x-auto">
-                <div className="min-w-[660px]">
-                  {/* 5-Column Sticky Frosted Header */}
-                  <div className="grid grid-cols-[minmax(145px,1.55fr)_repeat(3,minmax(92px,1fr))_minmax(148px,1.35fr)_38px] gap-2 items-center px-3 py-2.5 border-b border-slate-200/70 dark:border-slate-800/70 bg-white/75 dark:bg-slate-900/75 backdrop-blur-md text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-                    <span>{lang === "bn" ? "১. টায়ার নাম" : "1. Tier Name"}</span>
-                    <span className="text-right">{lang === "bn" ? "২. ১ম ধাপ (%)" : "2. 1st Tier (%)"}</span>
-                    <span className="text-right">{lang === "bn" ? "৩. ২য় ধাপ (%)" : "3. 2nd Tier (%)"}</span>
-                    <span className="text-right">{lang === "bn" ? "৪. ৩য় ধাপ (%)" : "4. 3rd Tier (%)"}</span>
-                    <span className="text-right">{lang === "bn" ? "৫. চূড়ান্ত রেট" : "5. Final Rate / Price"}</span>
-                    <span className="text-center sr-only">Action</span>
-                  </div>
+              <div className="space-y-2">
+                {/* Mobile-Optimized Zero-Overflow Card Stack (< 640px) */}
+                <div className="block sm:hidden space-y-2.5 max-h-[420px] overflow-y-auto pr-0.5">
+                  {priceTiers.map((tier, idx) => {
+                    const livePreview = computeRowPreviewPrice(tier, liveBaseDp);
+                    const hasValue = livePreview !== "" && Number.isFinite(Number(livePreview));
+                    const effectivePctOff =
+                      hasValue && liveBaseDp > 0 && Number(livePreview) < liveBaseDp
+                        ? r2((1 - Number(livePreview) / liveBaseDp) * 100)
+                        : 0;
+                    const isRowActive = tier.name.trim().length > 0 || hasTierDiscount(tier);
 
-                  {/* Rows */}
-                  <div className="divide-y divide-slate-200/50 dark:divide-slate-800/50 max-h-[380px] overflow-y-auto">
-                    {priceTiers.map((tier, idx) => {
-                      const livePreview = computeRowPreviewPrice(tier, liveBaseDp);
-                      const hasValue = livePreview !== "" && Number.isFinite(Number(livePreview));
-                      const effectivePctOff =
-                        hasValue && liveBaseDp > 0 && Number(livePreview) < liveBaseDp
-                          ? r2((1 - Number(livePreview) / liveBaseDp) * 100)
-                          : 0;
-                      const isRowActive = tier.name.trim().length > 0 || hasTierDiscount(tier);
-
-                      return (
-                        <div
-                          key={idx}
-                          className={`grid grid-cols-[minmax(145px,1.55fr)_repeat(3,minmax(92px,1fr))_minmax(148px,1.35fr)_38px] gap-2 items-center px-3 py-2 transition-colors ${
-                            isRowActive
-                              ? "bg-white/60 dark:bg-slate-800/35"
-                              : "bg-transparent hover:bg-white/40 dark:hover:bg-slate-800/20"
-                          }`}
-                        >
-                          {/* Col 1: Tier Name */}
-                          <div className="flex items-center gap-1.5">
-                            <span className="w-5 text-[10px] font-mono text-muted-foreground/70 text-right shrink-0 select-none">
-                              {idx + 1}.
-                            </span>
-                            <Input
-                              type="text"
-                              value={tier.name}
-                              onChange={(e) => handleTierChange(idx, "name", e.target.value)}
-                              placeholder="e.g. D6, B8"
-                              className="h-8 text-xs font-medium bg-white/80 dark:bg-slate-950/50"
-                            />
-                          </div>
-
-                          {/* Col 2: 1st Tier (%) */}
-                          <div className="relative">
-                            <Input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              max="100"
-                              value={tier.tier1}
-                              onChange={(e) => handleTierChange(idx, "tier1", e.target.value)}
-                              placeholder="—"
-                              className="h-8 pr-6 font-mono text-xs text-right tabular-nums bg-white/80 dark:bg-slate-950/50"
-                            />
-                            <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">
-                              %
-                            </span>
-                          </div>
-
-                          {/* Col 3: 2nd Tier (%) */}
-                          <div className="relative">
-                            <Input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              max="100"
-                              value={tier.tier2}
-                              onChange={(e) => handleTierChange(idx, "tier2", e.target.value)}
-                              placeholder="—"
-                              className="h-8 pr-6 font-mono text-xs text-right tabular-nums bg-white/80 dark:bg-slate-950/50"
-                            />
-                            <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">
-                              %
-                            </span>
-                          </div>
-
-                          {/* Col 4: 3rd Tier (%) */}
-                          <div className="relative">
-                            <Input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              max="100"
-                              value={tier.tier3}
-                              onChange={(e) => handleTierChange(idx, "tier3", e.target.value)}
-                              placeholder="—"
-                              className="h-8 pr-6 font-mono text-xs text-right tabular-nums bg-white/80 dark:bg-slate-950/50"
-                            />
-                            <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">
-                              %
-                            </span>
-                          </div>
-
-                          {/* Col 5: Final Rate / Price (Auto-Calculated Live Preview) */}
+                    return (
+                      <div
+                        key={`mobile-tier-${idx}`}
+                        className={`rounded-xl border p-2.5 space-y-2 transition-colors backdrop-blur-md ${
+                          isRowActive
+                            ? "border-primary/25 bg-white/75 dark:bg-slate-800/60 shadow-xs"
+                            : "border-slate-200/70 dark:border-slate-800/70 bg-white/45 dark:bg-slate-900/40"
+                        }`}
+                      >
+                        {/* Top Line: Row # + Tier Name + Live Final Rate Preview + Delete */}
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-5 text-[10px] font-mono text-muted-foreground text-right shrink-0 select-none">
+                            {idx + 1}.
+                          </span>
+                          <Input
+                            type="text"
+                            value={tier.name}
+                            onChange={(e) => handleTierChange(idx, "name", e.target.value)}
+                            placeholder={lang === "bn" ? "টায়ার (D6, B8)" : "Tier (D6, B8)"}
+                            className="h-8 flex-1 min-w-0 text-xs font-medium bg-white/90 dark:bg-slate-950/60"
+                          />
                           <div
-                            className={`h-8 px-2.5 rounded-md border flex items-center justify-between gap-1.5 font-mono text-xs tabular-nums ${
+                            className={`h-8 px-2 rounded-md border flex items-center gap-1 font-mono text-xs tabular-nums shrink-0 ${
                               hasValue
-                                ? "border-emerald-200/80 dark:border-emerald-800/60 bg-emerald-50/70 dark:bg-emerald-950/35 text-emerald-700 dark:text-emerald-300 font-semibold"
-                                : "border-slate-200/60 dark:border-slate-800/60 bg-slate-50/50 dark:bg-slate-950/30 text-muted-foreground"
+                                ? "border-emerald-200/90 dark:border-emerald-800/70 bg-emerald-50/85 dark:bg-emerald-950/45 text-emerald-700 dark:text-emerald-300 font-semibold"
+                                : "border-slate-200/70 dark:border-slate-800/70 bg-slate-50/60 dark:bg-slate-950/40 text-muted-foreground"
                             }`}
-                            title={
-                              hasValue
-                                ? tier.isLegacyFixed && !hasTierDiscount(tier)
-                                  ? "Saved fixed price (enter tier % to switch to 3-tier chain formula)"
-                                  : `Auto-calculated: ${liveBaseDp} × (1 - ${parseTierPercent(tier.tier1) ?? 0}%) × (1 - ${parseTierPercent(tier.tier2) ?? 0}%) × (1 - ${parseTierPercent(tier.tier3) ?? 0}%)`
-                                : "Enter Base DP and tier discounts to preview final rate"
-                            }
                           >
-                            {effectivePctOff > 0 ? (
-                              <span className="text-[10px] font-normal px-1 py-0.5 rounded bg-emerald-100/80 dark:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 shrink-0">
+                            {effectivePctOff > 0 && (
+                              <span className="text-[9px] font-normal px-1 rounded bg-emerald-100/90 dark:bg-emerald-900/70 text-emerald-700 dark:text-emerald-300">
                                 -{effectivePctOff}%
                               </span>
-                            ) : (
-                              <span className="text-[10px] font-normal text-muted-foreground/60 shrink-0">৳</span>
                             )}
-                            <span className="truncate ml-auto">
+                            <span>
                               {hasValue
                                 ? `৳ ${Number(livePreview).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
                                 : "—"}
                             </span>
                           </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            onClick={(e) => handleRemoveTier(idx, e)}
+                            className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                            title={lang === "bn" ? "সারি মুছে ফেলুন" : "Remove tier row"}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
 
-                          {/* Delete Row Action */}
-                          <div className="flex justify-center">
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              onClick={(e) => handleRemoveTier(idx, e)}
-                              className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                              title={lang === "bn" ? "সারি মুছে ফেলুন" : "Remove tier row"}
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
+                        {/* Bottom Line: 1st / 2nd / 3rd Tier (%) Inputs */}
+                        <div className="grid grid-cols-3 gap-1.5 pl-6">
+                          <div>
+                            <span className="block text-[10px] font-medium text-muted-foreground mb-0.5">
+                              {lang === "bn" ? "১ম ধাপ (%)" : "1st Tier (%)"}
+                            </span>
+                            <div className="relative">
+                              <Input
+                                type="number"
+                                inputMode="decimal"
+                                step="0.01"
+                                min="0"
+                                max="100"
+                                value={tier.tier1}
+                                onChange={(e) => handleTierChange(idx, "tier1", e.target.value)}
+                                placeholder="0"
+                                className="h-8 pr-5 font-mono text-xs text-right tabular-nums bg-white/90 dark:bg-slate-950/60"
+                              />
+                              <span className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">
+                                %
+                              </span>
+                            </div>
+                          </div>
+
+                          <div>
+                            <span className="block text-[10px] font-medium text-muted-foreground mb-0.5">
+                              {lang === "bn" ? "২য় ধাপ (%)" : "2nd Tier (%)"}
+                            </span>
+                            <div className="relative">
+                              <Input
+                                type="number"
+                                inputMode="decimal"
+                                step="0.01"
+                                min="0"
+                                max="100"
+                                value={tier.tier2}
+                                onChange={(e) => handleTierChange(idx, "tier2", e.target.value)}
+                                placeholder="0"
+                                className="h-8 pr-5 font-mono text-xs text-right tabular-nums bg-white/90 dark:bg-slate-950/60"
+                              />
+                              <span className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">
+                                %
+                              </span>
+                            </div>
+                          </div>
+
+                          <div>
+                            <span className="block text-[10px] font-medium text-muted-foreground mb-0.5">
+                              {lang === "bn" ? "৩য় ধাপ (%)" : "3rd Tier (%)"}
+                            </span>
+                            <div className="relative">
+                              <Input
+                                type="number"
+                                inputMode="decimal"
+                                step="0.01"
+                                min="0"
+                                max="100"
+                                value={tier.tier3}
+                                onChange={(e) => handleTierChange(idx, "tier3", e.target.value)}
+                                placeholder="0"
+                                className="h-8 pr-5 font-mono text-xs text-right tabular-nums bg-white/90 dark:bg-slate-950/60"
+                              />
+                              <span className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">
+                                %
+                              </span>
+                            </div>
                           </div>
                         </div>
-                      );
-                    })}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Desktop & Tablet 5-Column Excel-Style Table (>= 640px) */}
+                <div className="hidden sm:block rounded-xl border border-white/70 dark:border-white/10 bg-white/45 dark:bg-slate-900/40 backdrop-blur-xl shadow-sm overflow-x-auto">
+                  <div className="min-w-[640px]">
+                    {/* 5-Column Sticky Frosted Header */}
+                    <div className="grid grid-cols-[minmax(145px,1.55fr)_repeat(3,minmax(92px,1fr))_minmax(148px,1.35fr)_38px] gap-2 items-center px-3 py-2.5 border-b border-slate-200/70 dark:border-slate-800/70 bg-white/75 dark:bg-slate-900/75 backdrop-blur-md text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+                      <span>{lang === "bn" ? "১. টায়ার নাম" : "1. Tier Name"}</span>
+                      <span className="text-right">{lang === "bn" ? "২. ১ম ধাপ (%)" : "2. 1st Tier (%)"}</span>
+                      <span className="text-right">{lang === "bn" ? "৩. ২য় ধাপ (%)" : "3. 2nd Tier (%)"}</span>
+                      <span className="text-right">{lang === "bn" ? "৪. ৩য় ধাপ (%)" : "4. 3rd Tier (%)"}</span>
+                      <span className="text-right">{lang === "bn" ? "৫. চূড়ান্ত রেট" : "5. Final Rate / Price"}</span>
+                      <span className="text-center sr-only">Action</span>
+                    </div>
+
+                    {/* Rows */}
+                    <div className="divide-y divide-slate-200/50 dark:divide-slate-800/50 max-h-[380px] overflow-y-auto">
+                      {priceTiers.map((tier, idx) => {
+                        const livePreview = computeRowPreviewPrice(tier, liveBaseDp);
+                        const hasValue = livePreview !== "" && Number.isFinite(Number(livePreview));
+                        const effectivePctOff =
+                          hasValue && liveBaseDp > 0 && Number(livePreview) < liveBaseDp
+                            ? r2((1 - Number(livePreview) / liveBaseDp) * 100)
+                            : 0;
+                        const isRowActive = tier.name.trim().length > 0 || hasTierDiscount(tier);
+
+                        return (
+                          <div
+                            key={idx}
+                            className={`grid grid-cols-[minmax(145px,1.55fr)_repeat(3,minmax(92px,1fr))_minmax(148px,1.35fr)_38px] gap-2 items-center px-3 py-2 transition-colors ${
+                              isRowActive
+                                ? "bg-white/60 dark:bg-slate-800/35"
+                                : "bg-transparent hover:bg-white/40 dark:hover:bg-slate-800/20"
+                            }`}
+                          >
+                            {/* Col 1: Tier Name */}
+                            <div className="flex items-center gap-1.5">
+                              <span className="w-5 text-[10px] font-mono text-muted-foreground/70 text-right shrink-0 select-none">
+                                {idx + 1}.
+                              </span>
+                              <Input
+                                type="text"
+                                value={tier.name}
+                                onChange={(e) => handleTierChange(idx, "name", e.target.value)}
+                                placeholder="e.g. D6, B8"
+                                className="h-8 text-xs font-medium bg-white/80 dark:bg-slate-950/50"
+                              />
+                            </div>
+
+                            {/* Col 2: 1st Tier (%) */}
+                            <div className="relative">
+                              <Input
+                                type="number"
+                                inputMode="decimal"
+                                step="0.01"
+                                min="0"
+                                max="100"
+                                value={tier.tier1}
+                                onChange={(e) => handleTierChange(idx, "tier1", e.target.value)}
+                                placeholder="—"
+                                className="h-8 pr-6 font-mono text-xs text-right tabular-nums bg-white/80 dark:bg-slate-950/50"
+                              />
+                              <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">
+                                %
+                              </span>
+                            </div>
+
+                            {/* Col 3: 2nd Tier (%) */}
+                            <div className="relative">
+                              <Input
+                                type="number"
+                                inputMode="decimal"
+                                step="0.01"
+                                min="0"
+                                max="100"
+                                value={tier.tier2}
+                                onChange={(e) => handleTierChange(idx, "tier2", e.target.value)}
+                                placeholder="—"
+                                className="h-8 pr-6 font-mono text-xs text-right tabular-nums bg-white/80 dark:bg-slate-950/50"
+                              />
+                              <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">
+                                %
+                              </span>
+                            </div>
+
+                            {/* Col 4: 3rd Tier (%) */}
+                            <div className="relative">
+                              <Input
+                                type="number"
+                                inputMode="decimal"
+                                step="0.01"
+                                min="0"
+                                max="100"
+                                value={tier.tier3}
+                                onChange={(e) => handleTierChange(idx, "tier3", e.target.value)}
+                                placeholder="—"
+                                className="h-8 pr-6 font-mono text-xs text-right tabular-nums bg-white/80 dark:bg-slate-950/50"
+                              />
+                              <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">
+                                %
+                              </span>
+                            </div>
+
+                            {/* Col 5: Final Rate / Price (Auto-Calculated Live Preview) */}
+                            <div
+                              className={`h-8 px-2.5 rounded-md border flex items-center justify-between gap-1.5 font-mono text-xs tabular-nums ${
+                                hasValue
+                                  ? "border-emerald-200/80 dark:border-emerald-800/60 bg-emerald-50/70 dark:bg-emerald-950/35 text-emerald-700 dark:text-emerald-300 font-semibold"
+                                  : "border-slate-200/60 dark:border-slate-800/60 bg-slate-50/50 dark:bg-slate-950/30 text-muted-foreground"
+                              }`}
+                              title={
+                                hasValue
+                                  ? tier.isLegacyFixed && !hasTierDiscount(tier)
+                                    ? "Saved fixed price (enter tier % to switch to 3-tier chain formula)"
+                                    : `Auto-calculated: ${liveBaseDp} × (1 - ${parseTierPercent(tier.tier1) ?? 0}%) × (1 - ${parseTierPercent(tier.tier2) ?? 0}%) × (1 - ${parseTierPercent(tier.tier3) ?? 0}%)`
+                                  : "Enter Base DP and tier discounts to preview final rate"
+                              }
+                            >
+                              {effectivePctOff > 0 ? (
+                                <span className="text-[10px] font-normal px-1 py-0.5 rounded bg-emerald-100/80 dark:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 shrink-0">
+                                  -{effectivePctOff}%
+                                </span>
+                              ) : (
+                                <span className="text-[10px] font-normal text-muted-foreground/60 shrink-0">৳</span>
+                              )}
+                              <span className="truncate ml-auto">
+                                {hasValue
+                                  ? `৳ ${Number(livePreview).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                                  : "—"}
+                              </span>
+                            </div>
+
+                            {/* Delete Row Action */}
+                            <div className="flex justify-center">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                onClick={(e) => handleRemoveTier(idx, e)}
+                                className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                                title={lang === "bn" ? "সারি মুছে ফেলুন" : "Remove tier row"}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
               </div>

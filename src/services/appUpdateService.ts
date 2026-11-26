@@ -3,8 +3,8 @@ import { Capacitor } from "@capacitor/core";
 import { supabase } from "@/lib/supabase";
 import pkgJson from "../../package.json";
 
-const BUNDLED_APP_VERSION = String((pkgJson as any)?.version || "1.2.0").trim();
-const BUNDLED_APP_VERSION_CODE = Number((pkgJson as any)?.versionCode) || 120;
+const BUNDLED_APP_VERSION = String((pkgJson as any)?.version || "1.2.1").trim();
+const BUNDLED_APP_VERSION_CODE = Number((pkgJson as any)?.versionCode) || 121;
 
 export interface AppVersionMetadata {
   id?: string;
@@ -54,8 +54,8 @@ export const DEFAULT_FALLBACK_METADATA: AppVersionMetadata = {
   minSupportedVersion: "1.0.0",
   forceUpdate: false,
   apkUrl: GITHUB_LATEST_RELEASE_APK,
-  releaseNotes: "• Official Hamko Corporate Deep Blue Mobile App UI\n• Resilient collections ON CONFLICT cloud sync\n• Illustrated A-to-Z Bilingual User Manual with A4 PDF download",
-  releasedAt: "2026-11-22T12:15:00Z",
+  releaseNotes: "• 5-column 3-tier chain discount Dynamic Price Tiers with live mobile calculation\n• Strict Supabase Auth UID/email session verification\n• Forced v20 Service Worker & Capacitor WebView cache sync",
+  releasedAt: "2026-11-26T04:30:00Z",
   platform: "android",
 };
 

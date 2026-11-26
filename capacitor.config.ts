@@ -4,6 +4,9 @@ const config: CapacitorConfig = {
   appId: 'com.hamko.erp',
   appName: 'Hamko ERP',
   webDir: 'dist',
+  server: {
+    androidScheme: 'https',
+  },
   plugins: {
     CapacitorUpdater: {
       autoUpdate: true,

@@ -14,11 +14,15 @@ import { App } from "./App";
 import { cleanupLocalStorage } from "./lib/storageManager";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { initRealtimeSync } from "./services/realtimeSync";
-import { registerServiceWorker } from "./services/serviceWorkerRegistration";
+import {
+  purgeStaleWebViewAndBrowserCaches,
+  registerServiceWorker,
+} from "./services/serviceWorkerRegistration";
 
-// Run lightweight storage cleanup on boot to purge expired entries and prune tombstones
+// Run lightweight storage cleanup & WebView/PWA cache purge on boot
 if (typeof window !== "undefined") {
   try {
+    purgeStaleWebViewAndBrowserCaches();
     cleanupLocalStorage();
     void initRealtimeSync();
     registerServiceWorker();
