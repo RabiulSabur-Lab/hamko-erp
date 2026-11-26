@@ -173,8 +173,8 @@ export const STORAGE_KEYS = {
   AUTH_CREDENTIALS: 'sales_erp_auth_credentials',
 } as const;
 
-export const CACHE_SYNC_VERSION = "hamko-cloud-sync-v7";
-const CACHE_SYNC_META_KEY = "sales_erp_cloud_cache_meta_v7";
+export const CACHE_SYNC_VERSION = "hamko-cloud-sync-v8";
+const CACHE_SYNC_META_KEY = "sales_erp_cloud_cache_meta_v8";
 const CROSS_TAB_CHANNEL_NAME = "hamko_erp_cross_tab_sync";
 
 export function isValidUUID(str?: string | null): boolean {
@@ -287,17 +287,26 @@ export function isRemoteAuthoritative(remoteRecord: any, localRecord: any): bool
 export function ensureCrossPlatformCacheConsistency(): boolean {
   if (typeof window === "undefined" || !window.localStorage) return false;
   try {
-    const rawMeta = window.localStorage.getItem(CACHE_SYNC_META_KEY);
+    const rawMeta =
+      window.localStorage.getItem(CACHE_SYNC_META_KEY) ||
+      window.localStorage.getItem("sales_erp_cloud_cache_meta_v7") ||
+      window.localStorage.getItem("sales_erp_cloud_cache_meta_v6");
+
+    let prevProjectUrl: string | null = null;
     if (rawMeta) {
       try {
         const parsedMeta = JSON.parse(rawMeta);
+        prevProjectUrl = typeof parsedMeta?.projectUrl === "string" ? parsedMeta.projectUrl : null;
         if (parsedMeta?.version === CACHE_SYNC_VERSION && parsedMeta?.projectUrl === SUPABASE_URL) {
           return false;
         }
       } catch {
-        // Malformed metadata — proceed with cache normalization
+        // Malformed metadata — proceed with safe cache normalization
       }
     }
+
+    const projectChanged = Boolean(prevProjectUrl && prevProjectUrl !== SUPABASE_URL);
+    const isOnline = typeof navigator === "undefined" || navigator.onLine !== false;
 
     const mirroredCollectionKeys = [
       STORAGE_KEYS.ORDERS,
@@ -318,9 +327,10 @@ export function ensureCrossPlatformCacheConsistency(): boolean {
     for (const key of mirroredCollectionKeys) {
       const existing = getItemWithTTL<any[]>(key, []);
       if (Array.isArray(existing) && existing.length > 0) {
-        // For catalog mirrors (products & categories), evict stale cloud-cached entries
-        // on cache version bump or Supabase project change while keeping unsynced offline creations.
-        if (catalogPurgeKeys.has(key)) {
+        // Persistence guardrail: ONLY evict cloud-mirrored catalog arrays when the
+        // Supabase project URL actually changed AND we are online. Normal web/APK
+        // updates on the same database NEVER wipe cached products/categories offline.
+        if (projectChanged && isOnline && catalogPurgeKeys.has(key)) {
           const unsyncedOnly = existing.filter(
             (item) => item && typeof item === "object" && (item.is_offline === true || item._unsynced === true),
           );
@@ -357,16 +367,19 @@ export function ensureCrossPlatformCacheConsistency(): boolean {
       }
     }
 
-    const staleTombstoneKeys = [
-      STORAGE_KEYS.DELETED_ORDERS,
-      STORAGE_KEYS.DELETED_PRODUCTS,
-      STORAGE_KEYS.DELETED_COLLECTIONS,
-      STORAGE_KEYS.DELETED_EXPENSES,
-      STORAGE_KEYS.DELETED_CUSTOMERS,
-      STORAGE_KEYS.DELETED_VISITS,
-    ];
-    for (const delKey of staleTombstoneKeys) {
-      removeItem(delKey);
+    // Only clear deletion tombstones if switching to a completely different Supabase project
+    if (projectChanged) {
+      const staleTombstoneKeys = [
+        STORAGE_KEYS.DELETED_ORDERS,
+        STORAGE_KEYS.DELETED_PRODUCTS,
+        STORAGE_KEYS.DELETED_COLLECTIONS,
+        STORAGE_KEYS.DELETED_EXPENSES,
+        STORAGE_KEYS.DELETED_CUSTOMERS,
+        STORAGE_KEYS.DELETED_VISITS,
+      ];
+      for (const delKey of staleTombstoneKeys) {
+        removeItem(delKey);
+      }
     }
 
     window.localStorage.setItem(
@@ -2173,7 +2186,20 @@ export function reconcileProductsWithRemote(
   options?: { persist?: boolean; incremental?: boolean },
 ): Product[] {
   const deletedProdIds = getDeletedIds(STORAGE_KEYS.DELETED_PRODUCTS);
-  const localProds = getProducts().filter((p) => Boolean(p && p.id) && !deletedProdIds.has(String(p.id)));
+  const localProds = getProducts().filter(
+    (p) =>
+      Boolean(p && p.id) &&
+      !deletedProdIds.has(String(p.id)) &&
+      p.is_active !== false &&
+      String(p.name || "").trim() !== "[Deleted Product]",
+  );
+
+  // Self-deletion guardrail: never wipe a populated local catalog if remote returns an unexpected empty array
+  if (!options?.incremental && (!Array.isArray(remoteProducts) || remoteProducts.length === 0) && localProds.length >= 3) {
+    console.warn("[LocalStore] Guardrail blocked empty remote product array from wiping populated local catalog.");
+    return localProds;
+  }
+
   const localProdMap = new Map<string, Product>();
   const localSkuMap = new Map<string, Product>();
   for (let i = 0; i < localProds.length; i++) {
@@ -2183,17 +2209,26 @@ export function reconcileProductsWithRemote(
   }
 
   const validRemote = (Array.isArray(remoteProducts) ? remoteProducts : [])
-    .filter((rp) => Boolean(rp && rp.id) && !deletedProdIds.has(String(rp.id)))
+    .filter(
+      (rp) =>
+        Boolean(rp && rp.id) &&
+        !deletedProdIds.has(String(rp.id)) &&
+        rp.is_active !== false &&
+        String(rp.name || "").trim() !== "[Deleted Product]",
+    )
     .map((rp) => {
       const lp =
         localProdMap.get(String(rp.id)) ||
         (rp.sku_code ? localSkuMap.get(String(rp.sku_code).trim().toUpperCase()) : undefined);
       const remoteStock = Math.max(0, Math.round(Number(rp.stock_quantity ?? (rp as any).stock ?? 0)));
+      const remoteCost = getProductPurchasePrice(rp);
       if (!lp) {
         return {
           ...rp,
           stock_quantity: remoteStock,
           stock: remoteStock,
+          distributor_price: remoteCost > 0 ? remoteCost : (rp.distributor_price ?? 0),
+          purchase_cost: remoteCost > 0 ? remoteCost : (rp.purchase_cost ?? null),
           is_offline: false,
         } as Product;
       }
@@ -2202,15 +2237,23 @@ export function reconcileProductsWithRemote(
       const resolvedStock = remoteWins
         ? remoteStock
         : Math.max(0, Math.round(Number(lp.stock_quantity ?? (lp as any).stock ?? remoteStock)));
+      const preservedCost = remoteCost > 0 ? remoteCost : getProductPurchasePrice(lp);
+      const resolvedTiers =
+        (rp as any).price_tiers !== undefined ? (rp as any).price_tiers : (lp as any).price_tiers;
+      const resolvedMrp =
+        (rp as any).mrp !== undefined ? (rp as any).mrp : (lp as any).mrp;
       return {
         ...lp,
         ...rp,
         ...(remoteWins ? {} : lp),
         stock_quantity: resolvedStock,
         stock: resolvedStock,
-        purchase_price: rp.purchase_price ?? lp.purchase_price ?? null,
-        purchase_cost: rp.purchase_cost ?? lp.purchase_cost ?? null,
-        cost_price: rp.cost_price ?? lp.cost_price ?? null,
+        distributor_price: preservedCost > 0 ? preservedCost : (rp.distributor_price ?? lp.distributor_price ?? 0),
+        purchase_price: preservedCost > 0 ? preservedCost : (rp.purchase_price ?? lp.purchase_price ?? null),
+        purchase_cost: preservedCost > 0 ? preservedCost : (rp.purchase_cost ?? lp.purchase_cost ?? null),
+        cost_price: preservedCost > 0 ? preservedCost : (rp.cost_price ?? lp.cost_price ?? null),
+        price_tiers: resolvedTiers,
+        mrp: resolvedMrp,
         is_offline: !remoteWins ? (lp.is_offline ?? true) : false,
         _unsynced: !remoteWins ? (lp._unsynced ?? true) : false,
         _modifiedAt: !remoteWins ? (lp._modifiedAt ?? Date.now()) : parseRecordTimestamp(rp),
@@ -2265,6 +2308,12 @@ export function reconcileCategoriesWithRemote(
 ): Category[] {
   const currentLocal = getLocalData<Category[]>(STORAGE_KEYS.CATEGORIES, []);
   const validRemote = (Array.isArray(remoteCats) ? remoteCats : []).filter((c) => Boolean(c && c.id));
+
+  // Self-deletion guardrail: never wipe a populated local categories list with an unexpected empty array
+  if (!options?.incremental && validRemote.length === 0 && Array.isArray(currentLocal) && currentLocal.length >= 2) {
+    console.warn("[LocalStore] Guardrail blocked empty remote categories array from wiping local cache.");
+    return currentLocal;
+  }
 
   if (options?.incremental) {
     const map = new Map<string, Category>();

@@ -27,6 +27,9 @@ import {
   r2,
   getOrders,
   getProducts,
+  getProductPurchasePrice,
+  reconcileProductsWithRemote,
+  reconcileCategoriesWithRemote,
   isPendingOfflineRecord,
   dispatchGlobalStateUpdate,
 } from "@/utils/localStore";
@@ -37,6 +40,9 @@ import {
   filterProductPayloadForSupabase,
   calculateChainedTierPrice,
   parseTierPercent,
+  filterActiveProducts,
+  getEffectiveStockQuantity,
+  getEffectiveReorderLevel,
 } from "@/utils/productUtils";
 import { sanitizeProductPayload, executeWithSchemaResilience } from "@/lib/payloadSanitizer";
 import { triggerGlobalLiveSync, clearCloudPullThrottle } from "@/utils/cloudSync";
@@ -112,7 +118,9 @@ export function ProductsPage() {
 
   const canManageProducts = !isSalesOfficer;
   const [loading, setLoading] = useState(true);
-  const [products, setProducts] = useState<Product[]>(() => getProducts() as Product[]);
+  const [products, setProducts] = useState<Product[]>(() =>
+    filterActiveProducts(getProducts() as Product[], getDeletedIds(STORAGE_KEYS.DELETED_PRODUCTS)),
+  );
   const [categories, setCategories] = useState<Category[]>(() =>
     getLocalData<Category[]>(STORAGE_KEYS.CATEGORIES, [])
   );
@@ -208,7 +216,9 @@ export function ProductsPage() {
       let cats: Category[] = categories;
       if (!cRes.error && Array.isArray(cRes.data)) {
         cats = cRes.data as Category[];
-        setLocalData(STORAGE_KEYS.CATEGORIES, cats, null, false);
+        if (cats.length > 0) {
+          reconcileCategoriesWithRemote(cats as any, { persist: true });
+        }
         if (mountedRef.current) setCategories(cats);
       }
       const catMap = new Map<string, Category>(cats.map((c: Category) => [c.id, c]));
@@ -238,14 +248,14 @@ export function ProductsPage() {
           }
         }
 
-        const validRemote = (rawProductList as Product[]).filter((p: Product) => !deletedIds.has(p.id));
+        const validRemote = filterActiveProducts(rawProductList as Product[], deletedIds);
 
         const enrichedRemote: Product[] = validRemote.map((rp: any) => {
           const resolvedCat = (rp.category_id && catMap.has(rp.category_id))
             ? catMap.get(rp.category_id)
             : (rp.category || null);
-          const remoteStock = Number(rp.stock_quantity ?? (rp as any)?.stock ?? 0);
-          const resolvedCost = rp.purchase_cost ?? rp.distributor_price ?? rp.purchase_price ?? null;
+          const remoteStock = getEffectiveStockQuantity(rp);
+          const resolvedCost = getProductPurchasePrice(rp);
           const resolvedDp = rp.unit_price ?? rp.dealer_price ?? rp.dp_price ?? rp.price ?? 0;
 
           let candidateTiers: any = rp.price_tiers;
@@ -259,12 +269,13 @@ export function ProductsPage() {
             unit_price: resolvedDp,
             dealer_price: resolvedDp,
             category: resolvedCat,
-            purchase_cost: resolvedCost,
-            distributor_price: resolvedCost ?? rp.distributor_price,
-            purchase_price: resolvedCost,
-            cost_price: resolvedCost,
+            purchase_cost: resolvedCost > 0 ? resolvedCost : null,
+            distributor_price: resolvedCost > 0 ? resolvedCost : (Number(rp.distributor_price) || 0),
+            purchase_price: resolvedCost > 0 ? resolvedCost : null,
+            cost_price: resolvedCost > 0 ? resolvedCost : null,
             stock_quantity: remoteStock,
             stock: remoteStock,
+            reorder_level: getEffectiveReorderLevel(rp),
             price_tiers: resolvedPriceTiers,
           } as Product;
         });
@@ -273,25 +284,37 @@ export function ProductsPage() {
           (a.name || "").localeCompare(b.name || "")
         );
 
-        // Persist authoritative live cloud catalog back to localStorage so stale caches never override Supabase
-        setLocalData(STORAGE_KEYS.PRODUCTS, merged, null, false);
-        dispatchGlobalStateUpdate();
-
-        if (mountedRef.current) setProducts(merged);
+        // Persist authoritative live cloud catalog back to localStorage with empty-wipe protection
+        if (merged.length > 0) {
+          reconcileProductsWithRemote(merged as any, { persist: true });
+          dispatchGlobalStateUpdate();
+          if (mountedRef.current) setProducts(merged);
+        } else {
+          const existingLocal = filterActiveProducts(getProducts() as Product[], deletedIds);
+          if (mountedRef.current && existingLocal.length === 0) {
+            setProducts([]);
+          }
+        }
         if (isManual) {
           toast.success(lang === "bn" ? `ক্লাউড ডাটাবেজ থেকে ${merged.length}টি পণ্য সিন্ক হয়েছে` : `Live sync: ${merged.length} products loaded from cloud`);
         }
       } else {
         const storedLocal = getLocalData<Product[]>(STORAGE_KEYS.PRODUCTS, []);
-        const localList: Product[] = (Array.isArray(storedLocal) ? storedLocal : [])
-          .filter((p: Product) => !deletedIds.has(p.id))
-          .map((p: any) => ({
-            ...p,
-            unit_price: p.unit_price ?? p.dp_price ?? p.selling_price ?? p.dealer_price ?? p.price ?? 0,
-            dealer_price: p.unit_price ?? p.dp_price ?? p.selling_price ?? p.dealer_price ?? p.price ?? 0,
-            purchase_cost: p.purchase_cost ?? p.distributor_price ?? p.purchase_price ?? null,
-            category: (p.category_id && catMap.has(p.category_id)) ? catMap.get(p.category_id) : (p.category || null),
-          }))
+        const localList: Product[] = filterActiveProducts(
+          Array.isArray(storedLocal) ? storedLocal : [],
+          deletedIds,
+        )
+          .map((p: any) => {
+            const resolvedCost = getProductPurchasePrice(p);
+            return {
+              ...p,
+              unit_price: p.unit_price ?? p.dp_price ?? p.selling_price ?? p.dealer_price ?? p.price ?? 0,
+              dealer_price: p.unit_price ?? p.dp_price ?? p.selling_price ?? p.dealer_price ?? p.price ?? 0,
+              purchase_cost: resolvedCost > 0 ? resolvedCost : null,
+              distributor_price: resolvedCost > 0 ? resolvedCost : (Number(p.distributor_price) || 0),
+              category: (p.category_id && catMap.has(p.category_id)) ? catMap.get(p.category_id) : (p.category || null),
+            };
+          })
           .sort((a: Product, b: Product) => (a.name || "").localeCompare(b.name || ""));
         setProducts(localList);
       }
@@ -299,8 +322,10 @@ export function ProductsPage() {
       console.warn("Using local product cache due to fetch error:", err);
       const deletedIds = getDeletedIds(STORAGE_KEYS.DELETED_PRODUCTS);
       const storedLocal = getLocalData<Product[]>(STORAGE_KEYS.PRODUCTS, []);
-      const localList: Product[] = (Array.isArray(storedLocal) ? storedLocal : [])
-        .filter((p: Product) => !deletedIds.has(p.id))
+      const localList: Product[] = filterActiveProducts(
+        Array.isArray(storedLocal) ? storedLocal : [],
+        deletedIds,
+      )
         .sort((a: Product, b: Product) => (a.name || "").localeCompare(b.name || ""));
       setProducts(localList);
     } finally {

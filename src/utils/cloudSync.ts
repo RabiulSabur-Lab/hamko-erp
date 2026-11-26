@@ -1498,8 +1498,8 @@ export async function pullFreshCloudStateToLocalStore(options?: {
               .from("products")
               .select(SUPABASE_TABLE_SELECTS.productsFull)
               .order("name", { ascending: true })
-              .limit(1000),
-          10000,
+              .limit(2000),
+          12000,
           "Cloud pull products",
           1,
         );
@@ -1510,8 +1510,8 @@ export async function pullFreshCloudStateToLocalStore(options?: {
               .from("products")
               .select(SUPABASE_TABLE_SELECTS.productsCoreFallback)
               .order("name", { ascending: true })
-              .limit(1000),
-          10000,
+              .limit(2000),
+          12000,
           "Cloud pull products fallback",
           1,
         );
@@ -1522,8 +1522,8 @@ export async function pullFreshCloudStateToLocalStore(options?: {
               .from("products")
               .select(SUPABASE_TABLE_SELECTS.productsFlatFallback)
               .order("name", { ascending: true })
-              .limit(1000),
-          10000,
+              .limit(2000),
+          12000,
           "Cloud pull products flat fallback",
           1,
         );
@@ -1871,17 +1871,26 @@ export async function pullFreshCloudStateToLocalStore(options?: {
       const updatedTables: string[] = [];
       const tableErrors: Array<{ table: string; error: any }> = [];
 
-      // Never overwrite populated local caches with empty arrays on cold starts or unauthenticated RLS rejects
-      const shouldPersist = (data: any[]): boolean => {
+      // Self-deletion guardrail: never overwrite populated local caches with empty arrays
+      // on cold starts, transient session refreshes, or unauthenticated RLS rejects
+      const shouldPersist = (data: any[], storageKey?: string): boolean => {
         if (data.length > 0) return true;
-        return hasToken;
+        if (!hasToken) return false;
+        if (storageKey) {
+          const existing = getLocalData<any[]>(storageKey, []);
+          if (Array.isArray(existing) && existing.length >= 3) {
+            console.warn(`[CloudSync] Guardrail preserved ${existing.length} local records in "${storageKey}" against empty cloud response.`);
+            return false;
+          }
+        }
+        return true;
       };
 
       // 1. ORDERS
       try {
         const res = ordersRes.status === "fulfilled" ? ordersRes.value : { data: null, error: ordersRes.reason };
         if (!res.error && Array.isArray(res.data)) {
-          if (shouldPersist(res.data)) {
+          if (shouldPersist(res.data, STORAGE_KEYS.ORDERS)) {
             reconcileOrdersWithRemote(res.data as any, { persist: true });
             updatedTables.push("orders");
           }
@@ -1897,7 +1906,7 @@ export async function pullFreshCloudStateToLocalStore(options?: {
       try {
         const res = colsRes.status === "fulfilled" ? colsRes.value : { data: null, error: colsRes.reason };
         if (!res.error && Array.isArray(res.data)) {
-          if (shouldPersist(res.data)) {
+          if (shouldPersist(res.data, STORAGE_KEYS.COLLECTIONS)) {
             reconcileCollectionsWithRemote(res.data as any, { persist: true });
             updatedTables.push("collections");
           }
@@ -1913,7 +1922,7 @@ export async function pullFreshCloudStateToLocalStore(options?: {
       try {
         const res = custRes.status === "fulfilled" ? custRes.value : { data: null, error: custRes.reason };
         if (!res.error && Array.isArray(res.data)) {
-          if (shouldPersist(res.data)) {
+          if (shouldPersist(res.data, STORAGE_KEYS.CUSTOMERS)) {
             mergeAndEnrichCustomers(res.data as any, { persist: true });
             updatedTables.push("customers");
           }
@@ -1929,7 +1938,7 @@ export async function pullFreshCloudStateToLocalStore(options?: {
       try {
         const res = prodRes.status === "fulfilled" ? prodRes.value : { data: null, error: prodRes.reason };
         if (!res.error && Array.isArray(res.data)) {
-          if (shouldPersist(res.data)) {
+          if (shouldPersist(res.data, STORAGE_KEYS.PRODUCTS)) {
             reconcileProductsWithRemote(res.data as any, { persist: true });
             updatedTables.push("products");
           }
@@ -1945,7 +1954,7 @@ export async function pullFreshCloudStateToLocalStore(options?: {
       try {
         const res = catRes.status === "fulfilled" ? catRes.value : { data: null, error: catRes.reason };
         if (!res.error && Array.isArray(res.data)) {
-          if (shouldPersist(res.data)) {
+          if (shouldPersist(res.data, STORAGE_KEYS.CATEGORIES)) {
             reconcileCategoriesWithRemote(res.data as any, { persist: true });
             updatedTables.push("categories");
           }

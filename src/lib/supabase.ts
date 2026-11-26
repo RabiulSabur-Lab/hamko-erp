@@ -692,9 +692,9 @@ export const SUPABASE_TABLE_SELECTS = {
   productsFull:
     "id, sku_code, name, brand, category_id, unit_price, dealer_price, distributor_price, d10_price, b12_price, stock_quantity, reorder_level, unit, image_url, is_active, created_at, updated_at, category:categories(id, name)",
   productsCoreFallback:
-    "id, sku_code, name, category_id, unit_price, dealer_price, stock_quantity, reorder_level, unit, image_url, is_active, created_at, updated_at, category:categories(id, name)",
+    "id, sku_code, name, brand, category_id, unit_price, dealer_price, distributor_price, stock_quantity, reorder_level, unit, image_url, is_active, created_at, updated_at, category:categories(id, name)",
   productsFlatFallback:
-    "id, sku_code, name, category_id, unit_price, dealer_price, stock_quantity, reorder_level, unit, image_url, is_active, created_at, updated_at",
+    "id, sku_code, name, brand, category_id, unit_price, dealer_price, distributor_price, stock_quantity, reorder_level, unit, image_url, is_active, created_at, updated_at",
   visits:
     "id, customer_id, visited_by, visit_date, check_in, check_out, latitude, longitude, purpose, outcome, notes, created_at",
   territories:

@@ -50,8 +50,22 @@ export function isProtectedAuthStorageKey(key: string): boolean {
 }
 
 /**
+ * Protects core ERP business data mirrors and offline queues from ever being
+ * auto-expired by TTL cleanup or deleted during emergency quota pruning.
+ */
+export function isProtectedBusinessStorageKey(key: string): boolean {
+  if (!key) return false;
+  return (
+    key.startsWith("sales_erp_local_") &&
+    !key.includes("_notifications") &&
+    !key.includes("_deleted_") &&
+    !key.includes("dismissed_")
+  );
+}
+
+/**
  * Reads an item from localStorage with automatic TTL verification.
- * If expired, automatically purges the item and returns fallback.
+ * Core ERP business keys and auth keys NEVER self-expire to prevent spontaneous data loss.
  * Transparently parses legacy un-enveloped data for backward compatibility.
  */
 export function getItemWithTTL<T = any>(key: string, fallback?: T): T {
@@ -68,8 +82,14 @@ export function getItemWithTTL<T = any>(key: string, fallback?: T): T {
     const parsed = JSON.parse(raw);
 
     if (isStorageEnvelope<T>(parsed)) {
-      if (parsed.expiresAt !== null && typeof parsed.expiresAt === "number" && Date.now() > parsed.expiresAt) {
-        // Expired entry - purge immediately
+      if (
+        !isProtectedAuthStorageKey(key) &&
+        !isProtectedBusinessStorageKey(key) &&
+        parsed.expiresAt !== null &&
+        typeof parsed.expiresAt === "number" &&
+        Date.now() > parsed.expiresAt
+      ) {
+        // Expired non-business cache entry - purge safely
         window.localStorage.removeItem(key);
         return fallback as T;
       }
@@ -192,8 +212,8 @@ export function cleanupLocalStorage(): StorageCleanupReport {
 
         const parsed = JSON.parse(raw);
 
-        // Check TTL expiration
-        if (isStorageEnvelope(parsed)) {
+        // Check TTL expiration (strictly skip protected ERP business tables so offline data never self-deletes)
+        if (isStorageEnvelope(parsed) && !isProtectedBusinessStorageKey(key)) {
           if (parsed.expiresAt !== null && typeof parsed.expiresAt === "number" && now > parsed.expiresAt) {
             window.localStorage.removeItem(key);
             report.purgedKeys.push(key);
@@ -241,8 +261,8 @@ export function emergencyStoragePrune(): void {
         if (!raw) continue;
         const parsed = JSON.parse(raw);
 
-        // Purge expired
-        if (isStorageEnvelope(parsed)) {
+        // Purge expired non-business caches only
+        if (isStorageEnvelope(parsed) && !isProtectedBusinessStorageKey(key)) {
           if (parsed.expiresAt !== null && typeof parsed.expiresAt === "number" && now > parsed.expiresAt) {
             window.localStorage.removeItem(key);
             continue;
@@ -258,20 +278,24 @@ export function emergencyStoragePrune(): void {
           continue;
         }
 
-        // Trim bulky cached ERP lists on constrained mobile WebViews so auth tokens always fit
+        // Trim bulky non-catalog historical lists on constrained mobile WebViews so auth tokens & unsynced offline records always survive
         if (
+          key === "sales_erp_local_notifications" ||
           key === "sales_erp_notifications" ||
           key === "sales_erp_procurement_audit_logs" ||
-          key === "sales_erp_collections" ||
-          key === "sales_erp_orders"
+          key === "sales_erp_local_transactions" ||
+          key === "sales_erp_local_collections" ||
+          key === "sales_erp_local_orders"
         ) {
           const list = isStorageEnvelope(parsed) ? parsed.data : parsed;
-          const cap = key.includes("orders") ? 200 : key.includes("collections") ? 400 : 100;
+          const cap = key.includes("orders") ? 250 : key.includes("collections") ? 400 : 100;
           if (Array.isArray(list) && list.length > cap) {
-            const trimmed = list.slice(0, cap);
+            const unsynced = list.filter((item: any) => item && (item._unsynced === true || item.is_offline === true));
+            const synced = list.filter((item: any) => !item || (item._unsynced !== true && item.is_offline !== true));
+            const trimmed = [...unsynced, ...synced.slice(0, Math.max(20, cap - unsynced.length))];
             window.localStorage.setItem(
               key,
-              JSON.stringify({ data: trimmed, timestamp: now, expiresAt: now + TTL.DEFAULT }),
+              JSON.stringify({ data: trimmed, timestamp: now, expiresAt: null }),
             );
           }
         }

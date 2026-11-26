@@ -17,7 +17,19 @@ import {
   type SupabaseFailureKind,
 } from "@/lib/supabaseQuery";
 import { useAutoSync } from "@/hooks/useAutoSync";
-import { getOrders, getCollections, getCustomers, getProducts } from "@/utils/localStore";
+import {
+  STORAGE_KEYS,
+  getDeletedIds,
+  getOrders,
+  getCollections,
+  getCustomers,
+  getProducts,
+  reconcileProductsWithRemote,
+  reconcileOrdersWithRemote,
+  reconcileCollectionsWithRemote,
+  mergeAndEnrichCustomers,
+} from "@/utils/localStore";
+import { filterActiveProducts } from "@/utils/productUtils";
 
 export interface PrevDashboardMetrics {
   prevCollection: number;
@@ -195,7 +207,9 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
   const [orders, setOrders] = useState<Order[]>(() => getOrders());
   const [collections, setCollections] = useState<Collection[]>(() => getCollections());
   const [customers, setCustomers] = useState<Customer[]>(() => getCustomers());
-  const [products, setProducts] = useState<Product[]>(() => getProducts());
+  const [products, setProducts] = useState<Product[]>(() =>
+    filterActiveProducts(getProducts(), getDeletedIds(STORAGE_KEYS.DELETED_PRODUCTS)),
+  );
   const [prevMetrics, setPrevMetrics] = useState<PrevDashboardMetrics>({
     prevCollection: 0,
     prevDue: 0,
@@ -284,7 +298,7 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
                   .from("products")
                   .select(SUPABASE_TABLE_SELECTS.productsFull)
                   .order("name", { ascending: true })
-                  .limit(1000) as unknown as PromiseLike<{ data: Product[] | null; error: any }>,
+                  .limit(2000) as unknown as PromiseLike<{ data: Product[] | null; error: any }>,
               "Products query",
             );
             if (!fullRes.error && Array.isArray(fullRes.data) && fullRes.data.length > 0) return fullRes;
@@ -295,7 +309,7 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
                   .from("products")
                   .select(SUPABASE_TABLE_SELECTS.productsCoreFallback)
                   .order("name", { ascending: true })
-                  .limit(1000) as unknown as PromiseLike<{ data: Product[] | null; error: any }>,
+                  .limit(2000) as unknown as PromiseLike<{ data: Product[] | null; error: any }>,
               "Products fallback query",
             );
             if (!coreRes.error && Array.isArray(coreRes.data) && coreRes.data.length > 0) return coreRes;
@@ -306,7 +320,7 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
                   .from("products")
                   .select(SUPABASE_TABLE_SELECTS.productsFlatFallback)
                   .order("name", { ascending: true })
-                  .limit(1000) as unknown as PromiseLike<{ data: Product[] | null; error: any }>,
+                  .limit(2000) as unknown as PromiseLike<{ data: Product[] | null; error: any }>,
               "Products flat fallback query",
             );
           };
@@ -382,16 +396,16 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
             if (!firstError) firstError = err;
           };
 
-          // ── Orders (Cloud-Authoritative) ────────────────────────────────────
-          let resolvedOrders: Order[] = [];
+          // ── Orders (Cloud-Authoritative with Self-Deletion Guardrail) ───────
+          let resolvedOrders: Order[] | null = null;
           if (!oRes.error && Array.isArray(oRes.data)) {
             resolvedOrders = oRes.data as Order[];
           } else {
             recordFailure("orders", oRes.error);
           }
 
-          // ── Collections (Cloud-Authoritative) ───────────────────────────────
-          let resolvedCollections: Collection[] = [];
+          // ── Collections (Cloud-Authoritative with Self-Deletion Guardrail) ──
+          let resolvedCollections: Collection[] | null = null;
           if (!colRes.error && Array.isArray(colRes.data)) {
             resolvedCollections = colRes.data as Collection[];
           } else {
@@ -402,38 +416,65 @@ export function useDashboardData(lang: "en" | "bn" = "en"): UseDashboardDataResu
           await yieldToMain();
           if (!mountedRef.current) return;
 
-          // ── Customers (Cloud-Authoritative) ─────────────────────────────────
-          let resolvedCustomers: Customer[] = [];
+          // ── Customers (Cloud-Authoritative with Self-Deletion Guardrail) ────
+          let resolvedCustomers: Customer[] | null = null;
           if (!custRes.error && Array.isArray(custRes.data)) {
             resolvedCustomers = custRes.data as Customer[];
           } else {
             recordFailure("customers", custRes.error);
           }
 
-          // ── Products (Cloud-Authoritative) ──────────────────────────────────
-          let resolvedProducts: Product[] = [];
+          // ── Products (Cloud-Authoritative, Active-Filtered SSOT) ────────────
+          const deletedProdIds = getDeletedIds(STORAGE_KEYS.DELETED_PRODUCTS);
+          let resolvedProducts: Product[] | null = null;
           if (!prodRes.error && Array.isArray(prodRes.data)) {
-            resolvedProducts = prodRes.data as Product[];
+            resolvedProducts = filterActiveProducts(prodRes.data as Product[], deletedProdIds);
           } else {
             recordFailure("products", prodRes.error);
           }
 
+          const effectiveCollectionsForPrev = resolvedCollections ?? getCollections();
+          const effectiveCustomersForPrev = resolvedCustomers ?? getCustomers();
           const computedPrev = computePreviousMetrics(
-            resolvedCollections,
-            resolvedCustomers,
+            effectiveCollectionsForPrev,
+            effectiveCustomersForPrev,
             prevMonthStart,
             monthStart,
             prevWeekEnd,
           );
 
-          // Commit data updates inside startTransition so heavy chart renders never block UI input
+          // Commit ONLY slices that succeeded (guarding against wiping populated UI to [] on partial/transient failures)
           startTransition(() => {
             if (!mountedRef.current) return;
-            setOrders(resolvedOrders);
-            setCollections(resolvedCollections);
-            setCustomers(resolvedCustomers);
-            setProducts(resolvedProducts);
+            if (resolvedOrders !== null) {
+              setOrders((prev) => (resolvedOrders!.length === 0 && prev.length >= 3 && !activeSession ? prev : resolvedOrders!));
+            }
+            if (resolvedCollections !== null) {
+              setCollections((prev) => (resolvedCollections!.length === 0 && prev.length >= 3 && !activeSession ? prev : resolvedCollections!));
+            }
+            if (resolvedCustomers !== null) {
+              setCustomers((prev) => (resolvedCustomers!.length === 0 && prev.length >= 3 && !activeSession ? prev : resolvedCustomers!));
+            }
+            if (resolvedProducts !== null) {
+              setProducts((prev) => (resolvedProducts!.length === 0 && prev.length >= 3 ? prev : resolvedProducts!));
+            }
             setPrevMetrics(computedPrev);
+          });
+
+          // Warm persistent localStore in browser idle time so offline reloads & Android APK never lose synced state
+          scheduleIdleTask(() => {
+            if (resolvedOrders && resolvedOrders.length > 0) {
+              reconcileOrdersWithRemote(resolvedOrders.slice(0, MAX_LOCAL_CACHE_ORDERS) as any, { persist: true });
+            }
+            if (resolvedCollections && resolvedCollections.length > 0) {
+              reconcileCollectionsWithRemote(resolvedCollections.slice(0, MAX_LOCAL_CACHE_COLLECTIONS) as any, { persist: true });
+            }
+            if (resolvedCustomers && resolvedCustomers.length > 0) {
+              mergeAndEnrichCustomers(resolvedCustomers as any, { persist: true });
+            }
+            if (resolvedProducts && resolvedProducts.length > 0) {
+              reconcileProductsWithRemote(resolvedProducts as any, { persist: true });
+            }
           });
 
           // ── Connection diagnostics & user feedback ──────────────────────────

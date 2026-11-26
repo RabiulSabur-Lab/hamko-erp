@@ -19,7 +19,7 @@ import {
 } from "recharts";
 import { toast } from "sonner";
 import { useAutoSync } from "@/hooks/useAutoSync";
-import { resolveOrderProduct } from "@/utils/productUtils";
+import { resolveOrderProduct, filterActiveProducts } from "@/utils/productUtils";
 import {
   fetchActiveSalesOfficers,
   getLocalSalesOfficers,
@@ -255,8 +255,10 @@ export function ReportsPage() {
 
       if (pSettled.status === "fulfilled" && !pSettled.value.error && Array.isArray(pSettled.value.data)) {
         const deletedIds = getDeletedIds(STORAGE_KEYS.DELETED_PRODUCTS);
-        const validRemote = pSettled.value.data.filter((p: any) => !deletedIds.has(p.id));
-        setProducts(validRemote);
+        const validRemote = filterActiveProducts(pSettled.value.data as any[], deletedIds);
+        if (validRemote.length > 0) {
+          setProducts(validRemote);
+        }
       }
     } catch (err) {
       console.warn("Reports remote sync notice:", err);

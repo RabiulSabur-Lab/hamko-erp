@@ -14,7 +14,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { EmptyState } from "@/components/ui/empty";
 import { formatBDT, toBnDigit } from "@/lib/utils";
 import { exportToExcel } from "@/lib/export";
-import { Search, Download, Warehouse, Loader2, RefreshCw, AlertTriangle, PackageX, DollarSign, PackageCheck } from "lucide-react";
+import { Search, Download, Warehouse, Loader2, RefreshCw, AlertTriangle, PackageX, DollarSign, PackageCheck, Plus, ArrowUpDown, Clock } from "lucide-react";
 import { useRouter } from "@/router";
 import { toast } from "sonner";
 import { useAutoSync } from "@/hooks/useAutoSync";
@@ -31,8 +31,16 @@ import {
   isPendingOfflineRecord,
   adjustProductStock,
   getProducts,
+  reconcileProductsWithRemote,
+  reconcileCategoriesWithRemote,
   dispatchGlobalStateUpdate,
 } from "@/utils/localStore";
+import {
+  filterActiveProducts,
+  getEffectiveStockQuantity,
+  getEffectiveReorderLevel,
+  classifyProductStock,
+} from "@/utils/productUtils";
 import { sanitizeStockTxPayload, generateUuid } from "@/lib/payloadSanitizer";
 
 export type StockType = "Stock In" | "Stock Out" | "Damage";
@@ -60,9 +68,11 @@ export function InventoryPage() {
 
   const [loading, setLoading] = useState(true);
   const [isOfflineMode, setIsOfflineMode] = useState<boolean>(() => typeof navigator !== "undefined" && !navigator.onLine);
-  const [products, setProducts] = useState<Product[]>(() => getProducts());
+  const [products, setProducts] = useState<Product[]>(() =>
+    filterActiveProducts(getProducts(), getDeletedIds(STORAGE_KEYS.DELETED_PRODUCTS)),
+  );
   const [search, setSearch] = useState(() => query.search || "");
-  const [statusFilter, setStatusFilter] = useState<"all" | "low" | "out">("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "low" | "out" | "pending">("all");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<{
@@ -94,22 +104,43 @@ export function InventoryPage() {
 
     const handleOnline = () => setIsOfflineMode(false);
     const handleOffline = () => setIsOfflineMode(true);
+    const handleLocalStorageSync = () => {
+      if (!mountedRef.current) return;
+      const syncedLocal = filterActiveProducts(
+        getProducts(),
+        getDeletedIds(STORAGE_KEYS.DELETED_PRODUCTS),
+      ).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+      if (syncedLocal.length > 0) {
+        setProducts(syncedLocal);
+      }
+    };
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
+    window.addEventListener("sales_erp_storage_update", handleLocalStorageSync);
+
+    let realtimeReloadTimer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleRealtimeLoad = () => {
+      if (realtimeReloadTimer) clearTimeout(realtimeReloadTimer);
+      realtimeReloadTimer = setTimeout(() => {
+        if (mountedRef.current) void loadData(false);
+      }, 450);
+    };
 
     const invChannel = supabase
       .channel("inventory-page-realtime")
-      .on("postgres_changes", { event: "*", schema: "public", table: "products" }, () => loadData())
-      .on("postgres_changes", { event: "*", schema: "public", table: "inventory" }, () => loadData())
-      .on("postgres_changes", { event: "*", schema: "public", table: "stock_transactions" }, () => loadData())
-      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => loadData())
+      .on("postgres_changes", { event: "*", schema: "public", table: "products" }, scheduleRealtimeLoad)
+      .on("postgres_changes", { event: "*", schema: "public", table: "inventory" }, scheduleRealtimeLoad)
+      .on("postgres_changes", { event: "*", schema: "public", table: "stock_transactions" }, scheduleRealtimeLoad)
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, scheduleRealtimeLoad)
       .subscribe();
 
     return () => {
       mountedRef.current = false;
       clearTimeout(watchdog);
+      if (realtimeReloadTimer) clearTimeout(realtimeReloadTimer);
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
+      window.removeEventListener("sales_erp_storage_update", handleLocalStorageSync);
       try {
         if (invChannel && supabase?.removeChannel) {
           supabase.removeChannel(invChannel);
@@ -131,49 +162,67 @@ export function InventoryPage() {
     }
     try {
       const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("Inventory fetch timeout")), 4500)
+        setTimeout(() => reject(new Error("Inventory fetch timeout")), 12000)
       );
       const [pRes, cRes, invRes] = await Promise.race([
         Promise.all([
-          supabase.from("products").select("*, category:categories(*)").order("name", { ascending: true }),
-          supabase.from("categories").select("*").order("name"),
-          supabase.from("inventory").select(SUPABASE_TABLE_SELECTS.inventory).limit(1000),
+          supabase.from("products").select("*, category:categories(*)").order("name", { ascending: true }).limit(2000),
+          supabase.from("categories").select("*").order("name").limit(500),
+          supabase.from("inventory").select(SUPABASE_TABLE_SELECTS.inventory).limit(2000),
         ]),
         timeoutPromise,
       ]);
 
       const catList: any[] = !cRes.error && Array.isArray(cRes.data) ? cRes.data : [];
+      if (catList.length > 0) {
+        reconcileCategoriesWithRemote(catList as any, { persist: true });
+      }
       const catMap = new Map(catList.map((c) => [c.id, c]));
+
+      // Map warehouse inventory rows by product_id as fallback if product.stock_quantity is absent
+      const invByProduct = new Map<string, number>();
+      if (!invRes.error && Array.isArray(invRes.data)) {
+        for (const row of invRes.data as any[]) {
+          if (row?.product_id) {
+            const pid = String(row.product_id);
+            invByProduct.set(pid, (invByProduct.get(pid) || 0) + Math.max(0, Number(row.quantity || 0)));
+          }
+        }
+      }
 
       let rawProductList: any[] | null = !pRes.error && Array.isArray(pRes.data) && pRes.data.length > 0 ? pRes.data : null;
       if (!rawProductList) {
         console.warn("Inventory products joined select notice, attempting flat query fallback:", pRes?.error?.message);
-        const fbRes = await supabase.from("products").select("*").order("name", { ascending: true });
+        const fbRes = await supabase.from("products").select("*").order("name", { ascending: true }).limit(2000);
         if (!fbRes.error && Array.isArray(fbRes.data)) {
           rawProductList = fbRes.data;
         }
       }
 
-      if (rawProductList) {
+      if (rawProductList && rawProductList.length > 0) {
         const deletedIds = getDeletedIds(STORAGE_KEYS.DELETED_PRODUCTS);
-        const filtered = (rawProductList as Product[]).filter((p) => !deletedIds.has(p.id));
+        const activeList = filterActiveProducts(rawProductList as Product[], deletedIds);
 
-        const enriched = filtered.map((p: any) => {
-          const remoteStock = Number(p.stock_quantity ?? p.stock ?? 0);
-          const resolvedCost = p.purchase_cost ?? p.distributor_price ?? p.purchase_price ?? null;
+        const enriched = activeList.map((p: any) => {
+          const directStock = getEffectiveStockQuantity(p);
+          const remoteStock = directStock > 0 ? directStock : (invByProduct.get(String(p.id)) ?? directStock);
+          const resolvedCost = getProductPurchasePrice(p);
+          const effectiveReorder = getEffectiveReorderLevel(p);
 
           return {
             ...p,
-            purchase_cost: resolvedCost,
-            distributor_price: resolvedCost ?? p.distributor_price,
-            purchase_price: resolvedCost,
-            cost_price: resolvedCost,
+            purchase_cost: resolvedCost > 0 ? resolvedCost : null,
+            distributor_price: resolvedCost > 0 ? resolvedCost : (Number(p.distributor_price) || 0),
+            purchase_price: resolvedCost > 0 ? resolvedCost : null,
+            cost_price: resolvedCost > 0 ? resolvedCost : null,
             stock_quantity: remoteStock,
             stock: remoteStock,
+            reorder_level: effectiveReorder,
             category: (p.category_id && catMap.has(p.category_id)) ? catMap.get(p.category_id) : (p.category || null),
           };
         });
         const sorted = enriched.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+        reconcileProductsWithRemote(sorted as any, { persist: true });
         if (mountedRef.current) setProducts(sorted);
         setIsOfflineMode(false);
         if (isManual) {
@@ -202,8 +251,10 @@ export function InventoryPage() {
           (p.sku_code || "").toLowerCase().includes(s) ||
           categoryStr.toLowerCase().includes(s);
         if (!matchesSearch) return false;
-        if (statusFilter === "low") return p.stock_quantity <= p.reorder_level;
-        if (statusFilter === "out") return p.stock_quantity === 0;
+        const stockStatus = classifyProductStock(p);
+        if (statusFilter === "low") return stockStatus === "low_stock";
+        if (statusFilter === "out") return stockStatus === "out_of_stock";
+        if (statusFilter === "pending") return stockStatus === "pending_stock";
         return true;
       })
       .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
@@ -211,18 +262,28 @@ export function InventoryPage() {
 
   const lowStock = useMemo(() => {
     return products
-      .filter((p) => p.stock_quantity <= p.reorder_level)
+      .filter((p) => classifyProductStock(p) === "low_stock")
       .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
   }, [products]);
 
   const outOfStock = useMemo(() => {
     return products
-      .filter((p) => p.stock_quantity === 0)
+      .filter((p) => classifyProductStock(p) === "out_of_stock")
       .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
   }, [products]);
 
+  const pendingOpeningStock = useMemo(() => {
+    return products
+      .filter((p) => classifyProductStock(p) === "pending_stock")
+      .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  }, [products]);
+
+  const stockedMissingCostCount = useMemo(() => {
+    return products.filter((p) => getEffectiveStockQuantity(p) > 0 && getProductPurchasePrice(p) <= 0).length;
+  }, [products]);
+
   const availableSkusCount = useMemo(() => {
-    return products.filter((p) => p.stock_quantity > 0).length;
+    return products.filter((p) => getEffectiveStockQuantity(p) > 0).length;
   }, [products]);
 
   function openTx(type: typeof txTypes[number], productId?: string) {
@@ -249,7 +310,10 @@ export function InventoryPage() {
     try {
       const delta = txType === "Stock In" ? qty : -qty;
       adjustProductStock(form.product_id, delta, "Main Warehouse", { skipRemoteProductUpdate: true });
-      const sorted = [...getProducts()].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+      const sorted = filterActiveProducts(
+        getProducts(),
+        getDeletedIds(STORAGE_KEYS.DELETED_PRODUCTS),
+      ).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
       setProducts(sorted);
 
       const nowIso = new Date().toISOString();
@@ -359,7 +423,13 @@ export function InventoryPage() {
         baseRow["Total Stock Value (৳)"] = r2(p.stock_quantity * unitPrice);
       }
 
-      baseRow["Status"] = p.stock_quantity === 0 ? "Out of Stock" : p.stock_quantity <= p.reorder_level ? "Low Stock" : "In Stock";
+      baseRow["Status"] = (() => {
+        const st = classifyProductStock(p);
+        if (st === "pending_stock") return "Pending Opening Stock";
+        if (st === "out_of_stock") return "Out of Stock";
+        if (st === "low_stock") return "Low Stock";
+        return "In Stock";
+      })();
       return baseRow;
     }));
   }
@@ -426,6 +496,13 @@ export function InventoryPage() {
                 </div>
               </div>
               <p className="text-2xl font-bold tabular-nums tracking-tight mt-2 text-foreground">{formatBDT(calculateInventoryStockValue(products))}</p>
+              {stockedMissingCostCount > 0 && (
+                <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-1 truncate">
+                  {lang === "bn"
+                    ? `${toBnDigit(stockedMissingCostCount)}টি পণ্যের ক্রয়মূল্য সেট করা হয়নি`
+                    : `${stockedMissingCostCount} stocked SKU(s) missing purchase cost`}
+                </p>
+              )}
             </CardContent>
           </Card>
         ) : (
@@ -460,18 +537,47 @@ export function InventoryPage() {
               className="absolute right-2 top-1/2 -translate-y-1/2 cursor-pointer text-[10px] py-0.5 px-1.5 gap-1 border-dashed hover:bg-muted"
               onClick={() => setStatusFilter("all")}
             >
-              {statusFilter === "low" ? t("lowStock") : t("outOfStock")} ×
+              {statusFilter === "low"
+                ? t("lowStock")
+                : statusFilter === "out"
+                ? t("outOfStock")
+                : (lang === "bn" ? "ওপেনিং স্টক বাকি" : "Pending Stock")} ×
             </Badge>
           )}
         </div>
 
-        {/* Action Button on the right: Export Excel & Live Sync */}
-        <div className="flex items-center gap-2">
+        {/* Action Button on the right: Pending Stock Pill, Stock In, Live Sync & Export */}
+        <div className="flex flex-wrap items-center gap-2">
+          {pendingOpeningStock.length > 0 && (
+            <Badge
+              variant={statusFilter === "pending" ? "default" : "outline"}
+              className="cursor-pointer gap-1.5 h-9 px-2.5 text-xs font-medium border-slate-300 dark:border-slate-700"
+              onClick={() => setStatusFilter(statusFilter === "pending" ? "all" : "pending")}
+              title="Newly imported catalog products awaiting opening stock & pricing"
+            >
+              <Clock className="h-3.5 w-3.5" />
+              <span>
+                {lang === "bn"
+                  ? `ওপেনিং স্টক বাকি: ${toBnDigit(pendingOpeningStock.length)}`
+                  : `Pending Stock: ${pendingOpeningStock.length}`}
+              </span>
+            </Badge>
+          )}
           {isOfflineMode && (
             <Badge variant="outline" className="gap-1 border-amber-500/40 bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400">
               <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
               Offline Mode
             </Badge>
+          )}
+          {isSuperAdmin && (
+            <Button
+              size="sm"
+              onClick={() => openTx("Stock In")}
+              className="h-9 gap-1.5"
+            >
+              <Plus className="h-4 w-4" />
+              <span>{lang === "bn" ? "স্টক ইন / এডজাস্ট" : "Stock In / Adjust"}</span>
+            </Button>
           )}
           <Button
             variant="outline"
@@ -509,10 +615,13 @@ export function InventoryPage() {
               {/* Mobile Inventory Cards (screens < 768px) */}
               <div className="block md:hidden divide-y divide-border/60">
                 {filteredProducts.map((p) => {
-                  const low = p.stock_quantity <= p.reorder_level;
-                  const out = p.stock_quantity === 0;
+                  const stockStatus = classifyProductStock(p);
+                  const pending = stockStatus === "pending_stock";
+                  const low = stockStatus === "low_stock";
+                  const out = stockStatus === "out_of_stock";
+                  const qty = getEffectiveStockQuantity(p);
                   const unitPrice = getProductPurchasePrice(p);
-                  const totalVal = r2(p.stock_quantity * unitPrice);
+                  const totalVal = r2(qty * unitPrice);
                   const categoryName = typeof p.category === 'object'
                     ? (p.category?.name || '—')
                     : (p.category || (p as any).category_name || '—');
@@ -539,7 +648,11 @@ export function InventoryPage() {
 
                         {/* Status Badge */}
                         <div>
-                          {out ? (
+                          {pending ? (
+                            <Badge variant="outline" className="text-[10px] text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-700">
+                              {lang === "bn" ? "স্টক বাকি" : "Pending Stock"}
+                            </Badge>
+                          ) : out ? (
                             <Badge variant="destructive" className="text-[10px]">{t("outOfStock")}</Badge>
                           ) : low ? (
                             <Badge variant="warning" className="text-[10px]">{t("lowStockAlert")}</Badge>
@@ -553,16 +666,29 @@ export function InventoryPage() {
                       <div className="flex items-center justify-between pt-1 border-t border-border/40 text-xs">
                         <div>
                           <span className="text-[10px] text-muted-foreground uppercase tracking-wide block">Stock Quantity</span>
-                          <span className={`text-base font-bold font-mono ${out ? "text-destructive" : low ? "text-amber-600" : "text-foreground"}`}>
-                            {lang === "bn" ? toBnDigit(p.stock_quantity) : p.stock_quantity} <span className="text-xs font-normal text-muted-foreground">{p.unit || "pcs"}</span>
+                          <span className={`text-base font-bold font-mono ${pending ? "text-muted-foreground" : out ? "text-destructive" : low ? "text-amber-600" : "text-foreground"}`}>
+                            {lang === "bn" ? toBnDigit(qty) : qty} <span className="text-xs font-normal text-muted-foreground">{p.unit || "pcs"}</span>
                           </span>
                         </div>
 
                         {isSuperAdmin && (
-                          <div className="text-right">
-                            <span className="text-[10px] text-muted-foreground uppercase tracking-wide block">Total Stock Value</span>
-                            <span className="font-mono text-sm font-bold text-foreground">{formatBDT(totalVal)}</span>
-                            <span className="text-[10px] text-muted-foreground block">Rate: {formatBDT(unitPrice)}</span>
+                          <div className="flex items-center gap-3">
+                            <div className="text-right">
+                              <span className="text-[10px] text-muted-foreground uppercase tracking-wide block">Total Stock Value</span>
+                              <span className="font-mono text-sm font-bold text-foreground">{formatBDT(totalVal)}</span>
+                              <span className="text-[10px] text-muted-foreground block">
+                                Rate: {unitPrice > 0 ? formatBDT(unitPrice) : (lang === "bn" ? "সেট নেই" : "Not set")}
+                              </span>
+                            </div>
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="h-8 w-8 shrink-0"
+                              onClick={() => openTx("Stock In", p.id)}
+                              title="Update / Stock In"
+                            >
+                              <ArrowUpDown className="h-3.5 w-3.5" />
+                            </Button>
                           </div>
                         )}
                       </div>
@@ -586,14 +712,18 @@ export function InventoryPage() {
                         </>
                       )}
                       <TableHead>{t("status")}</TableHead>
+                      {isSuperAdmin && <TableHead className="text-right w-20">{t("actions")}</TableHead>}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {filteredProducts.map((p) => {
-                      const low = p.stock_quantity <= p.reorder_level;
-                      const out = p.stock_quantity === 0;
+                      const stockStatus = classifyProductStock(p);
+                      const pending = stockStatus === "pending_stock";
+                      const low = stockStatus === "low_stock";
+                      const out = stockStatus === "out_of_stock";
+                      const qty = getEffectiveStockQuantity(p);
                       const unitPrice = getProductPurchasePrice(p);
-                      const totalVal = r2(p.stock_quantity * unitPrice);
+                      const totalVal = r2(qty * unitPrice);
 
                       return (
                         <TableRow key={p.id}>
@@ -621,8 +751,8 @@ export function InventoryPage() {
 
                           {/* Stock Quantity */}
                           <TableCell className="text-right font-semibold">
-                            <span className={out ? "text-destructive" : low ? "text-amber-600" : "text-foreground"}>
-                              {lang === "bn" ? toBnDigit(p.stock_quantity) : p.stock_quantity}
+                            <span className={pending ? "text-muted-foreground" : out ? "text-destructive" : low ? "text-amber-600" : "text-foreground"}>
+                              {lang === "bn" ? toBnDigit(qty) : qty}
                             </span>
                           </TableCell>
 
@@ -630,7 +760,13 @@ export function InventoryPage() {
                           {isSuperAdmin && (
                             <>
                               <TableCell className="text-right text-sm">
-                                {formatBDT(unitPrice)}
+                                {unitPrice > 0 ? (
+                                  formatBDT(unitPrice)
+                                ) : (
+                                  <span className="text-xs text-muted-foreground italic">
+                                    {lang === "bn" ? "সেট নেই" : "Not set"}
+                                  </span>
+                                )}
                               </TableCell>
 
                               <TableCell className="text-right text-sm font-semibold">
@@ -641,7 +777,11 @@ export function InventoryPage() {
 
                           {/* Stock Status */}
                           <TableCell>
-                            {out ? (
+                            {pending ? (
+                              <Badge variant="outline" className="text-[10px] text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-700">
+                                {lang === "bn" ? "ওপেনিং স্টক বাকি" : "Pending Stock"}
+                              </Badge>
+                            ) : out ? (
                               <Badge variant="destructive" className="text-[10px]">{t("outOfStock")}</Badge>
                             ) : low ? (
                               <Badge variant="warning" className="text-[10px]">{t("lowStockAlert")}</Badge>
@@ -649,6 +789,20 @@ export function InventoryPage() {
                               <Badge variant="success" className="text-[10px]">{t("inStock")}</Badge>
                             )}
                           </TableCell>
+
+                          {isSuperAdmin && (
+                            <TableCell className="text-right">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                onClick={() => openTx("Stock In", p.id)}
+                                title={lang === "bn" ? "স্টক ইন / এডজাস্ট" : "Stock In / Adjust"}
+                              >
+                                <ArrowUpDown className="h-3.5 w-3.5" />
+                              </Button>
+                            </TableCell>
+                          )}
                         </TableRow>
                       );
                     })}
@@ -663,6 +817,19 @@ export function InventoryPage() {
       {/* Stock Transaction Modal (Single Warehouse Stock Update) */}
       <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} title={form.transaction_type || t("transactionType")} size="md">
         <div className="space-y-4">
+          <div className="space-y-1.5">
+            <Label>{t("transactionType")}</Label>
+            <Select
+              value={form.transaction_type || "Stock In"}
+              onChange={(e) => setForm({ ...form, transaction_type: e.target.value as StockType })}
+            >
+              {txTypes.map((typeOption) => (
+                <option key={typeOption} value={typeOption}>
+                  {typeOption}
+                </option>
+              ))}
+            </Select>
+          </div>
           <div className="space-y-1.5">
             <Label>{t("product")}</Label>
             <Select value={form.product_id} onChange={(e) => setForm({ ...form, product_id: e.target.value })}>

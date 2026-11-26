@@ -359,5 +359,115 @@ export function useUpdateProduct() {
   });
 }
 
+export type ProductStockStatus = "in_stock" | "low_stock" | "out_of_stock" | "pending_stock";
+
+/**
+ * Single Source of Truth for active product visibility across Dashboard, Products,
+ * Inventory, Reports, and OrderCreate. Eliminates count discrepancies caused by
+ * soft-deleted (`is_active === false`) rows or `[Deleted Product]` placeholders.
+ */
+export function isActiveCatalogProduct(
+  p: any,
+  deletedIds?: Set<string> | null,
+): boolean {
+  if (!p || typeof p !== "object") return false;
+  if (p.id && deletedIds && deletedIds.has(String(p.id))) return false;
+  if (p.is_active === false) return false;
+  const trimmedName = String(p.name || "").trim();
+  if (trimmedName === "[Deleted Product]") return false;
+  const trimmedSku = String(p.sku_code || p.sku || "").trim().toUpperCase();
+  if (trimmedSku === "DELETED" && trimmedName.toLowerCase().includes("deleted")) return false;
+  return true;
+}
+
+/**
+ * Filters active catalog products and deduplicates by ID / SKU so all ERP modules
+ * always agree on the exact product count.
+ */
+export function filterActiveProducts<T extends Record<string, any>>(
+  products: T[] | null | undefined,
+  deletedIds?: Set<string> | null,
+): T[] {
+  if (!Array.isArray(products) || products.length === 0) return [];
+  const seenIds = new Set<string>();
+  const seenSkus = new Set<string>();
+  const out: T[] = [];
+
+  for (let i = 0; i < products.length; i++) {
+    const p = products[i];
+    if (!isActiveCatalogProduct(p, deletedIds)) continue;
+    const idKey = p.id ? String(p.id) : "";
+    const skuKey = String(p.sku_code || p.sku || "").trim().toUpperCase();
+    if (idKey && seenIds.has(idKey)) continue;
+    if (!idKey && skuKey && seenSkus.has(skuKey)) continue;
+    if (idKey) seenIds.add(idKey);
+    if (skuKey) seenSkus.add(skuKey);
+    out.push(p);
+  }
+  return out;
+}
+
+/**
+ * Standardized non-negative stock quantity reader across all ERP modules.
+ */
+export function getEffectiveStockQuantity(p: any): number {
+  const raw = Number(p?.stock_quantity ?? p?.stock ?? 0);
+  if (!Number.isFinite(raw) || raw < 0) return 0;
+  return Math.round(raw);
+}
+
+/**
+ * Standardized reorder threshold reader across Dashboard, Inventory, and Reports.
+ * Defaults to 10 (matching PostgreSQL schema `reorder_level integer DEFAULT 10`).
+ */
+export function getEffectiveReorderLevel(p: any): number {
+  const raw = p?.reorder_level ?? p?.min_stock_level ?? p?.minStockThreshold;
+  if (raw === null || raw === undefined || raw === "") return 10;
+  const num = Number(raw);
+  if (!Number.isFinite(num) || num < 0) return 10;
+  return Math.round(num);
+}
+
+/**
+ * Enterprise ERP stock status classifier (Single Source of Truth):
+ * - "pending_stock": Newly imported catalog SKU with stock=0 and no pricing/cost configured yet
+ *                    (does NOT falsely flood Low Stock Alert or Out of Stock counters).
+ * - "out_of_stock":  Active priced/stocked product that has depleted to 0 stock.
+ * - "low_stock":     Strictly 0 < stock <= reorder_level (disjoint from out_of_stock to prevent double-counting).
+ * - "in_stock":      Healthy stock (> reorder_level, or reorder alert disabled when reorder_level === 0).
+ */
+export function classifyProductStock(p: any): ProductStockStatus {
+  const stock = getEffectiveStockQuantity(p);
+  const reorder = getEffectiveReorderLevel(p);
+  const sellingDp = Math.max(
+    0,
+    Number(p?.unit_price ?? p?.dealer_price ?? p?.dp_price ?? p?.selling_price ?? p?.price ?? 0) || 0,
+  );
+  const purchaseCost = Math.max(
+    0,
+    Number(p?.purchase_cost ?? p?.distributor_price ?? p?.purchase_price ?? p?.cost_price ?? 0) || 0,
+  );
+
+  if (stock === 0 && sellingDp === 0 && purchaseCost === 0) {
+    return "pending_stock";
+  }
+  if (stock <= 0) {
+    return "out_of_stock";
+  }
+  if (reorder > 0 && stock <= reorder) {
+    return "low_stock";
+  }
+  return "in_stock";
+}
+
+/**
+ * Returns true if a product requires active replenishment attention (Low Stock or genuinely Out of Stock).
+ * Excludes uninitialized catalog drafts ("pending_stock").
+ */
+export function needsStockReplenishment(p: any): boolean {
+  const status = classifyProductStock(p);
+  return status === "low_stock" || status === "out_of_stock";
+}
+
 export { sanitizeFormulaInput, isFormulaInjection };
 

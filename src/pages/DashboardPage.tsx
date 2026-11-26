@@ -26,6 +26,7 @@ import {
   getDeletedIds,
   STORAGE_KEYS,
 } from "@/utils/localStore";
+import { filterActiveProducts, needsStockReplenishment } from "@/utils/productUtils";
 
 interface KpiData {
   todaySales: number;
@@ -283,13 +284,11 @@ export function DashboardPage() {
       const totalCustomers = custList.length;
 
       let lowStockCount = 0;
-      const prodList = Array.isArray(products) ? products : [];
-      for (let i = 0; i < prodList.length; i++) {
-        const p = prodList[i];
-        if (!p) continue;
-        const stock = Number(p.stock_quantity ?? p.stock ?? 0);
-        const minStock = Number(p.reorder_level ?? p.minStockThreshold ?? 5);
-        if (stock <= minStock) lowStockCount++;
+      const activeProducts = filterActiveProducts(products, getDeletedIds(STORAGE_KEYS.DELETED_PRODUCTS));
+      for (let i = 0; i < activeProducts.length; i++) {
+        if (needsStockReplenishment(activeProducts[i])) {
+          lowStockCount++;
+        }
       }
 
       const k: KpiData = {
