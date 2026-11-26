@@ -1,7 +1,7 @@
 import { toast } from "sonner";
 
-export const ACTIVE_SW_CACHE_NAME = "hamko-erp-cache-v20-20261126";
-export const APP_BUNDLE_VERSION = "v20-20261126";
+export const ACTIVE_SW_CACHE_NAME = "hamko-erp-cache-v21-20261126";
+export const APP_BUNDLE_VERSION = "v21-20261126";
 const BUNDLE_VERSION_STORAGE_KEY = "hamko_erp_bundle_version";
 const RELOAD_GUARD_SESSION_KEY = "hamko_sw_reloaded_version";
 
@@ -75,7 +75,7 @@ export function registerServiceWorker(): void {
       // Wildcard purge of ALL non-current caches on load so stale desktop/mobile bundles never persist
       purgeStaleWebViewAndBrowserCaches();
 
-      const registration = await navigator.serviceWorker.register("/sw.js?v=20", {
+      const registration = await navigator.serviceWorker.register("/sw.js?v=21", {
         scope: "/",
         updateViaCache: "none",
       });

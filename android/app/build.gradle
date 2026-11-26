@@ -9,11 +9,11 @@ def resolveAppVersionInfo() {
 
     def propVerName = project.hasProperty("VERSION_NAME") ? project.property("VERSION_NAME")?.toString()?.trim() : null
     def envVerName = System.getenv("APP_VERSION_NAME")?.trim()
-    def resolvedName = propVerName ?: envVerName ?: verJson.version?.toString()?.trim() ?: pkgJson.version?.toString()?.trim() ?: "1.2.0"
+    def resolvedName = propVerName ?: envVerName ?: verJson.version?.toString()?.trim() ?: pkgJson.version?.toString()?.trim() ?: "1.2.2"
 
     def propVerCode = project.hasProperty("VERSION_CODE") ? project.property("VERSION_CODE")?.toString()?.trim() : null
     def envVerCode = System.getenv("APP_VERSION_CODE")?.trim()
-    def resolvedCode = 120
+    def resolvedCode = 122
     if (propVerCode && propVerCode.isInteger()) {
         resolvedCode = propVerCode.toInteger()
     } else if (envVerCode && envVerCode.isInteger()) {

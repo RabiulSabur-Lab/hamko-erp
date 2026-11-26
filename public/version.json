@@ -1,10 +1,10 @@
 {
   "platform": "android",
-  "version": "1.2.1",
-  "versionCode": 121,
+  "version": "1.2.2",
+  "versionCode": 122,
   "minSupportedVersion": "1.0.0",
   "forceUpdate": false,
   "apkUrl": "https://github.com/RabiulSabur-Lab/hamko-erp/releases/latest/download/app-release.apk",
-  "releaseNotes": "• 5-column 3-tier chain discount Dynamic Price Tiers with live mobile calculation\n• Strict Supabase Auth UID/email session verification\n• Forced v20 Service Worker & Capacitor WebView cache sync",
-  "releasedAt": "2026-11-26T04:30:00Z"
+  "releaseNotes": "• Clean APK rebuild with 5-column 3-tier chain discount Dynamic Price Tiers\n• Disabled stale Capgo auto-override and Android Auto Backup cache restoration\n• Strict Supabase Auth UID/email session verification & v21 SW cache sync",
+  "releasedAt": "2026-11-26T04:50:00Z"
 }

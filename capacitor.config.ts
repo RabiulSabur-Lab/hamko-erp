@@ -9,7 +9,9 @@ const config: CapacitorConfig = {
   },
   plugins: {
     CapacitorUpdater: {
-      autoUpdate: true,
+      autoUpdate: false,
+      resetWhenUpdate: true,
+      version: '1.2.2',
     },
   },
 };

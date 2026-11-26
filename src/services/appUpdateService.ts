@@ -3,8 +3,8 @@ import { Capacitor } from "@capacitor/core";
 import { supabase } from "@/lib/supabase";
 import pkgJson from "../../package.json";
 
-const BUNDLED_APP_VERSION = String((pkgJson as any)?.version || "1.2.1").trim();
-const BUNDLED_APP_VERSION_CODE = Number((pkgJson as any)?.versionCode) || 121;
+const BUNDLED_APP_VERSION = String((pkgJson as any)?.version || "1.2.2").trim();
+const BUNDLED_APP_VERSION_CODE = Number((pkgJson as any)?.versionCode) || 122;
 
 export interface AppVersionMetadata {
   id?: string;
@@ -54,8 +54,8 @@ export const DEFAULT_FALLBACK_METADATA: AppVersionMetadata = {
   minSupportedVersion: "1.0.0",
   forceUpdate: false,
   apkUrl: GITHUB_LATEST_RELEASE_APK,
-  releaseNotes: "• 5-column 3-tier chain discount Dynamic Price Tiers with live mobile calculation\n• Strict Supabase Auth UID/email session verification\n• Forced v20 Service Worker & Capacitor WebView cache sync",
-  releasedAt: "2026-11-26T04:30:00Z",
+  releaseNotes: "• Clean APK rebuild with 5-column 3-tier chain discount Dynamic Price Tiers\n• Disabled stale Capgo auto-override and Android Auto Backup cache restoration\n• Strict Supabase Auth UID/email session verification & v21 SW cache sync",
+  releasedAt: "2026-11-26T04:50:00Z",
   platform: "android",
 };
 

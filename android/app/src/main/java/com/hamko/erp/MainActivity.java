@@ -36,7 +36,9 @@ public class MainActivity extends BridgeActivity {
       SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
       String lastVersion = prefs.getString(KEY_LAST_VERSION, "");
       if (!currentVersion.equals(lastVersion)) {
+        settings.setCacheMode(WebSettings.LOAD_NO_CACHE);
         webView.clearCache(true);
+        webView.clearHistory();
         prefs.edit().putString(KEY_LAST_VERSION, currentVersion).apply();
       }
     } catch (Exception ignored) {
