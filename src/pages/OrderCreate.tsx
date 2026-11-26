@@ -1337,44 +1337,55 @@ export function OrderCreate() {
                           searchPlaceholder="Search product by name or SKU..."
                           className="w-full"
                         />
-                        {prod && (
-                          <div className="px-0.5 flex items-center justify-between text-[11px] font-mono">
-                            <span
-                              className={cn(
-                                "transition-colors",
-                                isRowOverStock
-                                  ? isDraft
-                                    ? "text-amber-600 dark:text-amber-400 font-medium flex items-center gap-1"
-                                    : "text-destructive font-semibold flex items-center gap-1"
-                                  : "text-muted-foreground"
-                              )}
-                            >
+                        <div className="h-4 mt-0.5 px-0.5 flex items-center justify-between gap-2 text-[11px] font-mono leading-4 overflow-hidden">
+                          {prod ? (
+                            <>
+                              <span
+                                className={cn(
+                                  "truncate transition-colors",
+                                  isRowOverStock
+                                    ? isDraft
+                                      ? "text-amber-600 dark:text-amber-400 font-medium flex items-center gap-1"
+                                      : "text-destructive font-semibold flex items-center gap-1"
+                                    : "text-muted-foreground"
+                                )}
+                              >
+                                {isRowOverStock && (
+                                  <span
+                                    className={cn(
+                                      "inline-block w-1.5 h-1.5 rounded-full shrink-0",
+                                      isDraft ? "bg-amber-500" : "bg-destructive animate-pulse"
+                                    )}
+                                  />
+                                )}
+                                Stock: {baseStock}
+                              </span>
                               {isRowOverStock && (
                                 <span
                                   className={cn(
-                                    "inline-block w-1.5 h-1.5 rounded-full",
-                                    isDraft ? "bg-amber-500" : "bg-destructive animate-pulse"
+                                    "text-[10px] font-medium truncate shrink-0",
+                                    isDraft ? "text-amber-600 dark:text-amber-400" : "text-destructive font-semibold"
                                   )}
-                                />
+                                  title={
+                                    isDraft
+                                      ? "Low stock - replenish before approval"
+                                      : baseStock <= 0
+                                      ? "Out of stock"
+                                      : `Max available: ${remainingForThisRow}`
+                                  }
+                                >
+                                  {isDraft
+                                    ? "Replenish before approval"
+                                    : baseStock <= 0
+                                    ? "Out of stock"
+                                    : `Max: ${remainingForThisRow}`}
+                                </span>
                               )}
-                              Stock: {baseStock}
-                            </span>
-                            {isRowOverStock && (
-                              <span
-                                className={cn(
-                                  "text-[10px] font-medium",
-                                  isDraft ? "text-amber-600 dark:text-amber-400" : "text-destructive font-semibold"
-                                )}
-                              >
-                                {isDraft
-                                  ? "Replenish before approval"
-                                  : baseStock <= 0
-                                  ? "Out of stock"
-                                  : `Max: ${remainingForThisRow}`}
-                              </span>
-                            )}
-                          </div>
-                        )}
+                            </>
+                          ) : (
+                            <span className="sr-only">No product selected</span>
+                          )}
+                        </div>
                       </div>
 
                       {/* 3. Qty & Price Tier */}
@@ -1389,7 +1400,7 @@ export function OrderCreate() {
                             onChange={(e) => updateItem(idx, "quantity", e.target.value)}
                             onBlur={() => updateItem(idx, "quantity", Math.max(1, Math.round(Number(it.quantity) || 1)))}
                             className={cn(
-                              "h-10 text-center font-mono",
+                              "h-10 max-h-10 text-center font-mono",
                               isRowOverStock && (
                                 isDraft
                                   ? "border-amber-400 text-amber-900 dark:text-amber-200 bg-amber-50/50 dark:bg-amber-950/20 font-medium"
@@ -1404,7 +1415,7 @@ export function OrderCreate() {
                           <Select
                             value={formatTierLabel(it.price_tier) || "DP"}
                             onChange={(e) => updateItem(idx, "price_tier", e.target.value)}
-                            className="h-10 text-xs"
+                            className="h-10 max-h-10 text-xs"
                           >
                             <option value="DP">
                               {lang === "bn" ? "ডিলার মূল্য (DP)" : "DP (Dealer Price)"}
@@ -1463,7 +1474,7 @@ export function OrderCreate() {
                   <TableRow className="hover:bg-transparent">
                     <TableHead className="w-48 min-w-[176px]">{t("category") || "Category"}</TableHead>
                     <TableHead className="min-w-[220px]">Product</TableHead>
-                    <TableHead className="w-20 text-center">Qty</TableHead>
+                    <TableHead className="w-20 min-w-[76px] text-center">Qty</TableHead>
                     <TableHead className="w-32">
                       <div className="flex items-center gap-1">
                         <span>{t("priceTier") || "Price Tier"}</span>
@@ -1520,7 +1531,7 @@ export function OrderCreate() {
                             <Select
                               value={selectedCatId}
                               onChange={(e) => handleRowCategoryChange(idx, rowKey, e.target.value)}
-                              className="h-9 text-xs md:w-44 lg:w-48"
+                              className="h-9 max-h-9 text-xs md:w-44 lg:w-48"
                               aria-label={`Filter category for item ${idx + 1}`}
                             >
                               <option value="">
@@ -1534,7 +1545,7 @@ export function OrderCreate() {
                             </Select>
                           </TableCell>
 
-                          {/* Product Search */}
+                          {/* Product Search (isolated fixed-height stock status line prevents row stretch) */}
                           <TableCell className="p-2 align-top">
                             <SearchableSelect
                               options={rowProductOptions}
@@ -1543,48 +1554,59 @@ export function OrderCreate() {
                               placeholder={selectedCatId ? "Select product in category..." : "Select product..."}
                               searchPlaceholder="Search product by name or category..."
                             />
-                            {prod && (
-                              <div className="mt-1 px-1 flex items-center justify-between text-[11px] font-mono">
-                                <span
-                                  className={cn(
-                                    "transition-colors",
-                                    isRowOverStock
-                                      ? isDraft
-                                        ? "text-amber-600 dark:text-amber-400 font-medium flex items-center gap-1"
-                                        : "text-destructive font-semibold flex items-center gap-1"
-                                      : "text-muted-foreground"
-                                  )}
-                                >
+                            <div className="h-4 mt-0.5 px-1 flex items-center justify-between gap-2 text-[11px] font-mono leading-4 overflow-hidden">
+                              {prod ? (
+                                <>
+                                  <span
+                                    className={cn(
+                                      "truncate transition-colors",
+                                      isRowOverStock
+                                        ? isDraft
+                                          ? "text-amber-600 dark:text-amber-400 font-medium flex items-center gap-1"
+                                          : "text-destructive font-semibold flex items-center gap-1"
+                                        : "text-muted-foreground"
+                                    )}
+                                  >
+                                    {isRowOverStock && (
+                                      <span
+                                        className={cn(
+                                          "inline-block w-1.5 h-1.5 rounded-full shrink-0",
+                                          isDraft ? "bg-amber-500" : "bg-destructive animate-pulse"
+                                        )}
+                                      />
+                                    )}
+                                    Stock: {baseStock}
+                                  </span>
                                   {isRowOverStock && (
                                     <span
                                       className={cn(
-                                        "inline-block w-1.5 h-1.5 rounded-full",
-                                        isDraft ? "bg-amber-500" : "bg-destructive animate-pulse"
+                                        "text-[10px] font-medium truncate shrink-0",
+                                        isDraft ? "text-amber-600 dark:text-amber-400" : "text-destructive font-semibold"
                                       )}
-                                    />
+                                      title={
+                                        isDraft
+                                          ? "Low stock - replenish before approval"
+                                          : baseStock <= 0
+                                          ? "Out of stock"
+                                          : `Max available: ${remainingForThisRow}`
+                                      }
+                                    >
+                                      {isDraft
+                                        ? "Replenish before approval"
+                                        : baseStock <= 0
+                                        ? "Out of stock"
+                                        : `Max: ${remainingForThisRow}`}
+                                    </span>
                                   )}
-                                  Stock: {baseStock}
-                                </span>
-                                {isRowOverStock && (
-                                  <span
-                                    className={cn(
-                                      "text-[10px] font-medium",
-                                      isDraft ? "text-amber-600 dark:text-amber-400" : "text-destructive font-semibold"
-                                    )}
-                                  >
-                                    {isDraft
-                                      ? "Replenish before approval"
-                                      : baseStock <= 0
-                                      ? "Out of stock"
-                                      : "Limit exceeded"}
-                                  </span>
-                                )}
-                              </div>
-                            )}
+                                </>
+                              ) : (
+                                <span className="sr-only">No product selected</span>
+                              )}
+                            </div>
                           </TableCell>
 
-                          {/* Quantity */}
-                          <TableCell className="p-2 align-top">
+                          {/* Quantity (strict fixed height & width — warning indicator shown in Product status line + border/tooltip) */}
+                          <TableCell className="p-2 align-top w-20 min-w-[76px]">
                             <Input
                               type="number"
                               min="1"
@@ -1593,7 +1615,7 @@ export function OrderCreate() {
                               onChange={(e) => updateItem(idx, "quantity", e.target.value)}
                               onBlur={() => updateItem(idx, "quantity", Math.max(1, Math.round(Number(it.quantity) || 1)))}
                               className={cn(
-                                "h-9 text-center font-mono",
+                                "h-9 max-h-9 w-full text-center font-mono px-2",
                                 isRowOverStock && (
                                   isDraft
                                     ? "border-amber-400 text-amber-900 dark:text-amber-200 bg-amber-50/50 dark:bg-amber-950/20 focus-visible:ring-amber-400 font-medium"
@@ -1611,20 +1633,6 @@ export function OrderCreate() {
                                   : undefined
                               }
                             />
-                            {isRowOverStock && (
-                              <div
-                                className={cn(
-                                  "text-[10px] font-medium mt-1 text-center whitespace-nowrap animate-in fade-in duration-200",
-                                  isDraft ? "text-amber-600 dark:text-amber-400" : "text-destructive font-semibold"
-                                )}
-                              >
-                                {isDraft
-                                  ? "Low stock - replenish before approval"
-                                  : baseStock <= 0
-                                  ? "Out of stock"
-                                  : `Max: ${remainingForThisRow}`}
-                              </div>
-                            )}
                           </TableCell>
 
                           {/* Price Tier Selector */}
@@ -1636,7 +1644,7 @@ export function OrderCreate() {
                                 <Select
                                   value={formatTierLabel(it.price_tier) || "DP"}
                                   onChange={(e) => updateItem(idx, "price_tier", e.target.value)}
-                                  className="h-9 text-xs"
+                                  className="h-9 max-h-9 text-xs"
                                 >
                                   <option value="DP">
                                      {lang === "bn" ? "ডিলার মূল্য (DP)" : "DP (Dealer Price)"}
@@ -1664,7 +1672,7 @@ export function OrderCreate() {
                               value={it.unit_price}
                               onChange={(e) => updateItem(idx, "unit_price", e.target.value)}
                               onBlur={() => updateItem(idx, "unit_price", Math.max(0, r2(Number(it.unit_price) || 0)))}
-                              className="h-9 font-mono text-right"
+                              className="h-9 max-h-9 font-mono text-right"
                             />
                           </TableCell>
 
@@ -1677,26 +1685,30 @@ export function OrderCreate() {
                               value={it.discount}
                               onChange={(e) => updateItem(idx, "discount", e.target.value)}
                               onBlur={() => updateItem(idx, "discount", Math.max(0, r2(Number(it.discount) || 0)))}
-                              className="h-9 font-mono text-right"
+                              className="h-9 max-h-9 font-mono text-right"
                               placeholder="0"
                             />
                           </TableCell>
 
                           {/* Subtotal */}
-                          <TableCell className="p-2 text-right font-mono font-medium align-top pt-3.5">
-                            {formatBDT(it.subtotal || 0)}
+                          <TableCell className="p-2 text-right font-mono font-medium align-top">
+                            <div className="h-9 flex items-center justify-end">
+                              {formatBDT(it.subtotal || 0)}
+                            </div>
                           </TableCell>
 
                           {/* Remove Button */}
-                          <TableCell className="p-2 text-center align-top pt-2.5">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => removeItem(idx)}
-                              className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
+                          <TableCell className="p-2 text-center align-top">
+                            <div className="h-9 flex items-center justify-center">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => removeItem(idx)}
+                                className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
                           </TableCell>
                         </TableRow>
                       );
@@ -1705,16 +1717,16 @@ export function OrderCreate() {
                 </TableBody>
               </Table>
             </div>
-            <div className="p-2 border-t bg-muted/10">
+            <div className="p-2.5 border-t border-border/70 bg-muted/20 dark:bg-slate-900/60">
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
                 onClick={addItem}
-                className="w-full gap-1.5 text-xs border-dashed text-muted-foreground hover:text-foreground hover:border-primary/50 transition-colors"
+                className="w-full h-10 gap-2 text-xs sm:text-sm font-semibold rounded-lg bg-primary/10 text-primary border-2 border-primary/50 hover:bg-primary hover:text-primary-foreground hover:border-primary dark:bg-sky-500/20 dark:text-sky-200 dark:border-sky-400/75 dark:hover:bg-sky-500 dark:hover:text-slate-950 dark:hover:border-sky-400 shadow-xs transition-all cursor-pointer"
               >
-                <Plus className="h-4 w-4" />
-                <span>Add Item</span>
+                <Plus className="h-4 w-4 stroke-[2.5]" />
+                <span>{t("addItem") || "Add Item"}</span>
               </Button>
             </div>
           </div>

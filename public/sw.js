@@ -3,7 +3,7 @@
  * Strict Network-First for HTML & Hashed Assets so new deployments take effect immediately
  */
 
-const CACHE_NAME = "hamko-erp-cache-v24-20261126";
+const CACHE_NAME = "hamko-erp-cache-v25-20261126";
 
 const STATIC_ASSETS = [
   "/",
