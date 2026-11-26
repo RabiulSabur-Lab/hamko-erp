@@ -998,7 +998,7 @@ export function ReportsPage() {
                         ))}
                       </Pie>
                       <Tooltip
-                        formatter={(v: number) => formatBDT(v, lang)}
+                        formatter={(v) => formatBDT(Number(Array.isArray(v) ? v[0] : (v ?? 0)) || 0, lang)}
                         contentStyle={{
                           background: "hsl(var(--card))",
                           border: "1px solid hsl(var(--border))",
@@ -1026,7 +1026,7 @@ export function ReportsPage() {
                         }}
                       />
                       <Tooltip
-                        formatter={(v: number) => formatBDT(v, lang)}
+                        formatter={(v) => formatBDT(Number(Array.isArray(v) ? v[0] : (v ?? 0)) || 0, lang)}
                         contentStyle={{
                           background: "hsl(var(--card))",
                           border: "1px solid hsl(var(--border))",

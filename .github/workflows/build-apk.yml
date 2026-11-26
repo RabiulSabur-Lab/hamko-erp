@@ -65,7 +65,7 @@ jobs:
           '
 
       - name: Install npm dependencies
-        run: npm install
+        run: npm install --no-audit --no-fund
 
       - name: Clean stale Vite, Capacitor, and Android build artifacts
         run: rm -rf dist android/app/src/main/assets/public android/app/build android/.gradle

@@ -514,12 +514,16 @@ export function DashboardPage() {
   );
 
   const formatAreaTooltip = useCallback(
-    (v: number) => [formatBDT(Number(v || 0), lang), t("totalSales")],
+    (v: number | string | ReadonlyArray<number | string> | undefined): [string, string] => [
+      formatBDT(Number(Array.isArray(v) ? v[0] : (v ?? 0)) || 0, lang),
+      t("totalSales"),
+    ],
     [lang, t],
   );
 
   const formatPieTooltip = useCallback(
-    (v: number) => formatBDT(Number(v || 0), lang),
+    (v: number | string | ReadonlyArray<number | string> | undefined) =>
+      formatBDT(Number(Array.isArray(v) ? v[0] : (v ?? 0)) || 0, lang),
     [lang],
   );
 
