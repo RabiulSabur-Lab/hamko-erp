@@ -12,10 +12,23 @@ dist
 dist-ssr
 *.local
 
-# Environment files (never commit secrets; keep .env.example template)
+# Environment files & sensitive signing credentials (keep .env.example template)
 .env
 .env.*
 !.env.example
+*.pem
+*.p12
+*.jks
+*.keystore
+google-services.json
+
+# Local build & Capacitor Android artifacts
+.vite
+android/.gradle/
+android/app/build/
+android/app/src/main/assets/public/
+*.apk
+*.aab
 
 # Editor directories and files
 .vscode/*
